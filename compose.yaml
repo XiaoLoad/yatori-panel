@@ -1,0 +1,24 @@
+services:
+  gateway:
+    build: ./gateway
+    restart: unless-stopped
+    # 仅在容器网络内监听，面板后端经服务名访问，不对外发布端口
+
+  panel:
+    build:
+      context: .
+      dockerfile: panel.Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PANEL_HOST: 0.0.0.0
+      GATEWAY_URL: http://gateway:9801
+      PANEL_DATA_DIR: /app/data
+    volumes:
+      - panel-data:/app/data
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+volumes:
+  panel-data:
