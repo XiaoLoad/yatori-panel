@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     const url = req.url.split("?")[0]!;
     if (!url.startsWith("/api/")) return;
     if (PUBLIC_APIS.has(url)) return;
-    if (url === "/api/v1/auth/password" && !authRequired()) return;
+    if (!authRequired()) return;
     if (!verifySession(req.cookies[SESSION_COOKIE])) {
       return reply.code(401).send({ ok: false, error: "未登录或会话已过期" });
     }
