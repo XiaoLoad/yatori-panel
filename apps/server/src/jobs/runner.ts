@@ -59,9 +59,16 @@ export async function runJob(
     bus.publish(full);
   };
 
-  // 里程碑日志：进 SSE 日志面板，也落库供任务详情回放
-  const emitLog = (level: "info" | "warn" | "error", message: string) => {
-    emit({ type: "log", jobId, accountId: accountUid, level, message });
+  // 里程碑日志：进 SSE 日志面板，也落库供任务详情回放。
+  // persist=false 的高频调试行（如逐次学时提交）只走实时流，不写库。
+  const emitLog = (
+    level: "debug" | "info" | "warn" | "error",
+    message: string,
+    persist = true,
+  ) => {
+    const full = { type: "log", jobId, accountId: accountUid, level, message, ts: Date.now() } as import("../shared.ts").JobEvent;
+    if (persist) appendJobEvent(jobId, full);
+    bus.publish(full);
   };
 
   const checkAbort = (): boolean => signal.aborted;
@@ -159,6 +166,15 @@ export async function runJob(
       }
 
       upsertNode(accountUid, course.id, node, res.progress, res.completed, flagged);
+
+      // 逐次提交只发 DEBUG 且不落库：日志页切到 DEBUG 级别可观察每次学时提交
+      emitLog(
+        "debug",
+        `提交学时：${course.name} / ${node.name} → ${Math.round(res.progress)}%（${
+          res.positionSeconds ?? position
+        }s / ${total || "?"}s）`,
+        false,
+      );
       emit({
         type: "task.progress",
         jobId,

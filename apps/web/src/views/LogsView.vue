@@ -17,8 +17,11 @@ const accountsQuery = useQuery({
 });
 
 const accountFilter = ref("");
-const levelFilter = ref("");
+// 默认 INFO 及以上：DEBUG 级是逐次学时提交的高频行，按需切换查看
+const levelFilter = ref("info");
 const keyword = ref("");
+
+const LEVEL_RANK: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
 
 const filtered = computed(() => {
   let list = events.logs;
@@ -26,7 +29,8 @@ const filtered = computed(() => {
     list = list.filter((e) => e.accountId === accountFilter.value);
   }
   if (levelFilter.value) {
-    list = list.filter((e) => e.level === levelFilter.value);
+    const min = LEVEL_RANK[levelFilter.value] ?? 0;
+    list = list.filter((e) => (LEVEL_RANK[e.level ?? "info"] ?? 1) >= min);
   }
   const kw = keyword.value.trim().toLowerCase();
   if (kw) {
@@ -92,11 +96,10 @@ function line(e: JobEvent) {
         v-model="levelFilter"
         class="max-w-36"
         :options="[
-          { value: '', label: '全部级别' },
-          { value: 'debug', label: 'DEBUG' },
-          { value: 'info', label: 'INFO' },
-          { value: 'warn', label: 'WARN' },
           { value: 'error', label: 'ERROR' },
+          { value: 'warn', label: 'WARN 及以上' },
+          { value: 'info', label: 'INFO 及以上' },
+          { value: '', label: '全部（含 DEBUG）' },
         ]"
       />
       <Input v-model="keyword" placeholder="关键字过滤" class="max-w-64" />
