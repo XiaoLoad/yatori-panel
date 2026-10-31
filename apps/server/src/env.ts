@@ -15,4 +15,5 @@ export const env = {
   port: int(process.env.PANEL_PORT, 8080),
   gatewayURL: process.env.GATEWAY_URL ?? "http://127.0.0.1:9801",
   dataDir: process.env.PANEL_DATA_DIR ?? path.join(repoRoot, "data"),
+  webDist: process.env.WEB_DIST ?? path.join(repoRoot, "apps", "web", "dist"),
 };
