@@ -55,17 +55,16 @@ export async function runJob(
 
   const emit = (e: Omit<import("../shared.ts").JobEvent, "ts">) => {
     const full = { ...e, ts: Date.now() } as import("../shared.ts").JobEvent;
-    if (e.type === "task.flag") appendJobEvent(jobId, full);
+    if (e.type === "task.flag" || e.type === "log") appendJobEvent(jobId, full);
     bus.publish(full);
   };
 
-  const checkAbort = (): boolean => {
-    if (signal.aborted) {
-      summary.errors.push("任务被手动停止");
-      return true;
-    }
-    return false;
+  // 里程碑日志：进 SSE 日志面板，也落库供任务详情回放
+  const emitLog = (level: "info" | "warn" | "error", message: string) => {
+    emit({ type: "log", jobId, accountId: accountUid, level, message });
   };
+
+  const checkAbort = (): boolean => signal.aborted;
 
   // ---------- 单节点刷课循环 ----------
   async function studyVideo(course: GatewayCourse, node: GatewayNode): Promise<void> {
@@ -74,6 +73,11 @@ export async function runJob(
     let position = Number(node.extra?.["viewedSeconds"] ?? 0);
     let flagged = false;
     let retries = 0;
+
+    emitLog(
+      "info",
+      `开始学习视频：${course.name} / ${node.name}（已看 ${position}s / 总长 ${total || "?"}s）`,
+    );
 
     // start：让适配器从平台记录的续播位置开始
     try {
@@ -102,9 +106,9 @@ export async function runJob(
       } catch (err) {
         retries += 1;
         if (retries >= 3) {
-          summary.errors.push(
-            `${course.name}/${node.name}: ${(err as Error).message}`,
-          );
+          const m = `视频提交连续失败：${course.name}/${node.name} — ${(err as Error).message}`;
+          summary.errors.push(m);
+          emitLog("error", m);
           return;
         }
         await sleep(10_000, signal);
@@ -121,6 +125,7 @@ export async function runJob(
       if (redHit && !flagged) {
         flagged = true;
         summary.flagsFound += 1;
+        emitLog("warn", `标红：${course.name} / ${node.name}（并行播放检测，建议切去红模式重跑）`);
         emit({
           type: "task.flag",
           jobId,
@@ -137,6 +142,7 @@ export async function runJob(
       if (UNLOCK_RE.test(msg)) {
         summary.videosSkipped += 1;
         upsertNode(accountUid, course.id, node, res.progress, false, flagged);
+        emitLog("warn", `跳过未解锁视频：${course.name} / ${node.name}（未到解锁时间）`);
         emit({
           type: "task.progress",
           jobId,
@@ -168,6 +174,7 @@ export async function runJob(
 
       if (res.completed || (total > 0 && position >= total)) {
         summary.videosCompleted += 1;
+        emitLog("info", `视频学习完成：${course.name} / ${node.name}`);
         return;
       }
       await sleep(tickMs, signal);
@@ -181,7 +188,9 @@ export async function runJob(
     try {
       works = await gateway.works(sid, course.id);
     } catch (err) {
-      summary.errors.push(`作业列表拉取失败 ${course.name}: ${(err as Error).message}`);
+      const m = `作业列表拉取失败 ${course.name}: ${(err as Error).message}`;
+      summary.errors.push(m);
+      emitLog("error", m);
       return;
     }
     for (const w of works) {
@@ -202,7 +211,9 @@ export async function runJob(
           message: `作业完成：${course.name} / ${w.name}`,
         });
       } catch (err) {
-        summary.errors.push(`作业 ${course.name}/${w.name}: ${(err as Error).message}`);
+        const m = `作业 ${course.name}/${w.name}: ${(err as Error).message}`;
+        summary.errors.push(m);
+        emitLog("error", m);
       }
     }
   }
@@ -213,7 +224,9 @@ export async function runJob(
     try {
       exams = await gateway.exams(sid, course.id);
     } catch (err) {
-      summary.errors.push(`考试列表拉取失败 ${course.name}: ${(err as Error).message}`);
+      const m = `考试列表拉取失败 ${course.name}: ${(err as Error).message}`;
+      summary.errors.push(m);
+      emitLog("error", m);
       return;
     }
     for (const x of exams) {
@@ -234,7 +247,9 @@ export async function runJob(
           message: `考试完成：${course.name} / ${x.name}`,
         });
       } catch (err) {
-        summary.errors.push(`考试 ${course.name}/${x.name}: ${(err as Error).message}`);
+        const m = `考试 ${course.name}/${x.name}: ${(err as Error).message}`;
+        summary.errors.push(m);
+        emitLog("error", m);
       }
     }
   }
@@ -273,8 +288,10 @@ export async function runJob(
   }
 
   async function runCourse(course: GatewayCourse): Promise<void> {
+    emitLog("info", `开始课程：${course.name}`);
     const tree = await gateway.tree(sid, course.id);
     const videos = collectVideoLeaves(tree).filter((v) => !v.completed);
+    emitLog("info", `待学习视频 ${videos.length} 个（已完成 ${collectVideoLeaves(tree).length - videos.length} 个已自动跳过）`);
 
     // 普通模式(1)：节点串行；暴力模式(2)：节点并发；去红模式(3)：未完成节点串行重跑
     if (options.videoMode === 2) {
@@ -285,6 +302,7 @@ export async function runJob(
         await studyVideo(course, n);
       }
     }
+    emitLog("info", `课程结束：${course.name}`);
   }
 
   // ---------- 主流程 ----------
@@ -302,15 +320,32 @@ export async function runJob(
   }
   summary.courses = courses.length;
 
+  emitLog(
+    "info",
+    `任务启动：${courses.length} 门课程，${
+      { 1: "普通", 2: "暴力", 3: "去红" }[options.videoMode]
+    }模式，答题来源 ${options.answerSource === "off" ? "关闭" : options.answerSource}`,
+  );
+
   for (const course of courses) {
-    if (checkAbort()) return summary;
+    if (checkAbort()) break;
     try {
       await runCourse(course);
       await runWorks(course);
       await runExams(course);
     } catch (err) {
-      summary.errors.push(`课程 ${course.name}: ${(err as Error).message}`);
+      const m = `课程 ${course.name}: ${(err as Error).message}`;
+      summary.errors.push(m);
+      emitLog("error", m);
     }
   }
+
+  if (signal.aborted) {
+    emitLog("info", "任务已手动停止");
+  }
+  emitLog(
+    "info",
+    `任务结束：完成视频 ${summary.videosCompleted}，跳过 ${summary.videosSkipped}，标红 ${summary.flagsFound}，错误 ${summary.errors.length}`,
+  );
   return summary;
 }
