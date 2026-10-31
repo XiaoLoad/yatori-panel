@@ -40,6 +40,9 @@ bun run gateway:build && bun run gateway:start
 cd apps/server && bun run dev
 ```
 
+Windows 日常使用：双击 `start.bat` 启动，`stop.bat` 停止
+（按命令行特征精确结束面板的 node 进程，不影响其他程序）。
+
 默认端口：面板 `127.0.0.1:8080`，网关 `127.0.0.1:9801`（仅本机回环）。
 
 ## 版本
