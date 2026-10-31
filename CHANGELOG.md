@@ -8,7 +8,27 @@
 
 ### 计划中
 
-- M4：面板访问锁、Docker Compose 部署、Windows 一键启动、二进制体积优化
+- 网关二进制瘦身：需上游 ddddocr-go 重构 go:embed 结构（当前全平台运行库
+  与三份重复模型约占 210MB，Windows 实际仅需约 56MB）
+- 二期：完成通知、定时任务、统计图表、config 导入、代理池
+
+## [v0.3.0] - 2026-10-31
+
+服务器部署就绪版本（M4）。
+
+### Added
+
+- **server**：面板访问锁——scrypt 密码哈希 + HMAC 会话 Cookie（7 天）；
+  登出/改密经会话纪元递增吊销全部旧 token；支持启用/修改/关闭
+- **server**：前端构建产物同源托管，生产模式单端口（8080）
+- **web**：登录页、路由守卫、401 统一拦截；设置页访问锁管理卡片
+- **deploy**：start.bat 一键启动（自动补齐构建产物）；Docker Compose
+  双服务编排（gateway 容器内 CGO 编译 / panel 用 node:24 + node:sqlite）
+
+### Changed
+
+- **gateway**：依赖锁定上游 core v1.9.1-0.20261029151038，移除本地 replace，
+  构建不再依赖本地克隆
 
 ## [v0.2.0] - 2026-10-31
 
