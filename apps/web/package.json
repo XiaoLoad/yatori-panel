@@ -8,17 +8,20 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@tanstack/vue-query": "^5.62.0",
     "@tailwindcss/vite": "^4.1.0",
+    "@tanstack/vue-query": "^5.62.0",
     "axios": "^1.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "echarts": "^6.1.0",
+    "gsap": "^3.15.0",
     "lucide-vue-next": "^0.469.0",
     "pinia": "^3.0.0",
     "reka-ui": "^2.0.0",
     "tailwind-merge": "^3.0.0",
     "tailwindcss": "^4.1.0",
     "vue": "^3.5.0",
+    "vue-echarts": "^8.3.2",
     "vue-router": "^4.5.0",
     "vue-sonner": "^2.0.0"
   },

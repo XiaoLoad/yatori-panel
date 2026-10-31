@@ -88,7 +88,7 @@ function isActive(to: string, exact?: boolean) {
           <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
           <span class="relative inline-flex size-2 rounded-full bg-emerald-500" />
         </span>
-        服务运行中 · v0.4.0
+        服务运行中 · v0.6.0
       </div>
     </div>
   </aside>
