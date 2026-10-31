@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	yatori "github.com/yatori-dev/yatori-go-core"
@@ -26,6 +30,7 @@ func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", g.handleCloseSession)
 
 	mux.HandleFunc("GET /api/v1/sessions/{id}/courses", g.handleCourses)
+	mux.HandleFunc("GET /api/v1/sessions/{id}/profile", g.handleProfile)
 	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/tree", g.handleTree)
 	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/works", g.handleWorks)
 	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/exams", g.handleExams)
@@ -274,6 +279,59 @@ func (g *gateway) handleExams(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": list})
 }
+
+// handleProfile 返回上游平台的登录用户信息（当前支持英华：从登录后
+// 首页的 HTML 提取姓名）。注意 core.Session 的 Token 即会话 Cookie 值。
+func (g *gateway) handleProfile(w http.ResponseWriter, r *http.Request) {
+	se, ok := g.sessionFrom(r)
+	if !ok {
+		fail(w, http.StatusNotFound, "session not found")
+		return
+	}
+	sess := se.client.Session()
+	base := sess.Extra["url"]
+	if base == "" {
+		fail(w, http.StatusBadRequest, "该平台未提供站点地址，无法获取用户信息")
+		return
+	}
+	cookie := sess.Cookie
+	if cookie == "" && sess.Token != "" {
+		cookie = "token=" + sess.Token
+	}
+	if cookie == "" {
+		fail(w, http.StatusBadRequest, "会话缺少凭据，请重新登录")
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, base+"/user", nil)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	req.Header.Set("Cookie", cookie)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	// 与 core 一致：部分学校站点证书链不完整
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	resp, err := (&http.Client{Timeout: 15 * time.Second, Transport: tr}).Do(req)
+	if err != nil {
+		fail(w, mapStatus(err), "站点访问失败: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		fail(w, mapStatus(err), err.Error())
+		return
+	}
+
+	var name string
+	if m := nameRe.FindSubmatch(body); m != nil {
+		name = strings.TrimSpace(string(m[1]))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]string{"name": name}})
+}
+
+var nameRe = regexp.MustCompile(`(?i)<div class="name">\s*([^<]+?)\s*<`)
 
 // ---------- 学习 / 答题 ----------
 

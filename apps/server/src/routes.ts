@@ -133,6 +133,21 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   // ---------- 账号 ----------
+  // 备注为空时用平台上的真实姓名自动补全（当前英华支持），失败静默跳过
+  async function autoFillRemark(uid: string, currentRemark: string, sid: string): Promise<string> {
+    if (currentRemark) return currentRemark;
+    try {
+      const profile = await gateway.profile(sid);
+      if (profile.name) {
+        updateAccount(uid, { remark: profile.name });
+        return profile.name;
+      }
+    } catch {
+      /* 平台不支持或页面结构变化：不影响主流程 */
+    }
+    return currentRemark;
+  }
+
   app.get("/api/v1/accounts", async () => {
     const accounts = listAccounts();
     return {
@@ -161,9 +176,14 @@ export function registerRoutes(app: FastifyInstance): void {
         const sid = await ensureSession({ ...account, password: body.password });
         const courses = await gateway.courses(sid);
         markVerify(account.uid, true);
+        const remark = await autoFillRemark(account.uid, account.remark, sid);
         return {
           ok: true,
-          data: { ...account, verify: { ok: true, courseCount: courses.length } },
+          data: {
+            ...account,
+            remark,
+            verify: { ok: true, courseCount: courses.length },
+          },
         };
       } catch (err) {
         const e = err as HttpError;
@@ -187,7 +207,8 @@ export function registerRoutes(app: FastifyInstance): void {
       const sid = await ensureSession(account);
       const courses = await gateway.courses(sid);
       markVerify(account.uid, true);
-      return { ok: true, data: { ok: true, courseCount: courses.length } };
+      const remark = await autoFillRemark(account.uid, account.remark, sid);
+      return { ok: true, data: { ok: true, courseCount: courses.length, remark } };
     } catch (err) {
       const e = err as HttpError;
       markVerify(account.uid, false);

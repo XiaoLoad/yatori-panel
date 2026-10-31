@@ -162,6 +162,8 @@ export const gateway = {
   }) => request<GatewaySessionInfo>("/api/v1/sessions", "POST", payload),
   closeSession: (sid: string) => request<void>(`/api/v1/sessions/${sid}`, "DELETE"),
   courses: (sid: string) => request<GatewayCourse[]>(`/api/v1/sessions/${sid}/courses`, "GET"),
+  profile: (sid: string) =>
+    request<{ name: string }>(`/api/v1/sessions/${sid}/profile`, "GET"),
   tree: (sid: string, courseId: string) =>
     request<GatewayNode[]>(`/api/v1/sessions/${sid}/courses/${courseId}/tree`, "GET"),
   works: (sid: string, courseId: string) =>

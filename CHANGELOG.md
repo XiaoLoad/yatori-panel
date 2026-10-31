@@ -4,6 +4,14 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [v0.4.0] - 2026-10-31
+
+### Added
+
+- **gateway**：`GET /sessions/:id/profile` 用户信息接口（英华：登录后首页
+  渲染字段提取姓名）
+- **server**：添加/检测账号时备注为空则自动填入平台真实姓名
+
 ## [Unreleased]
 
 ### 计划中
