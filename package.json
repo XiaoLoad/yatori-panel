@@ -1,0 +1,23 @@
+{
+  "name": "yatori-panel",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:server": "bun --filter @yatori/server dev",
+    "dev:web": "bun --filter @yatori/web dev",
+    "typecheck:all": "cd packages/shared && bunx tsc --noEmit && cd ../../apps/server && bunx tsc --noEmit",
+    "gateway:build": "cd gateway && go build -ldflags \"-s -w\" -o bin/gateway.exe .",
+    "gateway:start": "cd gateway && ./bin/gateway.exe"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.6.0",
+    "@commitlint/config-conventional": "^19.6.0",
+    "simple-git-hooks": "^2.11.1",
+    "typescript": "^5.7.0"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "bun run typecheck:all",
+    "commit-msg": "\"$PWD/node_modules/.bin/commitlint\" --edit \"$1\""
+  },
+  "trustedDependencies": ["simple-git-hooks"]
+}
