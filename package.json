@@ -5,7 +5,7 @@
   "scripts": {
     "dev:server": "bun --filter @yatori/server dev",
     "dev:web": "bun --filter @yatori/web dev",
-    "typecheck:all": "cd packages/shared && bunx tsc --noEmit && cd ../../apps/server && bunx tsc --noEmit",
+    "typecheck:all": "cd packages/shared && bunx tsc --noEmit && cd ../../apps/server && bunx tsc --noEmit && cd ../web && bunx vue-tsc --noEmit",
     "gateway:build": "cd gateway && go build -ldflags \"-s -w\" -o bin/gateway.exe .",
     "gateway:start": "cd gateway && ./bin/gateway.exe"
   },
