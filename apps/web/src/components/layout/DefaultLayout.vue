@@ -9,7 +9,7 @@ import HeaderBar from "./HeaderBar.vue";
     <SidebarNav />
     <div class="flex min-w-0 flex-1 flex-col">
       <HeaderBar />
-      <main class="flex-1 p-6">
+      <main class="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-6">
         <RouterView />
       </main>
     </div>

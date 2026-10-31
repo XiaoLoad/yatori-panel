@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from "@tanstack/vue-query";
-import { ChevronDown, ChevronRight } from "lucide-vue-next";
+import { BookOpen, ChevronDown, ChevronRight } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { api, type CourseDTO } from "@/api/resources";
 import {
@@ -10,7 +10,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import CourseTreeNode from "@/components/CourseTreeNode.vue";
+import EmptyState from "@/components/EmptyState.vue";
 import { Select } from "@/components/ui/select";
 
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
@@ -44,73 +47,84 @@ const treeQuery = useQuery({
 });
 
 const listOpen = ref(true);
+
+function pick(course: CourseDTO) {
+  selectedCourse.value = selectedCourse.value?.id === course.id ? null : course;
+}
 </script>
 
 <template>
-  <div class="space-y-4">
-    <div class="flex items-center gap-3">
+  <div class="space-y-6">
+    <div class="flex items-end justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">课程浏览</h1>
+        <p class="mt-1 text-sm text-muted-foreground">每门课与每个节点的学习进度</p>
+      </div>
       <Select
         v-model="accountUid"
-        class="max-w-xs"
-        :options="(accountsQuery.data.value ?? []).map((a) => ({ value: a.uid, label: `${a.platformName} · ${a.username}` }))"
+        class="w-64"
+        :options="(accountsQuery.data.value ?? []).map((a) => ({ value: a.uid, label: a.remark ? `${a.remark} · ${a.username}` : a.username }))"
         placeholder="选择账号"
       />
     </div>
 
-    <div class="grid gap-4 lg:grid-cols-[380px_1fr]">
-      <Card>
-        <CardHeader>
-          <button
-            class="flex w-full items-center gap-1.5 text-left"
-            @click="listOpen = !listOpen"
-          >
-            <component :is="listOpen ? ChevronDown : ChevronRight" class="size-4" />
+    <div v-if="coursesQuery.isLoading.value" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-xl" />
+    </div>
+    <EmptyState
+      v-else-if="!coursesQuery.data.value?.length"
+      :icon="BookOpen"
+      title="该账号暂无课程"
+      description="登录检测通过后课程会出现在这里"
+    />
+
+    <div v-else class="grid gap-4 lg:grid-cols-[380px_1fr]">
+      <Card class="self-start">
+        <CardHeader class="flex-row items-center justify-between space-y-0 pb-3">
+          <div class="space-y-1">
             <CardTitle class="text-base">课程列表</CardTitle>
-          </button>
-          <CardDescription>{{ coursesQuery.data.value?.length ?? 0 }} 门课程</CardDescription>
-        </CardHeader>
-        <CardContent v-if="listOpen" class="space-y-3">
-          <div v-if="coursesQuery.isLoading.value" class="text-sm text-muted-foreground">
-            加载中…
+            <CardDescription>{{ coursesQuery.data.value?.length ?? 0 }} 门课程</CardDescription>
           </div>
+          <button class="text-muted-foreground hover:text-foreground" @click="listOpen = !listOpen">
+            <component :is="listOpen ? ChevronDown : ChevronRight" class="size-4" />
+          </button>
+        </CardHeader>
+        <CardContent v-if="listOpen" class="space-y-2.5">
           <button
             v-for="course in coursesQuery.data.value ?? []"
             :key="course.id"
             class="w-full rounded-lg border p-3 text-left transition-colors hover:bg-accent/60"
-            :class="{ 'border-primary': selectedCourse?.id === course.id }"
-            @click="selectedCourse = course"
+            :class="{ 'border-primary ring-1 ring-primary': selectedCourse?.id === course.id }"
+            @click="pick(course)"
           >
-            <div class="mb-1.5 flex items-center justify-between gap-2">
-              <span class="min-w-0 truncate text-sm font-medium">{{ course.name }}</span>
-              <span class="text-xs tabular-nums text-muted-foreground">
-                {{ Math.round(course.progress) }}%
-              </span>
+            <div class="mb-2 flex items-start justify-between gap-2">
+              <span class="min-w-0 flex-1 truncate text-sm font-medium">{{ course.name }}</span>
+              <span class="shrink-0 text-sm font-semibold tabular-nums">{{ Math.round(course.progress) }}%</span>
             </div>
-            <div class="h-1.5 overflow-hidden rounded-full bg-muted">
-              <div
-                class="h-full rounded-full bg-primary transition-all"
-                :style="{ width: `${Math.min(100, course.progress)}%` }"
-              />
+            <Progress :model-value="course.progress" class="h-1.5" />
+            <div class="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span class="truncate">{{ course.teacher || "-" }}</span>
+              <span>{{ course.status === "finished" ? "已结课" : "进行中" }}</span>
             </div>
-            <div class="mt-1.5 text-xs text-muted-foreground">{{ course.teacher || "-" }}</div>
           </button>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle class="text-base">
-            {{ selectedCourse?.name ?? "章节树" }}
-          </CardTitle>
+      <Card class="self-start">
+        <CardHeader class="pb-3">
+          <CardTitle class="text-base">{{ selectedCourse?.name ?? "章节树" }}</CardTitle>
           <CardDescription>
-            {{ selectedCourse ? "点击章节展开，查看各节点完成情况" : "先在左侧选择一门课程" }}
+            {{ selectedCourse ? "点击章节展开，查看每个节点的完成情况" : "在左侧选择一门课程查看详情" }}
           </CardDescription>
         </CardHeader>
         <CardContent v-if="selectedCourse">
-          <div v-if="treeQuery.isLoading.value" class="text-sm text-muted-foreground">
-            加载中…
+          <div v-if="treeQuery.isLoading.value" class="space-y-2">
+            <Skeleton v-for="i in 6" :key="i" class="h-8 w-full" />
           </div>
-          <div v-else class="space-y-0.5">
+          <div
+            v-else
+            class="max-h-[calc(100vh-22rem)] space-y-0.5 overflow-y-auto pr-1"
+          >
             <CourseTreeNode v-for="node in treeQuery.data.value ?? []" :key="node.id" :node="node" />
           </div>
         </CardContent>

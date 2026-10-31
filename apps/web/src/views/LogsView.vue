@@ -80,6 +80,12 @@ function line(e: JobEvent) {
 
 <template>
   <div class="space-y-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">实时日志</h1>
+      <p class="mt-1 text-sm text-muted-foreground">
+        默认显示 INFO 及以上；切到「全部」可观察每次学时提交的 DEBUG 明细
+      </p>
+    </div>
     <div class="flex flex-wrap items-center gap-3">
       <Select
         v-model="accountFilter"

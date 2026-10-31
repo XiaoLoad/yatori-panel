@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-vue-next";
+import { Pencil, Plus, RefreshCw, Trash2, Users } from "lucide-vue-next";
 import { computed, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { PlatformMeta } from "@yatori/shared";
@@ -24,6 +24,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -33,6 +34,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import AccountProgressCell from "@/components/AccountProgressCell.vue";
+import EmptyState from "@/components/EmptyState.vue";
+import { relativeTime } from "@/lib/utils";
 
 const queryClient = useQueryClient();
 
@@ -128,7 +132,8 @@ const saveMutation = useMutation({
       return;
     }
     if (result.verify?.ok) {
-      toast.success(`账号已添加，登录正常，共 ${result.verify.courseCount} 门课程`);
+      const filled = result.remark ? `，备注已自动填入「${result.remark}」` : "";
+      toast.success(`账号已添加，登录正常，共 ${result.verify.courseCount} 门课程${filled}`);
     } else {
       toast.warning("账号已保存，但登录检测未通过，可稍后在列表中重试");
     }
@@ -140,8 +145,13 @@ const verifyMutation = useMutation({
   mutationFn: (uid: string) => api.verifyAccount(uid),
   onSuccess: (r) => {
     queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    if (r.ok) toast.success(`登录正常，共 ${r.courseCount} 门课程`);
-    else toast.warning("登录异常，请检查账号信息");
+    queryClient.invalidateQueries({ queryKey: ["course-progress"] });
+    if (r.ok) {
+      const filled = r.remark ? `，备注「${r.remark}」` : "";
+      toast.success(`登录正常，共 ${r.courseCount} 门课程${filled}`);
+    } else {
+      toast.warning("登录异常，请检查账号信息");
+    }
   },
   onError: (err) => showError(err as ApiError, "登录检测失败"),
 });
@@ -170,88 +180,115 @@ function showError(err: ApiError, fallback: string) {
 
 <template>
   <div class="space-y-4">
-    <div class="flex items-center justify-between">
-      <p class="text-sm text-muted-foreground">
-        密码加密存储在本机数据库中；「学校平台地址」填学校英华站点的根地址（不含 /user）。
-      </p>
-      <Button @click="openCreate">
-        <Plus />添加账号
-      </Button>
+    <div class="flex items-end justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">账号管理</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          密码加密存储在本机；备注留空将自动填入平台上的真实姓名
+        </p>
+      </div>
+      <Button @click="openCreate"><Plus />添加账号</Button>
     </div>
 
     <Card>
-      <CardHeader>
-        <CardTitle>账号列表</CardTitle>
-        <CardDescription>共 {{ accountsQuery.data.value?.length ?? 0 }} 个账号</CardDescription>
+      <CardHeader class="flex-row items-center justify-between space-y-0">
+        <div class="space-y-1">
+          <CardTitle class="text-base">账号列表</CardTitle>
+          <CardDescription>共 {{ accountsQuery.data.value?.length ?? 0 }} 个账号</CardDescription>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="verifyMutation.isPending.value"
+          @click="accountsQuery.refetch()"
+        >
+          <RefreshCw />刷新
+        </Button>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>平台</TableHead>
-              <TableHead>账号</TableHead>
-              <TableHead>备注</TableHead>
-              <TableHead>最近检测</TableHead>
-              <TableHead class="text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow v-if="!accountsQuery.data.value?.length">
-              <TableCell colspan="5" class="text-center text-muted-foreground">
-                暂无账号，点击右上角添加
-              </TableCell>
-            </TableRow>
-            <TableRow v-for="account in accountsQuery.data.value" :key="account.uid">
-              <TableCell>
-                <Badge variant="secondary">{{ account.platformName }}</Badge>
-              </TableCell>
-              <TableCell>
-                <div class="font-medium">{{ account.username }}</div>
-                <div v-if="account.baseUrl" class="text-xs text-muted-foreground">
-                  {{ account.baseUrl }}
-                </div>
-              </TableCell>
-              <TableCell>{{ account.remark || "-" }}</TableCell>
-              <TableCell>
-                <div v-if="account.lastVerifyOk === null || account.lastVerifyOk === undefined" class="text-muted-foreground">
-                  未检测
-                </div>
-                <div v-else class="flex items-center gap-2">
-                  <Badge :variant="account.lastVerifyOk === 1 ? 'success' : 'destructive'">
-                    {{ account.lastVerifyOk === 1 ? "正常" : "失败" }}
-                  </Badge>
-                  <span class="text-xs text-muted-foreground">
-                    {{ account.lastVerifyAt ? new Date(account.lastVerifyAt).toLocaleString() : "" }}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell class="text-right">
-                <div class="flex justify-end gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="登录检测"
-                    :disabled="verifyMutation.isPending.value"
-                    @click="verifyMutation.mutate(account.uid)"
-                  >
-                    <RefreshCw class="size-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" title="编辑" @click="openEdit(account)">
-                    <Pencil class="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    title="删除"
-                    @click="removeMutation.mutate(account.uid)"
-                  >
-                    <Trash2 class="size-4" />
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
+        <div v-if="accountsQuery.isLoading.value" class="space-y-2">
+          <Skeleton v-for="i in 3" :key="i" class="h-12 w-full" />
+        </div>
+        <EmptyState
+          v-else-if="!accountsQuery.data.value?.length"
+          :icon="Users"
+          title="还没有账号"
+          description="添加一个平台账号，即可开始刷课"
+          action-label="添加账号"
+          @action="openCreate"
+        />
+        <div v-else class="overflow-x-auto">
+          <Table class="min-w-[720px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead class="w-28">平台</TableHead>
+                <TableHead>账号</TableHead>
+                <TableHead class="w-32">姓名 / 备注</TableHead>
+                <TableHead class="w-52">课程进度</TableHead>
+                <TableHead class="w-36">最近检测</TableHead>
+                <TableHead class="w-28 text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="account in accountsQuery.data.value" :key="account.uid">
+                <TableCell>
+                  <Badge variant="secondary">{{ account.platformName }}</Badge>
+                </TableCell>
+                <TableCell class="min-w-0">
+                  <div class="truncate font-medium">{{ account.username }}</div>
+                  <div v-if="account.baseUrl" class="truncate text-xs text-muted-foreground">
+                    {{ account.baseUrl }}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span v-if="account.remark" class="font-medium">{{ account.remark }}</span>
+                  <span v-else class="text-muted-foreground">-</span>
+                </TableCell>
+                <TableCell>
+                  <AccountProgressCell :account="account" />
+                </TableCell>
+                <TableCell>
+                  <div v-if="account.lastVerifyOk === null || account.lastVerifyOk === undefined" class="text-muted-foreground">
+                    未检测
+                  </div>
+                  <div v-else class="flex items-center gap-2">
+                    <Badge :variant="account.lastVerifyOk === 1 ? 'success' : 'destructive'">
+                      {{ account.lastVerifyOk === 1 ? "正常" : "失败" }}
+                    </Badge>
+                    <span class="whitespace-nowrap text-xs text-muted-foreground">
+                      {{ relativeTime(account.lastVerifyAt) }}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell class="text-right">
+                  <div class="flex justify-end gap-0.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="登录检测"
+                      :disabled="verifyMutation.isPending.value"
+                      @click="verifyMutation.mutate(account.uid)"
+                    >
+                      <RefreshCw class="size-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" title="编辑" @click="openEdit(account)">
+                      <Pencil class="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="删除"
+                      class="text-destructive hover:text-destructive"
+                      @click="removeMutation.mutate(account.uid)"
+                    >
+                      <Trash2 class="size-4" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
 
@@ -261,7 +298,7 @@ function showError(err: ApiError, fallback: string) {
         <div class="grid gap-1.5">
           <DialogTitle>{{ editingUid ? "编辑账号" : "添加账号" }}</DialogTitle>
           <DialogDescription>
-            平台能力与字段由网关自动下发
+            字段与能力由网关自动下发；备注留空将自动填入平台姓名
           </DialogDescription>
         </div>
 
@@ -292,7 +329,7 @@ function showError(err: ApiError, fallback: string) {
 
         <div class="grid gap-2">
           <Label>备注</Label>
-          <Input v-model="form.remark" placeholder="可选，方便区分账号" />
+          <Input v-model="form.remark" placeholder="留空自动填入平台姓名" />
         </div>
 
         <div v-if="!editingUid" class="flex items-center gap-3">
