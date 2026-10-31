@@ -50,6 +50,14 @@ import { del, get, post, put } from "./client";
 export const api = {
   platforms: () => get<PlatformMeta[]>("/platforms"),
 
+  authStatus: () =>
+    get<{ authRequired: boolean; authed: boolean }>("/auth/status"),
+  login: (password: string) => post<void>("/auth/login", { password }),
+  logout: () => post<void>("/auth/logout"),
+  setPassword: (newPassword: string) =>
+    put<void>("/auth/password", { newPassword }),
+  disablePassword: () => del<void>("/auth/password"),
+
   accounts: () => get<AccountWithSession[]>("/accounts"),
   createAccount: (body: CreateAccountBody) =>
     post<CreateAccountResult>("/accounts", body),

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { useQuery } from "@tanstack/vue-query";
-import { Moon, Sun } from "lucide-vue-next";
+import { LogOut, Moon, Sun } from "lucide-vue-next";
 import { computed } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 import { get } from "@/api/client";
+import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import { useEventStream } from "@/composables/useEventStream";
 
@@ -29,6 +32,18 @@ const { data: health } = useQuery({
 
 const title = computed(() => TITLES[route.name as string] ?? "");
 const gatewayUp = computed(() => health.value?.gateway === "up");
+const auth = useAuthStore();
+const router = useRouter();
+
+async function logout() {
+  try {
+    await api.logout();
+  } finally {
+    auth.authed = false;
+    toast.success("已退出");
+    router.push("/login");
+  }
+}
 </script>
 
 <template>
@@ -44,6 +59,15 @@ const gatewayUp = computed(() => health.value?.gateway === "up");
       <Button variant="ghost" size="icon" @click="theme.toggle()">
         <Sun v-if="theme.dark" class="size-4" />
         <Moon v-else class="size-4" />
+      </Button>
+      <Button
+        v-if="auth.authRequired && auth.authed"
+        variant="ghost"
+        size="icon"
+        title="退出登录"
+        @click="logout"
+      >
+        <LogOut class="size-4" />
       </Button>
     </div>
   </header>

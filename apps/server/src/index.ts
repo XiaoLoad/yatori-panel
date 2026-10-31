@@ -1,25 +1,58 @@
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import fs from "node:fs";
+import path from "node:path";
 import { sqlite } from "./db/index.ts";
+import { authRequired, SESSION_COOKIE, verifySession } from "./db/auth.ts";
 import { env } from "./env.ts";
+import { gateway } from "./gateway.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { registerRoutes } from "./routes.ts";
 import { dropAllSessions } from "./sessions.ts";
-import { gateway } from "./gateway.ts";
+
+// 无需会话的接口：健康探针与登录流程自身
+const PUBLIC_APIS = new Set([
+  "/api/v1/health",
+  "/api/v1/auth/status",
+  "/api/v1/auth/login",
+]);
 
 async function main(): Promise<void> {
-  const app = Fastify({
-    logger: {
-      level: "info",
-      transport: undefined,
-    },
-  });
+  const app = Fastify({ logger: { level: "info" } });
 
   await app.register(cors, { origin: true });
+  await app.register(cookie);
+
+  // API 访问锁：未启用密码时全放行；启用后除公开接口外一律校验会话。
+  // 非 /api 路径是 SPA 静态资源，鉴权由前端登录页承接。
+  app.addHook("onRequest", async (req, reply) => {
+    const url = req.url.split("?")[0]!;
+    if (!url.startsWith("/api/")) return;
+    if (PUBLIC_APIS.has(url)) return;
+    if (url === "/api/v1/auth/password" && !authRequired()) return;
+    if (!verifySession(req.cookies[SESSION_COOKIE])) {
+      return reply.code(401).send({ ok: false, error: "未登录或会话已过期" });
+    }
+  });
 
   registerRoutes(app);
 
-  // 网关预检：不可达只警告不阻断（前端会显示网关状态）
+  // 前端构建产物存在时同源托管（生产模式单端口，开发模式走 Vite 代理）
+  const indexHtml = path.join(env.webDist, "index.html");
+  if (fs.existsSync(indexHtml)) {
+    await app.register(fastifyStatic, { root: env.webDist });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith("/api/")) {
+        return reply.code(404).send({ ok: false, error: "接口不存在" });
+      }
+      return reply.sendFile("index.html");
+    });
+  } else {
+    app.log.warn(`未找到前端构建产物（${env.webDist}），仅提供 API`);
+  }
+
   try {
     await gateway.health();
     app.log.info(`网关在线：${env.gatewayURL}`);
@@ -39,7 +72,9 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => void shutdown());
 
   await app.listen({ host: env.host, port: env.port });
-  app.log.info(`yatori-panel 后端已启动：http://${env.host}:${env.port}`);
+  app.log.info(
+    `yatori-panel 已启动：http://${env.host}:${env.port}（访问锁：${authRequired() ? "已启用" : "未启用"}）`,
+  );
 }
 
 main().catch((err) => {
