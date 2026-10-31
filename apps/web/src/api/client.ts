@@ -23,6 +23,12 @@ export class ApiError extends Error {
 
 const http = axios.create({ baseURL: "/api/v1", timeout: 120_000 });
 
+// 会话过期时统一踢回登录页（由 auth store 决定是否真的跳转）
+export function setUnauthorizedHandler(handler: () => void) {
+  unauthorizedHandler = handler;
+}
+let unauthorizedHandler: (() => void) | null = null;
+
 // 服务端约定 200 + ok:false（如登录检测失败）与非 2xx（路由抛错）两种失败形态，统一归一
 http.interceptors.response.use(
   (resp) => {
@@ -34,6 +40,7 @@ http.interceptors.response.use(
   },
   (err) => {
     const payload = err.response?.data as Envelope<unknown> | undefined;
+    if (err.response?.status === 401) unauthorizedHandler?.();
     throw new ApiError(payload?.error ?? (err.message as string), payload?.logs);
   },
 );

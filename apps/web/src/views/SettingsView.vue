@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { Settings } from "@yatori/shared";
 import { api } from "@/api/resources";
+import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,6 +17,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+
+const auth = useAuthStore();
+const newPassword = ref("");
+const passwordPending = ref(false);
+
+const passwordMutation = useMutation({
+  mutationFn: () => api.setPassword(newPassword.value),
+  onSuccess: async () => {
+    toast.success("访问密码已生效");
+    newPassword.value = "";
+    await auth.refresh();
+  },
+  onError: (err) => toast.error((err as Error).message),
+});
+
+const disableMutation = useMutation({
+  mutationFn: () => api.disablePassword(),
+  onSuccess: async () => {
+    toast.success("访问锁已关闭，全部会话已失效");
+    await auth.refresh();
+  },
+  onError: (err) => toast.error((err as Error).message),
+});
 
 const queryClient = useQueryClient();
 const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -82,6 +106,49 @@ const concurrencyModel = computed({
 
 <template>
   <div class="max-w-3xl space-y-4">
+    <Card>
+      <CardHeader>
+        <CardTitle>访问锁</CardTitle>
+        <CardDescription>
+          {{
+            auth.authRequired
+              ? "已启用：面板与接口需凭密码登录后访问（服务器部署必开）"
+              : "未启用：当前仅本机可访问。部署到服务器前请务必设置密码"
+          }}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form class="flex items-end gap-3" @submit.prevent="passwordMutation.mutate()">
+          <div class="grid flex-1 gap-2">
+            <Label for="newPassword">
+              {{ auth.authRequired ? "修改访问密码" : "设置访问密码" }}
+            </Label>
+            <Input
+              id="newPassword"
+              v-model="newPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="至少 6 位"
+              required
+              minlength="6"
+            />
+          </div>
+          <Button type="submit" :disabled="passwordPending || !newPassword">
+            {{ passwordPending ? "保存中…" : auth.authRequired ? "修改" : "启用" }}
+          </Button>
+          <Button
+            v-if="auth.authRequired"
+            type="button"
+            variant="outline"
+            :disabled="disableMutation.isPending.value"
+            @click="disableMutation.mutate()"
+          >
+            关闭访问锁
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+
     <Card>
       <CardHeader>
         <CardTitle>AI 答题</CardTitle>
