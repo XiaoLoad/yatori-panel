@@ -1,0 +1,268 @@
+import type { FastifyInstance } from "fastify";
+import type { ZodType, ZodTypeDef } from "zod";
+import {
+  CreateAccountBody,
+  StartJobBody,
+  UpdateAccountBody,
+  UpdateSettingsBody,
+} from "./shared.ts";
+import { bus } from "./bus.ts";
+import {
+  countAccountsByPlatform,
+  deleteAccount,
+  getAccount,
+  insertAccount,
+  listAccounts,
+  markVerify,
+  updateAccount,
+} from "./db/accounts.ts";
+import { eventsForJob, getJob, listJobs } from "./db/jobs.ts";
+import { getSettings, saveSettings } from "./db/settings.ts";
+import { HttpError } from "./errors.ts";
+import { GatewayError, gateway } from "./gateway.ts";
+import { jobManager } from "./jobs/manager.ts";
+import { dropSession, ensureSession, getSessionId } from "./sessions.ts";
+
+function parse<T>(body: unknown, schema: ZodType<T, ZodTypeDef, unknown>): T {
+  const r = schema.safeParse(body);
+  if (!r.success) {
+    throw new HttpError(400, r.error.issues.map((i) => i.message).join("; "));
+  }
+  return r.data;
+}
+
+export function registerRoutes(app: FastifyInstance): void {
+  // ---------- 基础 ----------
+  app.get("/api/v1/health", async () => {
+    let gatewayOk = false;
+    try {
+      await gateway.health();
+      gatewayOk = true;
+    } catch {
+      gatewayOk = false;
+    }
+    return { ok: true, data: { status: "up", gateway: gatewayOk ? "up" : "down" } };
+  });
+
+  app.get("/api/v1/platforms", async () => {
+    return { ok: true, data: await gateway.platforms() };
+  });
+
+  // ---------- 账号 ----------
+  app.get("/api/v1/accounts", async () => {
+    const accounts = listAccounts();
+    return {
+      ok: true,
+      data: accounts.map((a) => ({ ...a, hasSession: !!getSessionId(a.uid) })),
+    };
+  });
+
+  app.post("/api/v1/accounts", async (req) => {
+    const body = parse<CreateAccountBody>(req.body, CreateAccountBody);
+    if (
+      countAccountsByPlatform(body.platform, body.baseUrl, body.username) > 0
+    ) {
+      throw new HttpError(409, "该账号已存在");
+    }
+    const account = insertAccount({
+      platform: body.platform,
+      baseUrl: body.baseUrl,
+      username: body.username,
+      password: body.password,
+      remark: body.remark,
+    });
+
+    if (body.verify) {
+      try {
+        const sid = await ensureSession({ ...account, password: body.password });
+        const courses = await gateway.courses(sid);
+        markVerify(account.uid, true);
+        return {
+          ok: true,
+          data: { ...account, verify: { ok: true, courseCount: courses.length } },
+        };
+      } catch (err) {
+        const e = err as HttpError;
+        markVerify(account.uid, false);
+        await dropSession(account.uid);
+        return {
+          ok: false,
+          error: e.message,
+          logs: e.logs,
+          data: { ...account, verify: { ok: false } },
+        };
+      }
+    }
+    return { ok: true, data: account };
+  });
+
+  app.post("/api/v1/accounts/:uid/verify", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    try {
+      const sid = await ensureSession(account);
+      const courses = await gateway.courses(sid);
+      markVerify(account.uid, true);
+      return { ok: true, data: { ok: true, courseCount: courses.length } };
+    } catch (err) {
+      const e = err as HttpError;
+      markVerify(account.uid, false);
+      await dropSession(account.uid);
+      return { ok: false, error: e.message, logs: e.logs, data: { ok: false } };
+    }
+  });
+
+  app.put("/api/v1/accounts/:uid", async (req) => {
+    const { uid } = req.params as { uid: string };
+    const body = parse<UpdateAccountBody>(req.body, UpdateAccountBody);
+    if (!getAccount(uid)) throw new HttpError(404, "账号不存在");
+    updateAccount(uid, body);
+    await dropSession(uid); // 凭据可能变了，强制下次重建会话
+    return { ok: true };
+  });
+
+  app.delete("/api/v1/accounts/:uid", async (req) => {
+    const { uid } = req.params as { uid: string };
+    jobManager.stopByAccount(uid);
+    await dropSession(uid);
+    deleteAccount(uid);
+    return { ok: true };
+  });
+
+  // ---------- 课程 ----------
+  app.get("/api/v1/accounts/:uid/courses", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const sid = await ensureSession(account);
+    return { ok: true, data: await gateway.courses(sid) };
+  });
+
+  app.get("/api/v1/accounts/:uid/courses/:courseId/tree", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const { courseId } = req.params as { courseId: string };
+    const sid = await ensureSession(account);
+    return { ok: true, data: await gateway.tree(sid, courseId) };
+  });
+
+  // ---------- 任务 ----------
+  app.post("/api/v1/jobs", async (req) => {
+    const body = parse<StartJobBody>(req.body, StartJobBody);
+    const account = getAccount(body.accountUid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    if (!account.enabled) throw new HttpError(400, "账号已被禁用");
+    const job = await jobManager.start(account, body);
+    return { ok: true, data: job };
+  });
+
+  app.post("/api/v1/jobs/:id/stop", async (req) => {
+    const { id } = req.params as { id: string };
+    if (!jobManager.stop(id)) {
+      const job = getJob(id);
+      if (!job) throw new HttpError(404, "任务不存在");
+      return { ok: true, data: { stopped: false, reason: "任务已结束" } };
+    }
+    return { ok: true, data: { stopped: true } };
+  });
+
+  app.get("/api/v1/jobs", async (req) => {
+    const q = req.query as { accountUid?: string; state?: string; limit?: string };
+    return {
+      ok: true,
+      data: listJobs({
+        accountUid: q.accountUid,
+        state: q.state,
+        limit: q.limit ? Number(q.limit) : undefined,
+      }),
+    };
+  });
+
+  app.get("/api/v1/jobs/:id", async (req) => {
+    const job = getJob((req.params as { id: string }).id);
+    if (!job) throw new HttpError(404, "任务不存在");
+    return { ok: true, data: { ...job, events: eventsForJob(job.id) } };
+  });
+
+  // ---------- 设置 ----------
+  app.get("/api/v1/settings", async () => {
+    return { ok: true, data: getSettings() };
+  });
+
+  app.put("/api/v1/settings", async (req) => {
+    const body = parse<UpdateSettingsBody>(req.body, UpdateSettingsBody);
+    saveSettings(body);
+    return { ok: true };
+  });
+
+  // ---------- 仪表盘 ----------
+  app.get("/api/v1/dashboard", async () => {
+    const accounts = listAccounts();
+    const running = listJobs({ state: "running" });
+    const recent = listJobs({ limit: 5 });
+    return {
+      ok: true,
+      data: {
+        accountCount: accounts.length,
+        onlineAccounts: accounts.filter((a) => getSessionId(a.uid)).length,
+        runningJobs: running.length,
+        recentJobs: recent,
+      },
+    };
+  });
+
+  // ---------- SSE 事件流 ----------
+  app.get("/api/v1/events/stream", async (req, reply) => {
+    const q = req.query as { accountId?: string; jobId?: string };
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    reply.raw.write("retry: 3000\n\n");
+
+    const send = (e: unknown) => {
+      try {
+        reply.raw.write(`data: ${JSON.stringify(e)}\n\n`);
+      } catch {
+        /* 连接已断 */
+      }
+    };
+    send({ type: "hello", ts: Date.now() });
+    const unsubscribe = bus.subscribe(
+      { accountId: q.accountId, jobId: q.jobId },
+      send,
+    );
+    const heartbeat = setInterval(() => {
+      try {
+        reply.raw.write(": ping\n\n");
+      } catch {
+        /* ignore */
+      }
+    }, 15_000);
+    req.raw.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+    return reply; // 挂起，长连接由 close 事件收尾
+  });
+
+  // ---------- 统一错误处理 ----------
+  app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof HttpError) {
+      reply.code(err.status).send({ ok: false, error: err.message, logs: err.logs });
+      return;
+    }
+    if (err instanceof GatewayError) {
+      reply.code(err.status).send({ ok: false, error: err.message, logs: err.logs });
+      return;
+    }
+    if (err instanceof Error && "statusCode" in err) {
+      // fastify 内建错误（如 JSON 解析失败）
+      const status = (err as { statusCode?: number }).statusCode ?? 500;
+      reply.code(status).send({ ok: false, error: err.message });
+      return;
+    }
+    app.log.error(err);
+    reply.code(500).send({ ok: false, error: (err as Error).message });
+  });
+}
