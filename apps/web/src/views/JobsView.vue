@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -32,7 +33,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import EmptyState from "@/components/EmptyState.vue";
 import { useEventStore } from "@/stores/events";
+import { relativeTime } from "@/lib/utils";
 
 const queryClient = useQueryClient();
 const events = useEventStore();
@@ -44,9 +47,10 @@ const jobsQuery = useQuery({
 });
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
 
-function accountName(uid: string) {
+function accountLabel(uid: string) {
   const a = accountsQuery.data.value?.find((x) => x.uid === uid);
-  return a ? `${a.platformName} · ${a.username}` : uid.slice(0, 8);
+  if (!a) return uid.slice(0, 8);
+  return a.remark ? `${a.remark} · ${a.username}` : a.username;
 }
 
 function stateBadge(state?: string) {
@@ -85,7 +89,7 @@ const form = reactive<StartJobBody>({
 const accountOptions = computed(() =>
   (accountsQuery.data.value ?? []).map((a) => ({
     value: a.uid,
-    label: `${a.platformName} · ${a.username}`,
+    label: a.remark ? `${a.remark} · ${a.username}` : a.username,
   })),
 );
 
@@ -112,6 +116,11 @@ function toggleCourse(course: CourseDTO) {
   else form.courseIds.push(course.id);
 }
 
+function toggleAll() {
+  const all = incompleteCourses.value.every((c) => form.courseIds.includes(c.id));
+  form.courseIds = all ? [] : incompleteCourses.value.map((c) => c.id);
+}
+
 // Select 组件以字符串为值类型，数字枚举经此转换
 const videoModeModel = computed({
   get: () => String(form.videoMode),
@@ -127,11 +136,6 @@ const concurrencyModel = computed({
     form.perCourseConcurrency = Math.min(16, Math.max(1, Number.isFinite(n) ? n : 1));
   },
 });
-
-function toggleAll() {
-  const all = incompleteCourses.value.every((c) => form.courseIds.includes(c.id));
-  form.courseIds = all ? [] : incompleteCourses.value.map((c) => c.id);
-}
 
 function openStart() {
   form.accountUid = accountOptions.value[0]?.value ?? "";
@@ -179,50 +183,59 @@ const stopMutation = useMutation({
 </script>
 
 <template>
-  <div class="space-y-4">
-    <div class="flex items-center justify-between">
-      <p class="text-sm text-muted-foreground">
-        调度节奏：每 {{ 5 }} 秒提交一次学时；标红节点会被记录，可用去红模式重跑。
-      </p>
+  <div class="space-y-6">
+    <div class="flex items-end justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">任务控制台</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          学时按真实播放节奏提交（默认 5 秒一批），任务停止后可断点续刷
+        </p>
+      </div>
       <Button @click="openStart"><Plus />发起任务</Button>
     </div>
 
     <!-- 运行中任务的实时视图 -->
-    <div v-if="jobsQuery.data.value?.some((j) => j.state === 'running')" class="space-y-3">
+    <div v-if="jobsQuery.data.value?.some((j) => j.state === 'running')" class="grid gap-4 lg:grid-cols-2">
       <Card v-for="job in jobsQuery.data.value.filter((j) => j.state === 'running')" :key="job.id">
         <CardHeader class="pb-3">
-          <div class="flex items-center justify-between">
-            <CardTitle class="text-base">{{ accountName(job.accountUid) }}</CardTitle>
+          <div class="flex items-center justify-between gap-2">
+            <CardTitle class="min-w-0 truncate text-base">{{ accountLabel(job.accountUid) }}</CardTitle>
             <Button variant="outline" size="sm" @click="stopMutation.mutate(job.id)">
               <Square />停止
             </Button>
           </div>
           <CardDescription>
             {{ modeText(job.options.videoMode) }}模式 · {{ sourceText(job.options.answerSource) }}
-            · 选中 {{ job.options.courseIds.length || "全部" }} 门课程
+            · {{ job.options.courseIds.length ? `已选 ${job.options.courseIds.length} 门` : "全部课程" }}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <template v-if="events.jobLive[job.id]?.lastProgress">
-            <div class="mb-1 flex items-center justify-between text-sm">
-              <span class="min-w-0 truncate">
-                {{ events.jobLive[job.id]!.lastProgress!.courseName }}
-                / {{ events.jobLive[job.id]!.lastProgress!.nodeName }}
-              </span>
-              <span class="tabular-nums text-muted-foreground">
+            <div class="mb-1.5 flex items-baseline justify-between gap-3">
+              <p class="min-w-0 truncate text-sm">
+                {{ events.jobLive[job.id]!.lastProgress!.nodeName }}
+              </p>
+              <span class="shrink-0 text-lg font-bold tabular-nums leading-none">
                 {{ Math.round(events.jobLive[job.id]!.lastProgress!.progress ?? 0) }}%
-                （{{ events.jobLive[job.id]!.lastProgress!.watchedSeconds }}s /
-                {{ events.jobLive[job.id]!.lastProgress!.totalSeconds }}s）
               </span>
             </div>
-            <div class="h-2 overflow-hidden rounded-full bg-muted">
+            <div class="h-2 overflow-hidden rounded-full bg-primary/10">
               <div
-                class="h-full rounded-full bg-primary transition-all"
+                class="h-full rounded-full bg-primary transition-all duration-500"
                 :style="{ width: `${Math.min(100, events.jobLive[job.id]!.lastProgress!.progress ?? 0)}%` }"
               />
             </div>
+            <p class="mt-2 text-xs text-muted-foreground">
+              {{ events.jobLive[job.id]!.lastProgress!.courseName }} · 已观看
+              {{ events.jobLive[job.id]!.lastProgress!.watchedSeconds }}s /
+              {{ events.jobLive[job.id]!.lastProgress!.totalSeconds || "?" }}s
+            </p>
           </template>
-          <p v-else class="text-sm text-muted-foreground">正在准备任务（拉取课程/章节树）…</p>
+          <div v-else class="space-y-2">
+            <Skeleton class="h-4 w-3/4" />
+            <Skeleton class="h-2 w-full" />
+            <p class="text-xs text-muted-foreground">正在拉取课程与章节树…</p>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -235,72 +248,99 @@ const stopMutation = useMutation({
         </CardTitle>
       </CardHeader>
       <CardContent class="space-y-1 text-sm">
-        <p
-          v-for="flag in events.flags.slice(0, 5)"
-          :key="`${flag.ts}-${flag.nodeId ?? ''}`"
-          class="text-muted-foreground"
-        >
+        <p v-for="flag in events.flags.slice(0, 5)" :key="`${flag.ts}-${flag.nodeId ?? ''}`" class="truncate text-muted-foreground">
           {{ flag.courseName }} / {{ flag.nodeName }} — {{ flag.reason }}
         </p>
       </CardContent>
     </Card>
 
     <Card>
-      <CardHeader>
-        <CardTitle>任务历史</CardTitle>
-        <CardDescription>最近 50 条</CardDescription>
+      <CardHeader class="flex-row items-center justify-between space-y-0">
+        <div class="space-y-1">
+          <CardTitle class="text-base">任务历史</CardTitle>
+          <CardDescription>最近 50 条</CardDescription>
+        </div>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>状态</TableHead>
-              <TableHead>账号</TableHead>
-              <TableHead>配置</TableHead>
-              <TableHead>开始时间</TableHead>
-              <TableHead>摘要</TableHead>
-              <TableHead class="text-right">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow v-if="!jobsQuery.data.value?.length">
-              <TableCell colspan="6" class="text-center text-muted-foreground">暂无任务</TableCell>
-            </TableRow>
-            <TableRow v-for="job in jobsQuery.data.value" :key="job.id">
-              <TableCell>
-                <Badge :variant="stateBadge(job.state).variant">{{ stateBadge(job.state).text }}</Badge>
-              </TableCell>
-              <TableCell>{{ accountName(job.accountUid) }}</TableCell>
-              <TableCell class="text-muted-foreground">
-                {{ modeText(job.options.videoMode) }} · {{ sourceText(job.options.answerSource) }}
-              </TableCell>
-              <TableCell class="whitespace-nowrap">
-                {{ new Date(job.startedAt).toLocaleString() }}
-              </TableCell>
-              <TableCell class="max-w-64 truncate text-muted-foreground">
-                <template v-if="job.summary">
-                  视频 {{ job.summary.videosCompleted }} · 标红 {{ job.summary.flagsFound }} ·
-                  作业 {{ job.summary.worksDone }} · 考试 {{ job.summary.examsDone }}
-                  <span v-if="job.summary.errors?.length" class="text-red-500">
-                    · {{ job.summary.errors.length }} 个错误
-                  </span>
-                </template>
-                <template v-else-if="job.state === 'error'">登录或拉取课程失败</template>
-                <template v-else>-</template>
-              </TableCell>
-              <TableCell class="text-right">
-                <Button
-                  v-if="job.state === 'running'"
-                  variant="outline"
-                  size="sm"
-                  @click="stopMutation.mutate(job.id)"
-                >
-                  停止
-                </Button>
-              </TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
+        <div v-if="jobsQuery.isLoading.value" class="space-y-2">
+          <Skeleton v-for="i in 4" :key="i" class="h-10 w-full" />
+        </div>
+        <EmptyState
+          v-else-if="!jobsQuery.data.value?.length"
+          :icon="Square"
+          title="还没有任务"
+          description="点击右上角发起第一个刷课任务"
+        />
+        <div v-else class="overflow-x-auto">
+          <Table class="min-w-[760px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead class="w-24">状态</TableHead>
+                <TableHead>账号</TableHead>
+                <TableHead class="w-40">配置</TableHead>
+                <TableHead class="w-36">开始时间</TableHead>
+                <TableHead>结果</TableHead>
+                <TableHead class="w-20 text-right">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="job in jobsQuery.data.value" :key="job.id">
+                <TableCell>
+                  <Badge :variant="stateBadge(job.state).variant">{{ stateBadge(job.state).text }}</Badge>
+                </TableCell>
+                <TableCell class="min-w-0">
+                  <span class="block truncate">{{ accountLabel(job.accountUid) }}</span>
+                </TableCell>
+                <TableCell class="text-muted-foreground">
+                  {{ modeText(job.options.videoMode) }} · {{ sourceText(job.options.answerSource) }}
+                </TableCell>
+                <TableCell class="whitespace-nowrap text-muted-foreground">
+                  {{ relativeTime(job.startedAt) }}
+                </TableCell>
+                <TableCell>
+                  <div class="flex flex-wrap items-center gap-1.5 text-xs" v-if="job.summary">
+                    <Badge v-if="job.summary.videosCompleted" variant="secondary" class="tabular-nums">
+                      视频 {{ job.summary.videosCompleted }}
+                    </Badge>
+                    <Badge v-if="job.summary.flagsFound" variant="warning" class="tabular-nums">
+                      标红 {{ job.summary.flagsFound }}
+                    </Badge>
+                    <Badge v-if="job.summary.worksDone" variant="secondary" class="tabular-nums">
+                      作业 {{ job.summary.worksDone }}
+                    </Badge>
+                    <Badge v-if="job.summary.examsDone" variant="secondary" class="tabular-nums">
+                      考试 {{ job.summary.examsDone }}
+                    </Badge>
+                    <span
+                      v-if="job.summary.errors?.length"
+                      class="max-w-48 truncate text-red-500"
+                      :title="job.summary.errors.join('；')"
+                    >
+                      {{ job.summary.errors.length }} 个错误
+                    </span>
+                    <span
+                      v-if="!job.summary.videosCompleted && !job.summary.flagsFound && !job.summary.errors?.length"
+                      class="text-muted-foreground"
+                    >
+                      -
+                    </span>
+                  </div>
+                  <span v-else class="text-muted-foreground">-</span>
+                </TableCell>
+                <TableCell class="text-right">
+                  <Button
+                    v-if="job.state === 'running'"
+                    variant="outline"
+                    size="sm"
+                    @click="stopMutation.mutate(job.id)"
+                  >
+                    停止
+                  </Button>
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
 

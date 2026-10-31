@@ -30,6 +30,8 @@ export interface AccountWithSession extends AccountVO {
 export interface VerifyResult {
   ok: boolean;
   courseCount?: number;
+  /** 备注为空时服务端自动填入的平台姓名 */
+  remark?: string;
 }
 
 export interface CreateAccountResult extends AccountVO {

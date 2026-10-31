@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { cva, type VariantProps } from "class-variance-authority";
+import { Slot } from "reka-ui";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
@@ -28,13 +29,24 @@ const buttonVariants = cva(
 );
 
 const props = withDefaults(
-  defineProps<{ variant?: VariantProps<typeof buttonVariants>["variant"]; size?: VariantProps<typeof buttonVariants>["size"]; class?: string; type?: "button" | "submit"; disabled?: boolean }>(),
+  defineProps<{
+    variant?: VariantProps<typeof buttonVariants>["variant"];
+    size?: VariantProps<typeof buttonVariants>["size"];
+    class?: string;
+    type?: "button" | "submit";
+    disabled?: boolean;
+    asChild?: boolean;
+  }>(),
   { type: "button" },
 );
 </script>
 
 <template>
+  <Slot v-if="props.asChild" :class="cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)">
+    <slot />
+  </Slot>
   <button
+    v-else
     :type="props.type"
     :class="cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)"
     :disabled="props.disabled"

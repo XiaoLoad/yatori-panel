@@ -105,7 +105,11 @@ const concurrencyModel = computed({
 </script>
 
 <template>
-  <div class="max-w-3xl space-y-4">
+  <div class="max-w-3xl space-y-6">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">全局设置</h1>
+      <p class="mt-1 text-sm text-muted-foreground">AI 答题、题库与调度参数</p>
+    </div>
     <Card>
       <CardHeader>
         <CardTitle>访问锁</CardTitle>
