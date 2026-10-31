@@ -2,7 +2,7 @@ module yatori-panel/gateway
 
 go 1.27.3
 
-require github.com/yatori-dev/yatori-go-core v0.0.0-00010101000000-000000000000
+require github.com/yatori-dev/yatori-go-core v1.9.1-0.20261029151038-4a7958d63f5c
 
 require (
 	github.com/Changbaiqi/ddddocr-go v0.1.5-0.20251217103242-1896343369f8 // indirect
@@ -32,7 +32,3 @@ require (
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df // indirect
 	gorm.io/gorm v1.31.2 // indirect
 )
-
-// 开发期直接引用本地克隆的 core（跟随上游 master）。
-// 发布时移除本 replace，改为 go get 固定伪版本以锁定行为。
-replace github.com/yatori-dev/yatori-go-core => ../../_ref/yatori-go-core
