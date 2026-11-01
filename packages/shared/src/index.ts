@@ -34,10 +34,16 @@ export interface AccountVO {
 }
 
 export const CreateAccountBody = z.object({
-  platform: z.string().min(1, "请选择平台"),
+  platform: z
+    .string({ required_error: "请选择平台", invalid_type_error: "请选择平台" })
+    .min(1, "请选择平台"),
   baseUrl: z.string().optional().default(""),
-  username: z.string().min(1, "账号不能为空"),
-  password: z.string().min(1, "密码不能为空"),
+  username: z
+    .string({ required_error: "账号不能为空", invalid_type_error: "账号不能为空" })
+    .min(1, "账号不能为空"),
+  password: z
+    .string({ required_error: "密码不能为空", invalid_type_error: "密码不能为空" })
+    .min(1, "密码不能为空"),
   remark: z.string().optional().default(""),
   verify: z.boolean().optional().default(true),
 });
@@ -62,7 +68,9 @@ export const VideoModeEnum = z.union([z.literal(1), z.literal(2), z.literal(3)])
 export type VideoMode = z.infer<typeof VideoModeEnum>;
 
 export const StartJobBody = z.object({
-  accountUid: z.string().min(1),
+  accountUid: z
+    .string({ required_error: "请选择账号", invalid_type_error: "请选择账号" })
+    .min(1, "请选择账号"),
   /** 为空 = 全部课程 */
   courseIds: z.array(z.string()).optional().default([]),
   videoMode: VideoModeEnum.optional().default(1),

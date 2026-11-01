@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
+// 清理已删除账号遗留的进度快照（防止假数据残留影响后续判断）
+sqlite.exec(`DELETE FROM node_cache WHERE account_uid NOT IN (SELECT uid FROM accounts);`);
+
 export function now(): string {
   return new Date().toISOString();
 }
