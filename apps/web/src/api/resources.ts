@@ -82,6 +82,11 @@ export const api = {
 
   settings: () => get<Settings>("/settings"),
   saveSettings: (body: Settings) => put<void>("/settings", body),
+  preflight: (body: {
+    source: "ai" | "bank";
+    ai?: { type: string; url: string; model: string; apiKey: string };
+    questionBank?: { url: string; key: string };
+  }) => post<{ available: boolean; error?: string }>("/preflight", body),
 
   dashboard: () =>
     get<{
