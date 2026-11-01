@@ -1,9 +1,11 @@
 import type { AccountVO } from "./shared.ts";
 import type { GatewayLogEntry } from "./gateway.ts";
 import { bus } from "./bus.ts";
+import { getAccount } from "./db/accounts.ts";
 import { getSettings } from "./db/settings.ts";
 import { env } from "./env.ts";
 import { gateway } from "./gateway.ts";
+import { HttpError } from "./errors.ts";
 
 interface LiveSession {
   sessionId: string;
@@ -109,6 +111,24 @@ export async function ensureSession(
 
 export function getSessionId(accountUid: string): string | undefined {
   return live.get(accountUid)?.sessionId;
+}
+
+/** 按账号 uid 确保会话存在（runner 用，内部读库取凭据） */
+export async function ensureSessionForUid(accountUid: string): Promise<string> {
+  const existing = live.get(accountUid);
+  if (existing) return existing.sessionId;
+  const account = getAccount(accountUid);
+  if (!account) throw new HttpError(404, "账号不存在");
+  return ensureSession(account);
+}
+
+/**
+ * 会话失效重建：丢弃旧会话（含其心跳），重新走完整登录。
+ * 用于 runner 检测到「账号登录超时，请重新登录」时的自愈。
+ */
+export async function rebuildSession(accountUid: string): Promise<string> {
+  await dropSession(accountUid);
+  return ensureSessionForUid(accountUid);
 }
 
 export async function dropSession(accountUid: string): Promise<void> {

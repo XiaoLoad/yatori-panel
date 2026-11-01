@@ -29,7 +29,7 @@ class JobManager {
     }
 
     // 先确保会话可用（登录失败会带 OCR 日志抛给前端）
-    const sid = await ensureSession(account);
+    await ensureSession(account);
 
     const job = insertJob(options);
     const ctrl = new AbortController();
@@ -43,7 +43,7 @@ class JobManager {
       state: "running",
     });
 
-    void runJob(job.id, account.uid, sid, options, ctrl.signal)
+    void runJob(job.id, account.uid, options, ctrl.signal)
       .then((summary: JobSummary) => {
         const state = ctrl.signal.aborted ? "stopped" : "done";
         finishJob(job.id, state, summary);

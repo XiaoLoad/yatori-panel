@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,11 +25,88 @@ type sessionInfo struct {
 	CreatedAt    string   `json:"createdAt"`
 }
 
-// session = 一个上游账号的存活 SDK 客户端 + 它的日志管道。
+// session = 一个上游账号的存活 SDK 客户端 + 它的日志管道 + 心跳保活。
 type session struct {
 	info   sessionInfo
 	client yatori.Client
 	logs   *sessionLogger
+
+	// 心跳保活所需的上游会话凭据（对齐 core 的 KeepAliveApi：token 走表单，
+	// cookie 辅助）。token 为空的平台（无此机制）不启动心跳。
+	baseURL      string
+	token        string
+	cookieHeader string
+
+	stopHB    chan struct{}
+	stopOnce  sync.Once
+	startOnce sync.Once
+}
+
+const heartbeatInterval = 5 * time.Minute
+
+// startHeartbeat 每 5 分钟向上游发一次在线心跳，对齐 console 的
+// keepAliveLogin 协程。失败静默：真正的会话失效由面板层超时重登兜底。
+func (s *session) startHeartbeat() {
+	if s.baseURL == "" || s.token == "" {
+		return
+	}
+	s.startOnce.Do(func() {
+		s.stopHB = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(heartbeatInterval)
+			defer ticker.Stop()
+			tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+			client := &http.Client{Timeout: 15 * time.Second, Transport: tr}
+			for {
+				select {
+				case <-s.stopHB:
+					return
+				case <-ticker.C:
+					if ok := s.sendKeepAlive(client); !ok {
+						s.logs.logf("warn", "keepalive heartbeat failed")
+					} else {
+						s.logs.logf("debug", "keepalive heartbeat ok")
+					}
+				}
+			}
+		}()
+	})
+}
+
+// sendKeepAlive 复刻 core KeepAliveApi 的请求形态。
+func (s *session) sendKeepAlive(client *http.Client) bool {
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	_ = writer.WriteField("platform", "Android")
+	_ = writer.WriteField("version", "1.4.8")
+	_ = writer.WriteField("token", s.token)
+	if writer.Close() != nil {
+		return false
+	}
+	req, err := http.NewRequest("POST", strings.TrimRight(s.baseURL, "/")+"/api/online.json", payload)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if s.cookieHeader != "" {
+		req.Header.Set("Cookie", s.cookieHeader)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode == http.StatusOK
+}
+
+func (s *session) stop() {
+	s.stopOnce.Do(func() {
+		if s.stopHB != nil {
+			close(s.stopHB)
+		}
+	})
 }
 
 type sessionStore struct {
@@ -72,6 +155,7 @@ func (s *sessionStore) closeAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, se := range s.m {
+		se.stop()
 		_ = se.client.Close()
 		delete(s.m, id)
 	}
