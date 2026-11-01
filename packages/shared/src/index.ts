@@ -34,10 +34,10 @@ export interface AccountVO {
 }
 
 export const CreateAccountBody = z.object({
-  platform: z.string().min(1),
+  platform: z.string().min(1, "请选择平台"),
   baseUrl: z.string().optional().default(""),
-  username: z.string().min(1),
-  password: z.string().min(1),
+  username: z.string().min(1, "账号不能为空"),
+  password: z.string().min(1, "密码不能为空"),
   remark: z.string().optional().default(""),
   verify: z.boolean().optional().default(true),
 });
