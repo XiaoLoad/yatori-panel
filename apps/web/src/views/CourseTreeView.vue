@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { useQuery } from "@tanstack/vue-query";
-import { BookOpen, ChevronDown, ChevronRight } from "lucide-vue-next";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+import { BookOpen, ChevronDown, ChevronRight, Play } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
+import { toast } from "vue-sonner";
 import { api, type CourseDTO } from "@/api/resources";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -15,6 +17,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import CourseTreeNode from "@/components/CourseTreeNode.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { Select } from "@/components/ui/select";
+
+const queryClient = useQueryClient();
 
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
 
@@ -47,6 +51,24 @@ const treeQuery = useQuery({
 });
 
 const listOpen = ref(true);
+
+// 在课程卡片上直接以当前账号发起单课程任务（默认普通模式、不答题）
+const startCourseMutation = useMutation({
+  mutationFn: (courseId: string) =>
+    api.startJob({
+      accountUid: accountUid.value,
+      courseIds: [courseId],
+      videoMode: 1,
+      answerSource: "off",
+      autoSubmit: false,
+      perCourseConcurrency: 4,
+    }),
+  onSuccess: () => {
+    toast.success("任务已启动，可在任务控制台查看实时进度");
+    queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  },
+  onError: (err) => toast.error((err as Error).message),
+});
 
 function pick(course: CourseDTO) {
   selectedCourse.value = selectedCourse.value?.id === course.id ? null : course;
@@ -104,7 +126,17 @@ function pick(course: CourseDTO) {
             <Progress :model-value="course.progress" class="h-1.5" />
             <div class="mt-2 flex items-center justify-between text-xs text-muted-foreground">
               <span class="truncate">{{ course.teacher || "-" }}</span>
-              <span>{{ course.status === "finished" ? "已结课" : "进行中" }}</span>
+              <Button
+                v-if="course.progress < 100"
+                variant="outline"
+                size="sm"
+                class="h-6 px-2 text-xs"
+                :disabled="startCourseMutation.isPending.value"
+                @click.stop="startCourseMutation.mutate(course.id)"
+              >
+                <Play class="size-3" />刷这门
+              </Button>
+              <span v-else>已结课</span>
             </div>
           </button>
         </CardContent>
