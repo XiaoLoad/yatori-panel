@@ -37,6 +37,7 @@ function emptySummary(): JobSummary {
     flagsFound: 0,
     worksDone: 0,
     examsDone: 0,
+    scores: [],
     errors: [],
   };
 }
@@ -255,20 +256,25 @@ export async function runJob(
     for (const w of works) {
       if (checkAbort()) return;
       try {
-        await gateway.doWork(sid, {
+        const r = await gateway.doWork(sid, {
           courseId: course.id,
           workId: w.id,
           source: options.answerSource,
           submit: options.autoSubmit,
         });
         summary.worksDone += 1;
-        emit({
-          type: "log",
-          jobId,
-          accountId: accountUid,
-          level: "info",
-          message: `作业完成：${course.name} / ${w.name}`,
-        });
+        if (r.submitted && r.score > 0) {
+          const s = `${w.name} ${r.score}分`;
+          summary.scores.push(s);
+          emitLog("info", `作业完成：${course.name} / ${w.name}（得分 ${r.score}）`);
+        } else if (r.submitted) {
+          emitLog(
+            "warn",
+            `作业已提交但未确认得分，请到平台核实：${course.name} / ${w.name}`,
+          );
+        } else {
+          emitLog("info", `作业已答题，未提交：${course.name} / ${w.name}`);
+        }
       } catch (err) {
         const m = `作业 ${course.name}/${w.name}: ${(err as Error).message}`;
         summary.errors.push(m);
@@ -291,20 +297,25 @@ export async function runJob(
     for (const x of exams) {
       if (checkAbort()) return;
       try {
-        await gateway.doExam(sid, {
+        const r = await gateway.doExam(sid, {
           courseId: course.id,
           examId: x.id,
           source: options.answerSource,
           submit: options.autoSubmit,
         });
         summary.examsDone += 1;
-        emit({
-          type: "log",
-          jobId,
-          accountId: accountUid,
-          level: "info",
-          message: `考试完成：${course.name} / ${x.name}`,
-        });
+        if (r.submitted && r.score > 0) {
+          const s = `${x.name} ${r.score}分`;
+          summary.scores.push(s);
+          emitLog("info", `考试完成：${course.name} / ${x.name}（得分 ${r.score}）`);
+        } else if (r.submitted) {
+          emitLog(
+            "warn",
+            `考试已提交但未确认得分，请到平台核实：${course.name} / ${x.name}`,
+          );
+        } else {
+          emitLog("info", `考试已答题，未提交：${course.name} / ${x.name}`);
+        }
       } catch (err) {
         const m = `考试 ${course.name}/${x.name}: ${(err as Error).message}`;
         summary.errors.push(m);

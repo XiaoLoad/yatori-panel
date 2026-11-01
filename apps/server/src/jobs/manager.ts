@@ -64,6 +64,7 @@ class JobManager {
           flagsFound: 0,
           worksDone: 0,
           examsDone: 0,
+          scores: [],
           errors: [String((err as Error)?.message ?? err)],
         };
         finishJob(job.id, "error", summary);

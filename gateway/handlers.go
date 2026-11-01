@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yatori-dev/yatori-go-core/models/ctype"
+	"github.com/yatori-dev/yatori-go-core/que-core/aiq"
+	"github.com/yatori-dev/yatori-go-core/que-core/external"
 	yatori "github.com/yatori-dev/yatori-go-core"
 )
 
@@ -24,6 +27,7 @@ func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 
 	mux.HandleFunc("GET /api/v1/health", g.handleHealth)
 	mux.HandleFunc("GET /api/v1/platforms", g.handlePlatforms)
+	mux.HandleFunc("POST /api/v1/preflight", g.handlePreflight)
 	mux.HandleFunc("POST /api/v1/sessions", g.handleCreateSession)
 	mux.HandleFunc("GET /api/v1/sessions", g.handleListSessions)
 	mux.HandleFunc("GET /api/v1/sessions/{id}", g.handleSessionInfo)
@@ -51,6 +55,67 @@ func (g *gateway) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (g *gateway) handlePlatforms(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": g.platforms})
+}
+
+// handlePreflight 对 AI / 外置题库配置做可用性预检（对齐 console 的
+// AICheck / CheckApiQueRequest 前置检查）。纯配置探活，不触碰任何
+// 平台会话与作业/考试。
+func (g *gateway) handlePreflight(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Source       string       `json:"source"` // ai | bank
+		AI           *aiConfigDTO `json:"ai"`
+		QuestionBank *bankDTO     `json:"questionBank"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+
+	var checkErr error
+	switch req.Source {
+	case "ai":
+		if req.AI == nil {
+			fail(w, http.StatusBadRequest, "缺少 AI 配置")
+			return
+		}
+		checkErr = withTimeout(45*time.Second, func() error {
+			return aiq.AICheck(req.AI.URL, req.AI.Model, req.AI.APIKey, ctype.AiType(req.AI.Type))
+		})
+	case "bank":
+		if req.QuestionBank == nil || req.QuestionBank.URL == "" {
+			fail(w, http.StatusBadRequest, "缺少题库地址")
+			return
+		}
+		checkErr = withTimeout(45*time.Second, func() error {
+			return external.CheckApiQueRequest(req.QuestionBank.URL, 3, nil)
+		})
+	default:
+		fail(w, http.StatusBadRequest, "未知预检来源: "+req.Source)
+		return
+	}
+
+	if checkErr != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":   true,
+			"data": map[string]any{"available": false, "error": checkErr.Error()},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"data": map[string]any{"available": true},
+	})
+}
+
+// withTimeout 给无 context 参数的 core 探活函数套一层超时保护。
+func withTimeout(d time.Duration, fn func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- fn() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(d):
+		return errors.New("预检超时")
+	}
 }
 
 // ---------- 会话 ----------

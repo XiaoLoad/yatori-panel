@@ -89,6 +89,8 @@ export interface JobSummary {
   flagsFound: number;
   worksDone: number;
   examsDone: number;
+  /** 已提交的作业/考试得分，如 "第一章测试 85分" */
+  scores: string[];
   errors: string[];
 }
 
