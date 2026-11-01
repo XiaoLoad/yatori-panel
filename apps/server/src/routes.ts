@@ -132,6 +132,12 @@ export function registerRoutes(app: FastifyInstance): void {
     return { ok: true, data: await gateway.platforms() };
   });
 
+  // AI/题库配置预检代理（设置页测试按钮与发起任务门禁共用）
+  app.post("/api/v1/preflight", async (req) => {
+    const body = (req.body ?? {}) as Parameters<typeof gateway.preflight>[0];
+    return { ok: true, data: await gateway.preflight(body) };
+  });
+
   // ---------- 账号 ----------
   // 备注为空时用平台上的真实姓名自动补全（当前英华支持），失败静默跳过
   async function autoFillRemark(uid: string, currentRemark: string, sid: string): Promise<string> {
@@ -256,6 +262,34 @@ export function registerRoutes(app: FastifyInstance): void {
     const account = getAccount(body.accountUid);
     if (!account) throw new HttpError(404, "账号不存在");
     if (!account.enabled) throw new HttpError(400, "账号已被禁用");
+
+    // 答题来源预检：AI/题库不可用时直接拒绝启动（对齐 console 的前置检查）
+    if (body.answerSource !== "off") {
+      const settings = getSettings();
+      const pre =
+        body.answerSource === "ai"
+          ? await gateway.preflight({
+              source: "ai",
+              ai: {
+                type: settings.ai.type,
+                url: settings.ai.url,
+                model: settings.ai.model,
+                apiKey: settings.ai.apiKey,
+              },
+            })
+          : await gateway.preflight({
+              source: "bank",
+              questionBank: {
+                url: settings.questionBank.url,
+                key: settings.questionBank.key,
+              },
+            });
+      if (!pre.available) {
+        const label = body.answerSource === "ai" ? "AI" : "外置题库";
+        throw new HttpError(400, `${label}预检未通过：${pre.error ?? "不可用"}`);
+      }
+    }
+
     const job = await jobManager.start(account, body);
     return { ok: true, data: job };
   });

@@ -150,6 +150,11 @@ async function request<T>(
 export const gateway = {
   health: () => request<{ status: string }>("/api/v1/health", "GET"),
   platforms: () => request<PlatformMetaDTO[]>("/api/v1/platforms", "GET"),
+  preflight: (body: {
+    source: "ai" | "bank";
+    ai?: { type: string; url: string; model: string; apiKey: string };
+    questionBank?: { url: string; key: string };
+  }) => request<{ available: boolean; error?: string }>("/api/v1/preflight", "POST", body),
   createSession: (payload: {
     platform: string;
     username: string;
