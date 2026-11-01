@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlertTriangle, Plus, Square } from "lucide-vue-next";
-import { computed, reactive, ref, watch } from "vue";
+import { AlertTriangle, Square } from "lucide-vue-next";
+import { computed } from "vue";
 import { toast } from "vue-sonner";
-import type { StartJobBody } from "@yatori/shared";
-import { api, type CourseDTO } from "@/api/resources";
+import { api } from "@/api/resources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,17 +14,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import {
   Table,
   TableBody,
   TableCell,
@@ -33,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import EmptyState from "@/components/EmptyState.vue";
 import { useEventStore } from "@/stores/events";
 import { relativeTime } from "@/lib/utils";
@@ -74,103 +63,9 @@ function sourceText(source: string) {
   return { off: "不答题", ai: "AI 答题", bank: "题库答题" }[source] ?? source;
 }
 
-// ---------- 发起任务 ----------
-
-const dialogOpen = ref(false);
-const form = reactive<StartJobBody>({
-  accountUid: "",
-  courseIds: [],
-  videoMode: 1,
-  answerSource: "off",
-  autoSubmit: false,
-  perCourseConcurrency: 4,
-});
-
-const accountOptions = computed(() =>
-  (accountsQuery.data.value ?? []).map((a) => ({
-    value: a.uid,
-    label: a.remark ? `${a.remark} · ${a.username}` : a.username,
-  })),
+const runningJobs = computed(() =>
+  (jobsQuery.data.value ?? []).filter((j) => j.state === "running"),
 );
-
-const coursesQuery = useQuery({
-  queryKey: computed(() => ["courses", form.accountUid]),
-  queryFn: () => api.courses(form.accountUid),
-  enabled: computed(() => !!form.accountUid && dialogOpen.value),
-});
-
-const incompleteCourses = computed(() =>
-  (coursesQuery.data.value ?? []).filter((c) => c.progress < 100),
-);
-
-watch(
-  () => form.accountUid,
-  () => {
-    form.courseIds = [];
-  },
-);
-
-function toggleCourse(course: CourseDTO) {
-  const i = form.courseIds.indexOf(course.id);
-  if (i >= 0) form.courseIds.splice(i, 1);
-  else form.courseIds.push(course.id);
-}
-
-function toggleAll() {
-  const all = incompleteCourses.value.every((c) => form.courseIds.includes(c.id));
-  form.courseIds = all ? [] : incompleteCourses.value.map((c) => c.id);
-}
-
-// Select 组件以字符串为值类型，数字枚举经此转换
-const videoModeModel = computed({
-  get: () => String(form.videoMode),
-  set: (v: string) => {
-    form.videoMode = Number(v) as StartJobBody["videoMode"];
-  },
-});
-
-const concurrencyModel = computed({
-  get: () => String(form.perCourseConcurrency),
-  set: (v: string) => {
-    const n = Number(v);
-    form.perCourseConcurrency = Math.min(16, Math.max(1, Number.isFinite(n) ? n : 1));
-  },
-});
-
-function openStart() {
-  form.accountUid = accountOptions.value[0]?.value ?? "";
-  form.courseIds = [];
-  form.videoMode = 1;
-  form.answerSource = "off";
-  form.autoSubmit = false;
-  form.perCourseConcurrency = 4;
-  dialogOpen.value = true;
-}
-
-const startMutation = useMutation({
-  mutationFn: (body: StartJobBody) => api.startJob(body),
-  onSuccess: () => {
-    toast.success("任务已启动");
-    queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    dialogOpen.value = false;
-  },
-  onError: (err) => toast.error((err as Error).message),
-});
-
-function submitStart() {
-  if (!form.accountUid) {
-    toast.error("请选择账号");
-    return;
-  }
-  startMutation.mutate({
-    accountUid: form.accountUid,
-    courseIds: form.courseIds,
-    videoMode: form.videoMode,
-    answerSource: form.answerSource,
-    autoSubmit: form.autoSubmit,
-    perCourseConcurrency: form.perCourseConcurrency,
-  });
-}
 
 const stopMutation = useMutation({
   mutationFn: (id: string) => api.stopJob(id),
@@ -184,19 +79,19 @@ const stopMutation = useMutation({
 
 <template>
   <div class="space-y-6">
-    <div class="flex items-end justify-between gap-4">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight">任务控制台</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          学时按真实播放节奏提交（默认 5 秒一批），任务停止后可断点续刷
-        </p>
-      </div>
-      <Button @click="openStart"><Plus />发起任务</Button>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">任务控制台</h1>
+      <p class="mt-1 text-sm text-muted-foreground">
+        发起任务请到「账号管理」的账号卡片上操作；这里负责监控与历史
+      </p>
     </div>
 
     <!-- 运行中任务的实时视图 -->
-    <div v-if="jobsQuery.data.value?.some((j) => j.state === 'running')" class="grid gap-4 lg:grid-cols-2">
-      <Card v-for="job in jobsQuery.data.value.filter((j) => j.state === 'running')" :key="job.id">
+    <div v-if="jobsQuery.isLoading.value" class="grid gap-4 lg:grid-cols-2">
+      <Skeleton v-for="i in 2" :key="i" class="h-44 rounded-xl" />
+    </div>
+    <div v-else-if="runningJobs.length" class="grid gap-4 lg:grid-cols-2">
+      <Card v-for="job in runningJobs" :key="job.id">
         <CardHeader class="pb-3">
           <div class="flex items-center justify-between gap-2">
             <CardTitle class="min-w-0 truncate text-base">{{ accountLabel(job.accountUid) }}</CardTitle>
@@ -221,7 +116,7 @@ const stopMutation = useMutation({
             </div>
             <div class="h-2 overflow-hidden rounded-full bg-primary/10">
               <div
-                class="h-full rounded-full bg-primary transition-all duration-500"
+                class="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-500"
                 :style="{ width: `${Math.min(100, events.jobLive[job.id]!.lastProgress!.progress ?? 0)}%` }"
               />
             </div>
@@ -248,7 +143,11 @@ const stopMutation = useMutation({
         </CardTitle>
       </CardHeader>
       <CardContent class="space-y-1 text-sm">
-        <p v-for="flag in events.flags.slice(0, 5)" :key="`${flag.ts}-${flag.nodeId ?? ''}`" class="truncate text-muted-foreground">
+        <p
+          v-for="flag in events.flags.slice(0, 5)"
+          :key="`${flag.ts}-${flag.nodeId ?? ''}`"
+          class="truncate text-muted-foreground"
+        >
           {{ flag.courseName }} / {{ flag.nodeName }} — {{ flag.reason }}
         </p>
       </CardContent>
@@ -269,7 +168,7 @@ const stopMutation = useMutation({
           v-else-if="!jobsQuery.data.value?.length"
           :icon="Square"
           title="还没有任务"
-          description="点击右上角发起第一个刷课任务"
+          description="到「账号管理」的账号卡片上点击开始刷课"
         />
         <div v-else class="overflow-x-auto">
           <Table class="min-w-[760px]">
@@ -343,102 +242,5 @@ const stopMutation = useMutation({
         </div>
       </CardContent>
     </Card>
-
-    <!-- 发起任务 -->
-    <Dialog v-model:open="dialogOpen">
-      <div class="grid gap-4">
-        <div class="grid gap-1.5">
-          <DialogTitle>发起任务</DialogTitle>
-          <DialogDescription>选择账号与课程范围，调度在面板后端执行</DialogDescription>
-        </div>
-
-        <div class="grid gap-2">
-          <Label>账号</Label>
-          <Select v-model="form.accountUid" :options="accountOptions" placeholder="选择账号" />
-        </div>
-
-        <div class="grid gap-2">
-          <div class="flex items-center justify-between">
-            <Label>课程范围</Label>
-            <button
-              v-if="incompleteCourses.length"
-              class="text-xs text-muted-foreground underline-offset-2 hover:underline"
-              @click="toggleAll"
-            >
-              {{ incompleteCourses.every((c) => form.courseIds.includes(c.id)) ? "取消全选" : "全选未完成" }}
-            </button>
-          </div>
-          <div class="max-h-48 space-y-1 overflow-auto rounded-md border p-2">
-            <p v-if="coursesQuery.isLoading.value" class="p-2 text-sm text-muted-foreground">
-              课程加载中…
-            </p>
-            <p
-              v-else-if="!coursesQuery.data.value?.length"
-              class="p-2 text-sm text-muted-foreground"
-            >
-              该账号暂无课程
-            </p>
-            <label
-              v-for="course in coursesQuery.data.value ?? []"
-              :key="course.id"
-              class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent/60"
-            >
-              <input
-                type="checkbox"
-                class="size-4"
-                :checked="form.courseIds.includes(course.id)"
-                @change="toggleCourse(course)"
-              />
-              <span class="min-w-0 flex-1 truncate">{{ course.name }}</span>
-              <span class="text-xs tabular-nums text-muted-foreground">
-                {{ Math.round(course.progress) }}%
-              </span>
-            </label>
-          </div>
-          <p class="text-xs text-muted-foreground">不勾选任何课程 = 刷全部课程</p>
-        </div>
-
-        <div class="grid gap-2">
-          <Label>刷课模式</Label>
-          <Select
-            v-model="videoModeModel"
-            :options="[
-              { value: '1', label: '普通模式（按顺序串行）' },
-              { value: '2', label: '暴力模式（并发同刷，可能标红）' },
-              { value: '3', label: '去红模式（重跑未完成节点）' },
-            ]"
-          />
-        </div>
-
-        <div class="grid gap-2">
-          <Label>答题来源</Label>
-          <Select
-            v-model="form.answerSource"
-            :options="[
-              { value: 'off', label: '不自动答题' },
-              { value: 'ai', label: 'AI 答题（需在全局设置配置）' },
-              { value: 'bank', label: '外置题库（需在全局设置配置）' },
-            ]"
-          />
-        </div>
-
-        <div v-if="form.videoMode === 2" class="grid gap-2">
-          <Label>课程内并发数</Label>
-          <Input v-model="concurrencyModel" type="number" min="1" max="16" />
-        </div>
-
-        <div class="flex items-center gap-3">
-          <Switch v-model="form.autoSubmit" />
-          <Label class="font-normal">作业/考试完成后自动提交</Label>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" @click="dialogOpen = false">取消</Button>
-          <Button :disabled="startMutation.isPending.value" @click="submitStart">
-            {{ startMutation.isPending.value ? "启动中…" : "启动任务" }}
-          </Button>
-        </DialogFooter>
-      </div>
-    </Dialog>
   </div>
 </template>

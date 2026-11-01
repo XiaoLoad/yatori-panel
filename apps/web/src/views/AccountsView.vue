@@ -1,20 +1,12 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { Pencil, Plus, RefreshCw, Trash2, Users } from "lucide-vue-next";
+import { Plus, Users } from "lucide-vue-next";
 import { computed, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { PlatformMeta } from "@yatori/shared";
 import { ApiError, type GatewayLogEntry } from "@/api/client";
 import { api, type AccountWithSession } from "@/api/resources";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Dialog,
   DialogDescription,
@@ -26,24 +18,29 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import AccountProgressCell from "@/components/AccountProgressCell.vue";
+import AccountCard from "@/components/AccountCard.vue";
 import EmptyState from "@/components/EmptyState.vue";
-import { relativeTime } from "@/lib/utils";
 
 const queryClient = useQueryClient();
 
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
 const platformsQuery = useQuery({ queryKey: ["platforms"], queryFn: api.platforms });
+const jobsQuery = useQuery({
+  queryKey: ["jobs"],
+  queryFn: () => api.jobs({ limit: 50 }),
+  refetchInterval: 5000,
+});
 
-// ---------- 表单状态：字段集由所选平台的 loginFields 驱动 ----------
+/** accountUid → 运行中任务 */
+const runningByAccount = computed(() => {
+  const map: Record<string, NonNullable<typeof jobsQuery.data.value>[number]> = {};
+  for (const j of jobsQuery.data.value ?? []) {
+    if (j.state === "running") map[j.accountUid] = j;
+  }
+  return map;
+});
+
+// ---------- 表单：字段集由所选平台的 loginFields 驱动 ----------
 
 const dialogOpen = ref(false);
 const editingUid = ref<string | null>(null);
@@ -53,7 +50,6 @@ const form = reactive({
   remark: "",
   verify: true,
 });
-// 提交校验的逐字段错误（key = loginField key 或 "platform"）
 const fieldErrors = reactive<Record<string, string>>({});
 
 const platforms = computed<PlatformMeta[]>(() => platformsQuery.data.value ?? []);
@@ -69,8 +65,12 @@ watch(
   },
 );
 
-function validateForm(): boolean {
+function clearFieldErrors() {
   for (const k of Object.keys(fieldErrors)) delete fieldErrors[k];
+}
+
+function validateForm(): boolean {
+  clearFieldErrors();
   const errors: Record<string, string> = {};
   if (!form.platform) errors.platform = "请选择平台";
   for (const f of currentPlatform.value?.loginFields ?? []) {
@@ -81,35 +81,6 @@ function validateForm(): boolean {
   }
   Object.assign(fieldErrors, errors);
   return Object.keys(errors).length === 0;
-}
-
-function submitCreate() {
-  if (!validateForm()) return;
-  saveMutation.mutate();
-}
-
-function openCreate() {
-  editingUid.value = null;
-  form.platform = platforms.value.find((p) => p.mvp)?.key ?? "";
-  form.fields = {};
-  form.remark = "";
-  form.verify = true;
-  for (const k of Object.keys(fieldErrors)) delete fieldErrors[k];
-  dialogOpen.value = true;
-}
-
-function openEdit(account: AccountWithSession) {
-  editingUid.value = account.uid;
-  form.platform = account.platform;
-  form.fields = {
-    username: account.username,
-    password: "",
-    url: account.baseUrl ?? "",
-  };
-  form.remark = account.remark;
-  form.verify = false;
-  for (const k of Object.keys(fieldErrors)) delete fieldErrors[k];
-  dialogOpen.value = true;
 }
 
 function fieldModel(key: string) {
@@ -124,7 +95,34 @@ function fieldModel(key: string) {
 
 const fieldTypes: Record<string, string> = { password: "password", apiKey: "password" };
 
-// ---------- 提交与失败日志展示 ----------
+function openCreate() {
+  editingUid.value = null;
+  form.platform = platforms.value.find((p) => p.mvp)?.key ?? "";
+  form.fields = {};
+  form.remark = "";
+  form.verify = true;
+  clearFieldErrors();
+  dialogOpen.value = true;
+}
+
+function openEdit(account: AccountWithSession) {
+  editingUid.value = account.uid;
+  form.platform = account.platform;
+  form.fields = {
+    username: account.username,
+    password: "",
+    url: account.baseUrl ?? "",
+  };
+  form.remark = account.remark;
+  form.verify = false;
+  clearFieldErrors();
+  dialogOpen.value = true;
+}
+
+function submitForm() {
+  if (!validateForm()) return;
+  saveMutation.mutate();
+}
 
 const saveMutation = useMutation({
   mutationFn: async () => {
@@ -151,6 +149,7 @@ const saveMutation = useMutation({
   },
   onSuccess: (result) => {
     queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    queryClient.invalidateQueries({ queryKey: ["course-progress"] });
     dialogOpen.value = false;
     if (!result) {
       toast.success("账号已更新");
@@ -160,7 +159,7 @@ const saveMutation = useMutation({
       const filled = result.remark ? `，备注已自动填入「${result.remark}」` : "";
       toast.success(`账号已添加，登录正常，共 ${result.verify.courseCount} 门课程${filled}`);
     } else {
-      toast.warning("账号已保存，但登录检测未通过，可稍后在列表中重试");
+      toast.warning("账号已保存，但登录检测未通过，可稍后在卡片上重试");
     }
   },
   onError: (err) => showError(err as ApiError, "保存失败"),
@@ -209,117 +208,40 @@ function showError(err: ApiError, fallback: string) {
       <div>
         <h1 class="text-2xl font-bold tracking-tight">账号管理</h1>
         <p class="mt-1 text-sm text-muted-foreground">
-          密码加密存储在本机；备注留空将自动填入平台上的真实姓名
+          每个账号一张卡片：点「开始刷课」即按默认策略刷全部未完成课程
         </p>
       </div>
       <Button @click="openCreate"><Plus />添加账号</Button>
     </div>
 
-    <Card>
-      <CardHeader class="flex-row items-center justify-between space-y-0">
-        <div class="space-y-1">
-          <CardTitle class="text-base">账号列表</CardTitle>
-          <CardDescription>共 {{ accountsQuery.data.value?.length ?? 0 }} 个账号</CardDescription>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="verifyMutation.isPending.value"
-          @click="accountsQuery.refetch()"
-        >
-          <RefreshCw />刷新
-        </Button>
-      </CardHeader>
-      <CardContent>
-        <div v-if="accountsQuery.isLoading.value" class="space-y-2">
-          <Skeleton v-for="i in 3" :key="i" class="h-12 w-full" />
-        </div>
-        <EmptyState
-          v-else-if="!accountsQuery.data.value?.length"
-          :icon="Users"
-          title="还没有账号"
-          description="添加一个平台账号，即可开始刷课"
-          action-label="添加账号"
-          @action="openCreate"
-        />
-        <div v-else class="overflow-x-auto">
-          <Table class="min-w-[720px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead class="w-28">平台</TableHead>
-                <TableHead>账号</TableHead>
-                <TableHead class="w-32">姓名 / 备注</TableHead>
-                <TableHead class="w-52">课程进度</TableHead>
-                <TableHead class="w-36">最近检测</TableHead>
-                <TableHead class="w-28 text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-for="account in accountsQuery.data.value" :key="account.uid">
-                <TableCell>
-                  <Badge variant="secondary">{{ account.platformName }}</Badge>
-                </TableCell>
-                <TableCell class="min-w-0">
-                  <div class="truncate font-medium">{{ account.username }}</div>
-                  <div v-if="account.baseUrl" class="truncate text-xs text-muted-foreground">
-                    {{ account.baseUrl }}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span v-if="account.remark" class="font-medium">{{ account.remark }}</span>
-                  <span v-else class="text-muted-foreground">-</span>
-                </TableCell>
-                <TableCell>
-                  <AccountProgressCell :account="account" />
-                </TableCell>
-                <TableCell>
-                  <div v-if="account.lastVerifyOk === null || account.lastVerifyOk === undefined" class="text-muted-foreground">
-                    未检测
-                  </div>
-                  <div v-else class="flex items-center gap-2">
-                    <Badge :variant="account.lastVerifyOk === 1 ? 'success' : 'destructive'">
-                      {{ account.lastVerifyOk === 1 ? "正常" : "失败" }}
-                    </Badge>
-                    <span class="whitespace-nowrap text-xs text-muted-foreground">
-                      {{ relativeTime(account.lastVerifyAt) }}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell class="text-right">
-                  <div class="flex justify-end gap-0.5">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="登录检测"
-                      :disabled="verifyMutation.isPending.value"
-                      @click="verifyMutation.mutate(account.uid)"
-                    >
-                      <RefreshCw class="size-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" title="编辑" @click="openEdit(account)">
-                      <Pencil class="size-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="删除"
-                      class="text-destructive hover:text-destructive"
-                      @click="removeMutation.mutate(account.uid)"
-                    >
-                      <Trash2 class="size-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
+    <div v-if="accountsQuery.isLoading.value" class="space-y-4">
+      <Skeleton v-for="i in 2" :key="i" class="h-44 rounded-xl" />
+    </div>
+
+    <EmptyState
+      v-else-if="!accountsQuery.data.value?.length"
+      :icon="Users"
+      title="还没有账号"
+      description="添加一个平台账号，即可一键开始刷课"
+      action-label="添加账号"
+      @action="openCreate"
+    />
+
+    <template v-else>
+      <AccountCard
+        v-for="account in accountsQuery.data.value"
+        :key="account.uid"
+        :account="account"
+        :running-job="runningByAccount[account.uid] ?? null"
+        @edit="openEdit"
+        @remove="(a) => removeMutation.mutate(a.uid)"
+        @verify="(uid) => verifyMutation.mutate(uid)"
+      />
+    </template>
 
     <!-- 添加/编辑：字段集来自 /platforms 的 loginFields，新平台无需改这里 -->
     <Dialog v-model:open="dialogOpen">
-      <form class="grid gap-4" @submit.prevent="submitCreate">
+      <form class="grid gap-4" @submit.prevent="submitForm">
         <div class="grid gap-1.5">
           <DialogTitle>{{ editingUid ? "编辑账号" : "添加账号" }}</DialogTitle>
           <DialogDescription>
