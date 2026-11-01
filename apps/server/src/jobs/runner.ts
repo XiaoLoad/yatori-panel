@@ -81,7 +81,10 @@ export async function runJob(
   const checkAbort = (): boolean => signal.aborted;
 
   // ---------- 单节点刷课循环 ----------
-  async function studyVideo(course: GatewayCourse, node: GatewayNode): Promise<void> {
+  async function studyVideo(
+    course: GatewayCourse,
+    node: GatewayNode,
+  ): Promise<void | "blocked"> {
     const total =
       node.durationSeconds || Number(node.extra?.["duration"] ?? 0);
     let position = Number(node.extra?.["viewedSeconds"] ?? 0);
@@ -150,6 +153,43 @@ export async function runJob(
         continue;
       }
 
+      // 只有平台明确返回「提交学时成功」才算真实进度；
+      // 适配器结果里的 progress 是本地回显，对被拒绝的提交不代表平台状态
+      const accepted = msg.includes("提交学时成功");
+
+      if (!accepted) {
+        // 解锁时间未到 → 跳过该节点
+        if (UNLOCK_RE.test(msg)) {
+          summary.videosSkipped += 1;
+          upsertNode(accountUid, course.id, node, 0, false, flagged);
+          emitLog("warn", `跳过未解锁视频：${course.name} / ${node.name}（未到解锁时间）`);
+          return;
+        }
+        // 前置顺序锁 → 该课程后续节点整链被挡，跳过整门课
+        if (rawText.includes("请先学完上一个视频")) {
+          summary.videosSkipped += 1;
+          emitLog(
+            "warn",
+            `前置视频未完成：${course.name} / ${node.name}——该课程剩余节点已锁，跳过`,
+          );
+          return "blocked";
+        }
+        // 未知拒绝：重试（上限 3 次）
+        retries += 1;
+        if (retries >= 3) {
+          const m = `提交被平台拒绝：${course.name}/${node.name} — ${(msg || rawText || "无响应文案").slice(0, 60)}`;
+          summary.errors.push(m);
+          emitLog("error", m);
+          return;
+        }
+        emitLog("warn", `提交未确认（${(msg || "无文案").slice(0, 40)}），10 秒后重试`);
+        position -= settings.tickSeconds;
+        await sleep(10_000, signal);
+        continue;
+      }
+
+      retries = 0;
+
       // 标红检测（响应文案）
       const redHit = RED_MESSAGES.some((p) => msg.includes(p) || rawText.includes(p));
       if (redHit && !flagged) {
@@ -166,26 +206,6 @@ export async function runJob(
           nodeName: node.name,
           reason: "检测到并行播放刷课标记（建议切去红模式重跑）",
         });
-      }
-
-      // 解锁时间未到 → 跳过
-      if (UNLOCK_RE.test(msg)) {
-        summary.videosSkipped += 1;
-        upsertNode(accountUid, course.id, node, res.progress, false, flagged);
-        emitLog("warn", `跳过未解锁视频：${course.name} / ${node.name}（未到解锁时间）`);
-        emit({
-          type: "task.progress",
-          jobId,
-          accountId: accountUid,
-          courseId: course.id,
-          courseName: course.name,
-          nodeId: node.id,
-          nodeName: node.name,
-          progress: res.progress,
-          watchedSeconds: res.positionSeconds ?? position,
-          totalSeconds: total,
-        });
-        return;
       }
 
       upsertNode(accountUid, course.id, node, res.progress, res.completed, flagged);
@@ -330,15 +350,24 @@ export async function runJob(
     emitLog("info", `开始课程：${course.name}`);
     const tree = await gateway.tree(sid, course.id);
     const videos = collectVideoLeaves(tree).filter((v) => !v.completed);
-    emitLog("info", `待学习视频 ${videos.length} 个（已完成 ${collectVideoLeaves(tree).length - videos.length} 个已自动跳过）`);
+    emitLog(
+      "info",
+      `待学习视频 ${videos.length} 个（已完成 ${collectVideoLeaves(tree).length - videos.length} 个已自动跳过）`,
+    );
 
+    let blocked = false;
     // 普通模式(1)：节点串行；暴力模式(2)：节点并发；去红模式(3)：未完成节点串行重跑
     if (options.videoMode === 2) {
-      await runPool(videos, options.perCourseConcurrency, (n) => studyVideo(course, n));
+      await runPool(videos, options.perCourseConcurrency, async (n) => {
+        if (blocked) return;
+        const r = await studyVideo(course, n);
+        if (r === "blocked") blocked = true;
+      });
     } else {
       for (const n of videos) {
         if (checkAbort()) return;
-        await studyVideo(course, n);
+        const r = await studyVideo(course, n);
+        if (r === "blocked") return; // 前置链被锁，剩余节点无需再试
       }
     }
     emitLog("info", `课程结束：${course.name}`);
