@@ -5,6 +5,10 @@ import { setUnauthorizedHandler } from "@/api/client";
 
 export const router = createRouter({
   history: createWebHistory(),
+  // 切页回到顶部（保留前进/后退的已存位置），避免旧滚动位置造成内容跳动
+  scrollBehavior(_to, _from, saved) {
+    return saved ?? { top: 0 };
+  },
   routes: [
     { path: "/login", name: "login", component: () => import("@/views/LoginView.vue") },
     {
