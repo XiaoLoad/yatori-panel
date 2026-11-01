@@ -53,6 +53,8 @@ const form = reactive({
   remark: "",
   verify: true,
 });
+// 提交校验的逐字段错误（key = loginField key 或 "platform"）
+const fieldErrors = reactive<Record<string, string>>({});
 
 const platforms = computed<PlatformMeta[]>(() => platformsQuery.data.value ?? []);
 const currentPlatform = computed(() =>
@@ -63,8 +65,28 @@ watch(
   () => form.platform,
   () => {
     form.fields = {};
+    delete fieldErrors.platform;
   },
 );
+
+function validateForm(): boolean {
+  for (const k of Object.keys(fieldErrors)) delete fieldErrors[k];
+  const errors: Record<string, string> = {};
+  if (!form.platform) errors.platform = "请选择平台";
+  for (const f of currentPlatform.value?.loginFields ?? []) {
+    if (!f.required) continue;
+    // 编辑模式下密码留空表示不修改
+    if (editingUid.value && f.key === "password") continue;
+    if (!(form.fields[f.key] ?? "").trim()) errors[f.key] = `${f.label}不能为空`;
+  }
+  Object.assign(fieldErrors, errors);
+  return Object.keys(errors).length === 0;
+}
+
+function submitCreate() {
+  if (!validateForm()) return;
+  saveMutation.mutate();
+}
 
 function openCreate() {
   editingUid.value = null;
@@ -72,6 +94,7 @@ function openCreate() {
   form.fields = {};
   form.remark = "";
   form.verify = true;
+  for (const k of Object.keys(fieldErrors)) delete fieldErrors[k];
   dialogOpen.value = true;
 }
 
@@ -85,6 +108,7 @@ function openEdit(account: AccountWithSession) {
   };
   form.remark = account.remark;
   form.verify = false;
+  for (const k of Object.keys(fieldErrors)) delete fieldErrors[k];
   dialogOpen.value = true;
 }
 
@@ -93,6 +117,7 @@ function fieldModel(key: string) {
     get: () => form.fields[key] ?? "",
     set: (v: string) => {
       form.fields[key] = v;
+      delete fieldErrors[key];
     },
   });
 }
@@ -294,7 +319,7 @@ function showError(err: ApiError, fallback: string) {
 
     <!-- 添加/编辑：字段集来自 /platforms 的 loginFields，新平台无需改这里 -->
     <Dialog v-model:open="dialogOpen">
-      <div class="grid gap-4">
+      <form class="grid gap-4" @submit.prevent="submitCreate">
         <div class="grid gap-1.5">
           <DialogTitle>{{ editingUid ? "编辑账号" : "添加账号" }}</DialogTitle>
           <DialogDescription>
@@ -309,7 +334,9 @@ function showError(err: ApiError, fallback: string) {
             :options="platforms.map((p) => ({ value: p.key, label: `${p.name}${p.mvp ? '' : '（暂未适配面板）'}` }))"
             placeholder="选择平台"
             :disabled="!!editingUid"
+            :class="fieldErrors.platform ? 'border-destructive focus-visible:ring-destructive' : ''"
           />
+          <p v-if="fieldErrors.platform" class="text-xs text-red-500">{{ fieldErrors.platform }}</p>
         </div>
 
         <div
@@ -322,9 +349,10 @@ function showError(err: ApiError, fallback: string) {
             v-model="fieldModel(field.key).value"
             :type="fieldTypes[field.key] ?? 'text'"
             :placeholder="field.placeholder"
-            :required="field.required"
             autocomplete="off"
+            :class="fieldErrors[field.key] ? 'border-destructive focus-visible:ring-destructive' : ''"
           />
+          <p v-if="fieldErrors[field.key]" class="text-xs text-red-500">{{ fieldErrors[field.key] }}</p>
         </div>
 
         <div class="grid gap-2">
@@ -338,12 +366,12 @@ function showError(err: ApiError, fallback: string) {
         </div>
 
         <DialogFooter>
-          <Button variant="outline" @click="dialogOpen = false">取消</Button>
-          <Button :disabled="saveMutation.isPending.value" @click="saveMutation.mutate()">
+          <Button variant="outline" type="button" @click="dialogOpen = false">取消</Button>
+          <Button type="submit" :disabled="saveMutation.isPending.value">
             {{ saveMutation.isPending.value ? "保存中…" : "保存" }}
           </Button>
         </DialogFooter>
-      </div>
+      </form>
     </Dialog>
 
     <!-- 失败详情（含网关回传的 OCR 过程日志） -->
