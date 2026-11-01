@@ -58,6 +58,7 @@ const progressQuery = useQuery({
     return out;
   },
   enabled: computed(() => sessionAccounts.value.length > 0),
+  staleTime: 60_000,
 });
 
 const allCourses = computed(() =>

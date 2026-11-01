@@ -51,6 +51,7 @@ const coursesQuery = useQuery({
   queryFn: () => api.courses(props.account.uid),
   enabled: hasSession,
   refetchInterval: 30_000,
+  staleTime: 60_000, // 60 秒内复用缓存，进页面不再干等
 });
 
 const stat = computed(() => {
@@ -191,6 +192,13 @@ const modeOptions = [
           <div class="flex flex-wrap items-center gap-2">
             <span class="text-lg font-semibold">{{ account.remark || account.username }}</span>
             <Badge variant="secondary">{{ account.platformName }}</Badge>
+            <span
+              v-if="account.sessionState === 'logging_in'"
+              class="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-xs text-sky-600 dark:text-sky-400"
+            >
+              <span class="size-1.5 animate-pulse rounded-full bg-sky-500" />
+              登录中（验证码识别…）
+            </span>
             <Badge v-if="account.lastVerifyOk === 1" variant="success">正常</Badge>
             <Badge v-else-if="account.lastVerifyOk === 0" variant="destructive">检测失败</Badge>
           </div>

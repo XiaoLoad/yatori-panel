@@ -25,6 +25,7 @@ export interface NodeDTO {
 
 export interface AccountWithSession extends AccountVO {
   hasSession: boolean;
+  sessionState?: string; // logging_in / online / error
 }
 
 export interface VerifyResult {
