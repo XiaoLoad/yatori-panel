@@ -171,6 +171,14 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		client: client,
 		logs:   logger,
 	}
+	sess := client.Session()
+	se.baseURL = sess.Extra["url"]
+	se.token = sess.Token
+	se.cookieHeader = sess.Cookie
+	if se.cookieHeader == "" && sess.Token != "" {
+		se.cookieHeader = "token=" + sess.Token
+	}
+	se.startHeartbeat()
 	g.store.put(se)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": se.info})
 }
@@ -202,6 +210,7 @@ func (g *gateway) handleCloseSession(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
+	se.stop()
 	_ = se.client.Close()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

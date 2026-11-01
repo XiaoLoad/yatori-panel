@@ -4,12 +4,16 @@ import { bus } from "../bus.ts";
 import { appendJobEvent } from "../db/jobs.ts";
 import { upsertNode } from "../db/nodes.ts";
 import { getSettings } from "../db/settings.ts";
+import { rebuildSession } from "../sessions.ts";
+import { ensureSessionForUid } from "../sessions.ts";
 import type { JobSummary, StartJobBody } from "../shared.ts";
 
 /** 英华"标红"（并行播放检测）的响应文案 */
 const RED_MESSAGES = ["检测到可能使用并行播放刷课", "检测到并行播放刷课"];
 /** 解锁时间未到：跳过该节点 */
 const UNLOCK_RE = /解锁时间【[^】]*】未到/;
+/** 登录超时：需要重建会话后重试 */
+const RELOGIN_RE = /账号登录超时/;
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -45,13 +49,16 @@ function emptySummary(): JobSummary {
 export async function runJob(
   jobId: string,
   accountUid: string,
-  sid: string,
   options: StartJobBody,
   signal: AbortSignal,
 ): Promise<JobSummary> {
   const settings = getSettings();
   const tickMs = settings.tickSeconds * 1000;
   const summary = emptySummary();
+  // sid 用可变持有：登录超时自愈时会整会话重建
+  let sid = await ensureSessionForUid(accountUid);
+  let rebuilds = 0;
+  const MAX_REBUILDS = 5;
 
   const emit = (e: Omit<import("../shared.ts").JobEvent, "ts">) => {
     const full = { ...e, ts: Date.now() } as import("../shared.ts").JobEvent;
@@ -126,6 +133,22 @@ export async function runJob(
       const msg = res.message ?? "";
       const rawText =
         typeof res.raw === "string" ? res.raw : JSON.stringify(res.raw ?? "");
+
+      // 登录超时 → 重建会话自愈（本次 tick 未成功提交，回退位置后重试）
+      if (RELOGIN_RE.test(msg) || rawText.includes("账号登录超时")) {
+        rebuilds += 1;
+        if (rebuilds > MAX_REBUILDS) {
+          const m = `登录超时且会话重建达上限：${course.name}/${node.name}`;
+          summary.errors.push(m);
+          emitLog("error", m);
+          return;
+        }
+        emitLog("warn", `检测到登录超时，正在重建会话（第 ${rebuilds} 次）…`);
+        position -= settings.tickSeconds;
+        sid = await rebuildSession(accountUid);
+        emitLog("info", "会话已重建，继续当前视频");
+        continue;
+      }
 
       // 标红检测（响应文案）
       const redHit = RED_MESSAGES.some((p) => msg.includes(p) || rawText.includes(p));
