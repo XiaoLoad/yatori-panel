@@ -53,6 +53,21 @@
 - **server**：启动时清理已删除账号遗留的进度快照
 - **shared**：账号/任务校验消息中文化补全
 
+## [v0.8.0] - 2026-11-01
+
+### Added
+
+- **gateway**：`POST /api/v1/preflight` AI/题库可用性预检
+  （对齐 console 的 AICheck / CheckApiQueRequest 前置检查）
+- **server**：发起任务时答题来源预检门禁，不可用直接拒绝启动
+- **server**：作业/考试结果三态化（得分/未确认/未提交），
+  得分进任务摘要
+
+### Fixed
+
+- **web**：交卷失败不再显示「考试完成」（与视频假进度同类
+  问题的作业/考试版修复）
+
 ## [Unreleased]
 
 ### 计划中
