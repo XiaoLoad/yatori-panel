@@ -33,7 +33,7 @@ import { getSettings, saveSettings } from "./db/settings.ts";
 import { HttpError } from "./errors.ts";
 import { GatewayError, gateway } from "./gateway.ts";
 import { jobManager } from "./jobs/manager.ts";
-import { dropSession, ensureSession, getSessionId } from "./sessions.ts";
+import { dropSession, ensureSession, getSessionId, getSessionState } from "./sessions.ts";
 
 function parse<T>(body: unknown, schema: ZodType<T, ZodTypeDef, unknown>): T {
   const r = schema.safeParse(body);
@@ -158,7 +158,11 @@ export function registerRoutes(app: FastifyInstance): void {
     const accounts = listAccounts();
     return {
       ok: true,
-      data: accounts.map((a) => ({ ...a, hasSession: !!getSessionId(a.uid) })),
+      data: accounts.map((a) => ({
+        ...a,
+        hasSession: !!getSessionId(a.uid),
+        sessionState: getSessionState(a.uid),
+      })),
     };
   });
 

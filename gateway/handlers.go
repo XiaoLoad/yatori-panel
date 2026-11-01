@@ -201,27 +201,11 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeout := time.Duration(req.LoginTimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 90 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	if req.Cookie != "" {
-		err = client.LoginWithCookie(ctx, req.Cookie)
-	} else {
-		err = client.Login(ctx)
-	}
-	if err != nil {
-		_ = client.Close()
-		// 带上最近日志（含验证码 OCR 过程），便于前端直接展示失败原因
-		writeJSON(w, http.StatusUnauthorized, map[string]any{
-			"ok":    false,
-			"error": err.Error(),
-			"logs":  logger.recent(),
-		})
-		return
+	// 登录异步化：会话先以 logging_in 状态入库并立即返回，登录过程
+	// 通过会话日志流实时可见，结果经状态机（online/error）回传。
+	loginTimeout := time.Duration(req.LoginTimeoutSeconds) * time.Second
+	if loginTimeout <= 0 {
+		loginTimeout = 90 * time.Second
 	}
 
 	se := &session{
@@ -232,6 +216,7 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			Account:      req.Username,
 			Capabilities: capsToStrings(client.Capabilities()),
 			CreatedAt:    time.Now().Format(time.RFC3339),
+			State:        "logging_in",
 		},
 		client: client,
 		logs:   logger,
@@ -243,8 +228,40 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if se.cookieHeader == "" && sess.Token != "" {
 		se.cookieHeader = "token=" + sess.Token
 	}
-	se.startHeartbeat()
+	// 清理同账号失败的历史会话，避免反复登录失败导致堆积
+	g.store.removeFailedFor(platform.String(), req.Username)
 	g.store.put(se)
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), loginTimeout)
+		defer cancel()
+		se.stateMu.Lock()
+		se.loginCancel = cancel
+		se.stateMu.Unlock()
+
+		var loginErr error
+		if req.Cookie != "" {
+			loginErr = client.LoginWithCookie(ctx, req.Cookie)
+		} else {
+			loginErr = client.Login(ctx)
+		}
+		if loginErr != nil {
+			se.setState("error", loginErr.Error())
+			se.logs.logf("error", "登录失败: "+loginErr.Error())
+			return
+		}
+		sess := client.Session()
+		se.baseURL = sess.Extra["url"]
+		se.token = sess.Token
+		se.cookieHeader = sess.Cookie
+		if se.cookieHeader == "" && sess.Token != "" {
+			se.cookieHeader = "token=" + sess.Token
+		}
+		se.setState("online", "")
+		se.startHeartbeat()
+		se.logs.logf("info", "登录成功")
+	}()
+
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": se.info})
 }
 

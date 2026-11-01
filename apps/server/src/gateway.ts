@@ -74,6 +74,8 @@ export interface GatewaySessionInfo {
   account: string;
   capabilities: string[];
   createdAt: string;
+  state: string; // logging_in / online / error
+  lastError?: string;
 }
 
 export interface GatewayLogEntry {
@@ -150,6 +152,12 @@ async function request<T>(
 export const gateway = {
   health: () => request<{ status: string }>("/api/v1/health", "GET"),
   platforms: () => request<PlatformMetaDTO[]>("/api/v1/platforms", "GET"),
+  sessions: () => request<GatewaySessionInfo[]>("/api/v1/sessions", "GET"),
+  sessionInfo: (sid: string) =>
+    request<{
+      info: GatewaySessionInfo;
+      session: Record<string, unknown>;
+    }>(`/api/v1/sessions/${sid}`, "GET"),
   preflight: (body: {
     source: "ai" | "bank";
     ai?: { type: string; url: string; model: string; apiKey: string };

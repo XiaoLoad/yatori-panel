@@ -23,6 +23,8 @@ type sessionInfo struct {
 	Account      string   `json:"account"`
 	Capabilities []string `json:"capabilities"`
 	CreatedAt    string   `json:"createdAt"`
+	State        string   `json:"state"`            // logging_in / online / error
+	LastError    string   `json:"lastError,omitempty"`
 }
 
 // session = 一个上游账号的存活 SDK 客户端 + 它的日志管道 + 心跳保活。
@@ -37,9 +39,30 @@ type session struct {
 	token        string
 	cookieHeader string
 
+	stateMu     sync.RWMutex
+	state       string
+	lastError   string
+	loginCancel func()
+
 	stopHB    chan struct{}
 	stopOnce  sync.Once
 	startOnce sync.Once
+}
+
+// setState 更新会话生命周期状态（logging_in / online / error）。
+func (s *session) setState(state, errMsg string) {
+	s.stateMu.Lock()
+	s.state = state
+	s.lastError = errMsg
+	s.info.State = state
+	s.info.LastError = errMsg
+	s.stateMu.Unlock()
+}
+
+func (s *session) currentState() string {
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
+	return s.state
 }
 
 const heartbeatInterval = 5 * time.Minute
@@ -107,6 +130,12 @@ func (s *session) stop() {
 			close(s.stopHB)
 		}
 	})
+	s.stateMu.RLock()
+	cancel := s.loginCancel
+	s.stateMu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 type sessionStore struct {
@@ -149,6 +178,20 @@ func (s *sessionStore) list() []sessionInfo {
 		out = append(out, se.info)
 	}
 	return out
+}
+
+// removeFailedFor 清理同平台同账号处于 error 状态的历史会话，
+// 防止反复登录失败导致网关侧会话堆积。
+func (s *sessionStore) removeFailedFor(platform, account string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, se := range s.m {
+		if se.info.Platform == platform && se.info.Account == account && se.currentState() == "error" {
+			se.stop()
+			_ = se.client.Close()
+			delete(s.m, id)
+		}
+	}
 }
 
 func (s *sessionStore) closeAll() {

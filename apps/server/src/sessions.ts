@@ -4,7 +4,7 @@ import { bus } from "./bus.ts";
 import { getAccount } from "./db/accounts.ts";
 import { getSettings } from "./db/settings.ts";
 import { env } from "./env.ts";
-import { gateway } from "./gateway.ts";
+import { GatewayError, gateway } from "./gateway.ts";
 import { HttpError } from "./errors.ts";
 
 interface LiveSession {
@@ -14,6 +14,8 @@ interface LiveSession {
 
 /** accountUid → 网关会话。会话即登录态，进程重启后惰性重建。 */
 const live = new Map<string, LiveSession>();
+/** accountUid → 网关侧会话状态（logging_in / online / error） */
+const sessionStates = new Map<string, string>();
 
 /** 把网关 SSE 日志流转发进面板事件总线（log 事件）。 */
 async function attachLogForwarder(
@@ -63,9 +65,30 @@ async function attachLogForwarder(
   return () => ac.abort();
 }
 
+/** 轮询网关会话直到登录完成或失败（登录已异步化） */
+async function waitForOnline(sessionId: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const info = await gateway.sessionInfo(sessionId);
+    const state = info.info.state;
+    sessionStates.set(sessionId, state);
+    if (state === "online") return;
+    if (state === "error") {
+      const logs = await gateway.recentLogs(sessionId).catch(() => []);
+      throw new GatewayError(info.info.lastError || "登录失败", 401, logs);
+    }
+    if (Date.now() > deadline) {
+      throw new GatewayError("登录超时", 504);
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
 /**
- * 确保账号有一个存活会话（没有则创建并登录）。
- * 登录失败抛 GatewayError（带网关返回的 OCR 过程日志）。
+ * 确保账号有一个存活会话：
+ * 1. 面板内已有 → 直接复用
+ * 2. 网关侧有同平台同账号的在线会话（面板重启后遗留）→ 认领，避免重复登录
+ * 3. 都没有 → 创建并等待登录完成（登录日志实时转发）
  */
 export async function ensureSession(
   account: AccountVO & { password: string },
@@ -73,8 +96,33 @@ export async function ensureSession(
   const existing = live.get(account.uid);
   if (existing) return existing.sessionId;
 
+  // 认领网关侧现存会话（面板重启后网关进程未重启的场景）
+  try {
+    const listed = await gateway.sessions();
+    const match = listed.find(
+      (s) =>
+        s.state === "online" &&
+        s.platform === account.platform &&
+        s.account === account.username,
+    );
+    if (match) {
+      const stopLogs = await attachLogForwarder(account.uid, match.sessionId);
+      live.set(account.uid, { sessionId: match.sessionId, stopLogs });
+      sessionStates.set(match.sessionId, "online");
+      bus.publish({
+        type: "account.state",
+        ts: Date.now(),
+        accountId: account.uid,
+        message: "online（认领现存会话）",
+      });
+      return match.sessionId;
+    }
+  } catch {
+    /* 网关列表拉取失败则走创建路径 */
+  }
+
   const settings = getSettings();
-  const info = await gateway.createSession({
+  const created = await gateway.createSession({
     platform: account.platform,
     username: account.username,
     password: account.password,
@@ -98,15 +146,27 @@ export async function ensureSession(
         : undefined,
   });
 
-  const stopLogs = await attachLogForwarder(account.uid, info.sessionId);
-  live.set(account.uid, { sessionId: info.sessionId, stopLogs });
+  // 会话已入库（logging_in）：日志转发立即挂上，登录过程实时可见
+  const stopLogs = await attachLogForwarder(account.uid, created.sessionId);
+  sessionStates.set(created.sessionId, "logging_in");
+  live.set(account.uid, { sessionId: created.sessionId, stopLogs });
+
+  try {
+    await waitForOnline(created.sessionId, 120_000);
+  } catch (err) {
+    // 登录失败：从 live 移除（网关侧会话保留 error 状态供日志查询）
+    live.delete(account.uid);
+    throw err;
+  }
+
+  live.set(account.uid, { sessionId: created.sessionId, stopLogs });
   bus.publish({
     type: "account.state",
     ts: Date.now(),
     accountId: account.uid,
     message: "online",
   });
-  return info.sessionId;
+  return created.sessionId;
 }
 
 export function getSessionId(accountUid: string): string | undefined {
@@ -131,10 +191,15 @@ export async function rebuildSession(accountUid: string): Promise<string> {
   return ensureSessionForUid(accountUid);
 }
 
+export function getSessionState(accountUid: string): string | undefined {
+  return sessionStates.get(accountUid);
+}
+
 export async function dropSession(accountUid: string): Promise<void> {
   const s = live.get(accountUid);
   if (!s) return;
   live.delete(accountUid);
+  sessionStates.delete(s.sessionId);
   s.stopLogs();
   try {
     await gateway.closeSession(s.sessionId);

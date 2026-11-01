@@ -35,6 +35,7 @@ const coursesQuery = useQuery({
   queryKey: computed(() => ["courses", accountUid.value]),
   queryFn: () => api.courses(accountUid.value),
   enabled: computed(() => !!accountUid.value),
+  staleTime: 60_000,
 });
 
 const selectedCourse = ref<CourseDTO | null>(null);
