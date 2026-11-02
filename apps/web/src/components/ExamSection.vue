@@ -88,13 +88,13 @@ watch(
 );
 
 // 答题源与交卷策略在区块级选择，逐场复用
-const source = ref<"off" | "ai" | "bank">("ai");
+const source = ref<"off" | "ai" | "bank">("bank");
 const sourceOptions = [
   { value: "off", label: "仅拉取题目，不答题" },
   { value: "ai", label: "AI 答题（需在全局设置配置）" },
   { value: "bank", label: "外置题库（需在全局设置配置）" },
 ];
-const submitMode = ref<"off" | "direct" | "smart">("smart");
+const submitMode = ref<"off" | "direct" | "smart">("off");
 const submitModeOptions = [
   { value: "off", label: "不交卷（答案仅保存为草稿）" },
   { value: "smart", label: "智能交卷（有留空则不交卷）" },
