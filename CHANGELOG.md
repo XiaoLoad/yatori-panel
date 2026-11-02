@@ -19,6 +19,12 @@
 - **web**：设置页字段宽度统一（URL 类长字段全宽）；题库地址/密钥
   placeholder 明确"密钥随 URL 参数携带，密钥项留空即可"
 
+### Fixed
+
+- **web**：页面入场动画与快速路由切换竞态——动画中途切页时 Vue 卸载节点
+  触发 `parentNode is null` 报错；改为卸载前终止补间、清理内联样式，
+  元素集合 nextTick 快照（gsap.context 托管）
+
 ### Changed
 
 - **server**：任务发起与单场考试触发新增答题配置前置校验——AI/题库
