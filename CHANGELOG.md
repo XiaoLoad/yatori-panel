@@ -32,6 +32,8 @@
 - **web**：页面入场动画与快速路由切换竞态——动画中途切页时 Vue 卸载节点
   触发 `parentNode is null` 报错；改为卸载前终止补间、清理内联样式，
   元素集合 nextTick 快照（gsap.context 托管）
+- **web**：日志页筛选项使用空字符串 value 触发 reka-ui SelectItem
+  断言报错——"全部"选项改用哨兵值
 
 ### Changed
 
