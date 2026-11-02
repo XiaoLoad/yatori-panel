@@ -43,6 +43,17 @@ export interface ExamResultDTO {
   message?: string;
 }
 
+export interface ExamStartResult {
+  started: boolean;
+  examName: string;
+}
+
+export interface ExamRunningItem {
+  accountUid: string;
+  courseId: string;
+  examId: string;
+}
+
 export interface AccountWithSession extends AccountVO {
   hasSession: boolean;
   sessionState?: string; // logging_in / online / error
@@ -100,8 +111,15 @@ export const api = {
   doExam: (
     uid: string,
     courseId: string,
-    body: { examId: string; source: "off" | "ai" | "bank"; submitMode?: "off" | "direct" | "smart" },
-  ) => post<ExamResultDTO>(`/accounts/${uid}/courses/${courseId}/exams/do`, body),
+    body: {
+      examId: string;
+      examName?: string;
+      source: "off" | "ai" | "bank";
+      submitMode?: "off" | "direct" | "smart";
+    },
+  ) => post<ExamStartResult>(`/accounts/${uid}/courses/${courseId}/exams/do`, body),
+  runningExams: (uid: string) =>
+    get<ExamRunningItem[]>(`/accounts/${uid}/exams/running`),
 
   startJob: (body: StartJobBody) => post<JobVO>("/jobs", body),
   stopJob: (id: string) =>

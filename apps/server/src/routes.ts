@@ -49,6 +49,7 @@ import { GatewayError, gateway } from "./gateway.ts";
 import { refreshGatewayStatus, snapshot } from "./gateway-status.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { dropSession, ensureSession, getSessionId, getSessionState } from "./sessions.ts";
+import { isExamRunning, listRunningExams, runSingleExam } from "./single-exam.ts";
 
 /** AI/题库配置的零成本前置校验：缺配置直接拒绝，不发起注定失败的探针请求 */
 function ensureAnswerConfigReady(
@@ -402,7 +403,8 @@ export function registerRoutes(app: FastifyInstance): void {
     return { ok: true, data: await gateway.exams(sid, courseId) };
   });
 
-  // 单场考试触发：与任务发起同一套答题来源预检门禁，不可用直接拒绝
+  // 单场考试触发：与任务发起同一套答题来源预检门禁，不可用直接拒绝。
+  // 后台执行 + SSE 实时状态（同步 HTTP 会让答题期间前端无任何反馈）。
   app.post("/api/v1/accounts/:uid/courses/:courseId/exams/do", async (req) => {
     const account = getAccount((req.params as { uid: string }).uid);
     if (!account) throw new HttpError(404, "账号不存在");
@@ -411,10 +413,14 @@ export function registerRoutes(app: FastifyInstance): void {
       req.body,
       z.object({
         examId: z.string({ required_error: "缺少考试 ID" }).min(1, "缺少考试 ID"),
+        examName: z.string().optional().default(""),
         source: AnswerSourceEnum,
         submitMode: SubmitModeEnum.optional().default("direct"),
       }),
     );
+    if (isExamRunning(account.uid, courseId, body.examId)) {
+      throw new HttpError(409, "该考试正在答题中，请等待完成");
+    }
     if (body.source !== "off") {
       const settings = getSettings();
       ensureAnswerConfigReady(body.source, settings);
@@ -441,30 +447,27 @@ export function registerRoutes(app: FastifyInstance): void {
         throw new HttpError(400, `${label}预检未通过：${pre.error ?? "不可用"}`);
       }
     }
-    const sid = await ensureSession(account);
-    // 智能交卷：先全保存，检测留空，无留空才二次交卷
-    const run = (submit: boolean) =>
-      gateway.doExam(sid, {
-        courseId,
-        examId: body.examId,
-        source: body.source,
-        submit,
-      });
-    let r;
-    if (body.submitMode === "smart") {
-      const saved = await run(false);
-      const blank = (saved.answers ?? []).filter((a) => !a.value || a.value.length === 0).length;
-      if (blank > 0) {
-        return {
-          ok: true,
-          data: { ...saved, message: `${blank} 题未答上（留空），仅保存不交卷` },
-        };
-      }
-      r = await run(true);
-    } else {
-      r = await run(body.submitMode === "direct");
-    }
-    return { ok: true, data: r };
+    await ensureSession(account);
+    const examName = body.examName || body.examId;
+    void runSingleExam({
+      accountUid: account.uid,
+      courseId,
+      examId: body.examId,
+      examName,
+      source: body.source,
+      submitMode: body.submitMode,
+    });
+    return { ok: true, data: { started: true, examName } };
+  });
+
+  // 单场考试运行状态（前端刷新页面后恢复"答题中"显示）
+  app.get("/api/v1/accounts/:uid/exams/running", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    return {
+      ok: true,
+      data: listRunningExams().filter((r) => r.accountUid === account.uid),
+    };
   });
 
   // ---------- 任务 ----------
