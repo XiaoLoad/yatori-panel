@@ -82,6 +82,33 @@ export type StartJobBody = z.infer<typeof StartJobBody>;
 
 export type JobState = "running" | "stopped" | "done" | "error";
 
+// ---------- 定时任务 ----------
+
+export interface ScheduleVO {
+  id: string;
+  accountUid: string;
+  cron: string;
+  videoMode: 1 | 2 | 3;
+  answerSource: "off" | "ai" | "bank";
+  autoSubmit: boolean;
+  enabled: boolean;
+  lastRunAt?: string | null;
+  createdAt: string;
+}
+
+export const CreateScheduleBody = z.object({
+  accountUid: z
+    .string({ required_error: "请选择账号", invalid_type_error: "请选择账号" })
+    .min(1, "请选择账号"),
+  cron: z
+    .string({ required_error: "请填写 cron 表达式", invalid_type_error: "请填写 cron 表达式" })
+    .min(1, "请填写 cron 表达式"),
+  videoMode: VideoModeEnum.optional().default(1),
+  answerSource: AnswerSourceEnum.optional().default("off"),
+  autoSubmit: z.boolean().optional().default(false),
+});
+export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
+
 export interface JobSummary {
   courses: number;
   videosCompleted: number;

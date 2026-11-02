@@ -10,6 +10,7 @@ import { env } from "./env.ts";
 import { gateway } from "./gateway.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { registerRoutes } from "./routes.ts";
+import { startScheduler } from "./scheduler.ts";
 import { dropAllSessions } from "./sessions.ts";
 
 // 无需会话的接口：健康探针与登录流程自身
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
   });
 
   registerRoutes(app);
+  startScheduler();
 
   // 前端构建产物存在时同源托管（生产模式单端口，开发模式走 Vite 代理）
   const indexHtml = path.join(env.webDist, "index.html");

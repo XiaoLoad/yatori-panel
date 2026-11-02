@@ -123,6 +123,10 @@ class JobManager {
     return true;
   }
 
+  isAccountBusy(accountUid: string): boolean {
+    return [...this.running.values()].some((r) => r.accountUid === accountUid);
+  }
+
   stopByAccount(accountUid: string): boolean {
     let stopped = false;
     for (const r of this.running.values()) {

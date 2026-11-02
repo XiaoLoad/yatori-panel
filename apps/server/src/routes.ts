@@ -3,6 +3,7 @@ import "@fastify/cookie";
 import type { ZodType, ZodTypeDef } from "zod";
 import {
   CreateAccountBody,
+  CreateScheduleBody,
   StartJobBody,
   UpdateAccountBody,
   UpdateSettingsBody,
@@ -29,6 +30,15 @@ import {
   verifySession,
 } from "./db/auth.ts";
 import { sqlite } from "./db/index.ts";
+import {
+  deleteSchedule,
+  getSchedule,
+  insertSchedule,
+  listSchedules,
+  setScheduleEnabled,
+} from "./db/schedules.ts";
+import { registerSchedule, unregisterSchedule } from "./scheduler.ts";
+import cron from "node-cron";
 import { getSettings, saveSettings } from "./db/settings.ts";
 import { HttpError } from "./errors.ts";
 import { GatewayError, gateway } from "./gateway.ts";
@@ -241,6 +251,40 @@ export function registerRoutes(app: FastifyInstance): void {
     jobManager.stopByAccount(uid);
     await dropSession(uid);
     deleteAccount(uid);
+    return { ok: true };
+  });
+
+  // ---------- 定时任务 ----------
+  app.get("/api/v1/schedules", async () => {
+    return { ok: true, data: listSchedules() };
+  });
+
+  app.post("/api/v1/schedules", async (req) => {
+    const body = parse<CreateScheduleBody>(req.body, CreateScheduleBody);
+    if (!cron.validate(body.cron)) {
+      throw new HttpError(400, "cron 表达式无效");
+    }
+    const account = getAccount(body.accountUid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const job = insertSchedule(body);
+    registerSchedule(job);
+    return { ok: true, data: job };
+  });
+
+  app.post("/api/v1/schedules/:id/toggle", async (req) => {
+    const schedule = getSchedule((req.params as { id: string }).id);
+    if (!schedule) throw new HttpError(404, "定时任务不存在");
+    const enabled = !schedule.enabled;
+    setScheduleEnabled(schedule.id, enabled);
+    if (enabled) registerSchedule(schedule);
+    else unregisterSchedule(schedule.id);
+    return { ok: true, data: { enabled } };
+  });
+
+  app.delete("/api/v1/schedules/:id", async (req) => {
+    const { id } = req.params as { id: string };
+    unregisterSchedule(id);
+    deleteSchedule(id);
     return { ok: true };
   });
 

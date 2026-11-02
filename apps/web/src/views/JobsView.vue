@@ -1,8 +1,18 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlertTriangle, Square } from "lucide-vue-next";
-import { computed } from "vue";
+import { AlarmClock, AlertTriangle, Plus, Square, Trash2 } from "lucide-vue-next";
+import { computed, ref } from "vue";
 import { toast } from "vue-sonner";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { api } from "@/api/resources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +45,11 @@ const jobsQuery = useQuery({
   refetchInterval: 5000,
 });
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const schedulesQuery = useQuery({
+  queryKey: ["schedules"],
+  queryFn: api.schedules,
+  refetchInterval: 30_000,
+});
 
 function accountLabel(uid: string) {
   const a = accountsQuery.data.value?.find((x) => x.uid === uid);
@@ -75,6 +90,102 @@ const stopMutation = useMutation({
   },
   onError: (err) => toast.error((err as Error).message),
 });
+
+// 定时任务表单的类型收窄辅助
+const scheduleVideoModeModel = computed({
+  get: () => String(scheduleForm.value.videoMode),
+  set: (v: string) => {
+    scheduleForm.value.videoMode = Number(v) as 1 | 2 | 3;
+  },
+});
+
+// ---------- 定时任务 ----------
+
+const CRON_PRESETS = [
+  { value: "0 2 * * *", label: "每天 02:00" },
+  { value: "0 12 * * *", label: "每天 12:00" },
+  { value: "0 */6 * * *", label: "每 6 小时" },
+];
+
+const scheduleDialogOpen = ref(false);
+const scheduleForm = ref({
+  accountUid: "",
+  cron: "0 2 * * *",
+  videoMode: 1,
+  answerSource: "off",
+  autoSubmit: false,
+});
+
+const accountOptions = computed(() =>
+  (accountsQuery.data.value ?? []).map((a) => ({
+    value: a.uid,
+    label: a.remark ? `${a.remark} · ${a.username}` : a.username,
+  })),
+);
+
+const cronPresetModel = computed({
+  get: () => CRON_PRESETS.find((p) => p.value === scheduleForm.value.cron)?.value ?? "custom",
+  set: (v: string) => {
+    if (v !== "custom") scheduleForm.value.cron = v;
+  },
+});
+
+function openScheduleDialog() {
+  scheduleForm.value = {
+    accountUid: accountOptions.value[0]?.value ?? "",
+    cron: "0 2 * * *",
+    videoMode: 1,
+    answerSource: "off",
+    autoSubmit: false,
+  };
+  scheduleDialogOpen.value = true;
+}
+
+const createScheduleMutation = useMutation({
+  mutationFn: () =>
+    api.createSchedule({
+      accountUid: scheduleForm.value.accountUid,
+      cron: scheduleForm.value.cron,
+      videoMode: scheduleForm.value.videoMode as 1 | 2 | 3,
+      answerSource: scheduleForm.value.answerSource as "off" | "ai" | "bank",
+      autoSubmit: scheduleForm.value.autoSubmit,
+    }),
+  onSuccess: () => {
+    toast.success("定时任务已创建");
+    queryClient.invalidateQueries({ queryKey: ["schedules"] });
+    scheduleDialogOpen.value = false;
+  },
+  onError: (err) => toast.error((err as Error).message),
+});
+
+function submitSchedule() {
+  if (!scheduleForm.value.accountUid) {
+    toast.error("请选择账号");
+    return;
+  }
+  createScheduleMutation.mutate();
+}
+
+const deleteScheduleMutation = useMutation({
+  mutationFn: (id: string) => api.deleteSchedule(id),
+  onSuccess: () => {
+    toast.success("定时任务已删除");
+    queryClient.invalidateQueries({ queryKey: ["schedules"] });
+  },
+  onError: (err) => toast.error((err as Error).message),
+});
+
+const toggleScheduleMutation = useMutation({
+  mutationFn: (id: string) => api.toggleSchedule(id),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["schedules"] });
+  },
+  onError: (err) => toast.error((err as Error).message),
+});
+
+function scheduleAccountLabel(uid: string) {
+  return accountLabel(uid);
+}
 </script>
 
 <template>
@@ -134,6 +245,120 @@ const stopMutation = useMutation({
         </CardContent>
       </Card>
     </div>
+
+    <!-- 定时任务 -->
+    <Card>
+      <CardHeader class="flex-row items-center justify-between space-y-0">
+        <div class="flex items-center gap-2.5">
+          <div class="flex size-9 items-center justify-center rounded-lg bg-muted">
+            <AlarmClock class="size-4 text-muted-foreground" />
+          </div>
+          <div class="space-y-0.5">
+            <CardTitle class="text-base">定时任务</CardTitle>
+            <CardDescription>按 cron 周期自动刷全部未完成课程</CardDescription>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" @click="openScheduleDialog">
+          <Plus />新建
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <div v-if="schedulesQuery.isLoading.value" class="space-y-2">
+          <Skeleton v-for="i in 2" :key="i" class="h-10 w-full" />
+        </div>
+        <EmptyState
+          v-else-if="!schedulesQuery.data.value?.length"
+          :icon="AlarmClock"
+          title="没有定时任务"
+          description="例如每天凌晨 2 点自动挂机刷课"
+        />
+        <div v-else class="space-y-2">
+          <div
+            v-for="s in schedulesQuery.data.value"
+            :key="s.id"
+            class="flex items-center gap-3 rounded-lg border px-3 py-2.5"
+          >
+            <Badge :variant="s.enabled ? 'success' : 'outline'">
+              {{ s.enabled ? "启用" : "停用" }}
+            </Badge>
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-sm font-medium">{{ scheduleAccountLabel(s.accountUid) }}</div>
+              <div class="text-xs text-muted-foreground">
+                cron：<code class="rounded bg-muted px-1">{{ s.cron }}</code>
+                · {{ modeText(s.videoMode) }}模式 · {{ sourceText(s.answerSource) }}
+                <template v-if="s.lastRunAt">· 上次触发 {{ relativeTime(s.lastRunAt) }}</template>
+              </div>
+            </div>
+            <Button variant="ghost" size="sm" @click="toggleScheduleMutation.mutate(s.id)">
+              {{ s.enabled ? "停用" : "启用" }}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              class="text-destructive hover:text-destructive"
+              @click="deleteScheduleMutation.mutate(s.id)"
+            >
+              <Trash2 class="size-4" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
+    <!-- 新建定时任务对话框 -->
+    <Dialog v-model:open="scheduleDialogOpen">
+      <form class="grid gap-4" @submit.prevent="submitSchedule">
+        <div class="grid gap-1.5">
+          <DialogTitle>新建定时任务</DialogTitle>
+          <DialogDescription>到点自动以「全部未完成课程」发起任务</DialogDescription>
+        </div>
+        <div class="grid gap-2">
+          <Label>账号</Label>
+          <Select v-model="scheduleForm.accountUid" :options="accountOptions" placeholder="选择账号" />
+        </div>
+        <div class="grid gap-2">
+          <Label>触发周期</Label>
+          <Select v-model="cronPresetModel" :options="[...CRON_PRESETS, { value: 'custom', label: '自定义 ↓' }]" />
+        </div>
+        <div v-if="cronPresetModel === 'custom'" class="grid gap-2">
+          <Label>cron 表达式</Label>
+          <Input v-model="scheduleForm.cron" placeholder="0 2 * * *" />
+          <p class="text-xs text-muted-foreground">分 时 日 月 周，例如 0 2 * * * = 每天 02:00</p>
+        </div>
+        <div class="grid gap-2">
+          <Label>刷课模式</Label>
+          <Select
+            v-model="scheduleVideoModeModel"
+            :options="[
+              { value: '1', label: '普通模式' },
+              { value: '2', label: '暴力模式（并发同刷，可能标红）' },
+              { value: '3', label: '去红模式' },
+            ]"
+          />
+        </div>
+        <div class="grid gap-2">
+          <Label>答题来源</Label>
+          <Select
+            v-model="scheduleForm.answerSource"
+            :options="[
+              { value: 'off', label: '不自动答题' },
+              { value: 'ai', label: 'AI 答题（需在全局设置配置）' },
+              { value: 'bank', label: '外置题库' },
+            ]"
+          />
+        </div>
+        <div class="flex items-center gap-3">
+          <Switch v-model="scheduleForm.autoSubmit" />
+          <Label class="font-normal">完成后自动提交</Label>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" type="button" @click="scheduleDialogOpen = false">取消</Button>
+          <Button type="submit" :disabled="createScheduleMutation.isPending.value">
+            {{ createScheduleMutation.isPending.value ? "创建中…" : "创建" }}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
 
     <!-- 标红提醒 -->
     <Card v-if="events.flags.length" class="border-amber-500/40">
