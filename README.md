@@ -47,4 +47,6 @@ Windows 日常使用：双击 `start.bat` 启动，`stop.bat` 停止
 
 ## 版本
 
-见 [CHANGELOG.md](./CHANGELOG.md)。遵循 Conventional Commits；main 分支每个提交必须通过双包类型检查。
+见 [CHANGELOG.md](./CHANGELOG.md)。遵循 Conventional Commits；main 分支每个提交必须通过三包类型检查。
+
+变更日志由 [git-cliff](./cliff.toml) 从提交信息生成初稿，发版时人工润色（`bun run changelog:release <版本>`）。
