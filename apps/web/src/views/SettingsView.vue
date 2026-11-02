@@ -272,7 +272,7 @@ const disableMutation = useMutation({
 </script>
 
 <template>
-  <div ref="root" class="mx-auto max-w-3xl space-y-6">
+  <div ref="root" class="space-y-6">
     <div class="reveal flex items-end justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold tracking-tight">全局设置</h1>
