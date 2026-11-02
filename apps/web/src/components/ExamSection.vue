@@ -41,6 +41,8 @@ const runningQuery = useQuery({
 
 // ---------- 实时过程日志（SSE log 事件按本账号过滤） ----------
 const liveLogs = ref<{ level: string; message: string }[]>([]);
+// 逐题答题进度（解析「第 N/M 题」日志行）
+const progress = ref<{ current: number; total: number } | null>(null);
 // 全局事件流里本账号的 [单场考试] 日志 → 过程面板 + 结果 toast
 watch(
   () => events.logs.length,
@@ -51,18 +53,35 @@ watch(
     const message = last.message.replace("[单场考试] ", "");
     liveLogs.value.push({ level: last.level ?? "info", message });
     if (liveLogs.value.length > 50) liveLogs.value.shift();
-    if (/完成，得分/.test(message)) {
+    // 逐题进度行 → 更新进度条（开始新一轮时重置）
+    const m = message.match(/第 (\d+)\/(\d+) 题/);
+    if (m) {
+      const cur = Number(m[1]);
+      const total = Number(m[2]);
+      if (!progress.value || progress.value.total !== total || cur < progress.value.current) {
+        progress.value = { current: cur, total };
+      } else {
+        progress.value = { current: cur, total };
+      }
+    } else if (/开始（|逐题模式开始/.test(message)) {
+      progress.value = null;
+    }
+    if (/完成，得分|已交卷/.test(message)) {
       toast.success(message);
+      progress.value = null;
       void queryClient.invalidateQueries({ queryKey: ["exams-running", props.accountUid] });
       void queryClient.invalidateQueries({ queryKey: ["exams", props.accountUid, props.courseId] });
-    } else if (/留空.*不交卷/.test(message)) {
+    } else if (/留空.*不交卷|跳过提交/.test(message)) {
       toast.warning(message);
+      progress.value = null;
       void queryClient.invalidateQueries({ queryKey: ["exams-running", props.accountUid] });
     } else if (/失败/.test(message)) {
       toast.error(message);
+      progress.value = null;
       void queryClient.invalidateQueries({ queryKey: ["exams-running", props.accountUid] });
     } else if (/已提交但未确认|已答题，未提交/.test(message)) {
       toast.info(message);
+      progress.value = null;
       void queryClient.invalidateQueries({ queryKey: ["exams-running", props.accountUid] });
     }
   },
@@ -159,7 +178,18 @@ function statusBadge(status: string): { label: string; variant: "secondary" | "s
 
     <!-- 实时过程 -->
     <div v-if="liveLogs.length" class="mt-3 rounded-md border bg-muted/30 p-3">
-      <p class="mb-1.5 text-xs font-medium text-muted-foreground">实时过程</p>
+      <div class="mb-1.5 flex items-center justify-between gap-2">
+        <p class="text-xs font-medium text-muted-foreground">实时过程</p>
+        <p v-if="progress" class="text-xs tabular-nums text-muted-foreground">
+          进度 {{ progress.current }}/{{ progress.total }}
+        </p>
+      </div>
+      <div v-if="progress" class="mb-2 h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          class="h-full rounded-full bg-primary transition-all"
+          :style="{ width: `${Math.round((progress.current / progress.total) * 100)}%` }"
+        />
+      </div>
       <div class="max-h-40 space-y-0.5 overflow-y-auto font-mono text-xs leading-5">
         <p
           v-for="(l, i) in liveLogs"

@@ -98,6 +98,35 @@ export interface GatewayLogEntry {
   message: string;
 }
 
+/** 逐题考试进度事件（网关 exams/detail SSE） */
+export interface GatewayExamProgress {
+  index: number;
+  total: number;
+  type: string;
+  content: string;
+  answer: string[];
+  blank: boolean;
+  hit: boolean;
+  savedMsg?: string;
+  err?: string;
+}
+
+/** 逐题考试最终结果 */
+export interface GatewayExamDetailResult {
+  submitted: boolean;
+  total: number;
+  answered: number;
+  blank: number;
+  answers: {
+    index: number;
+    type: string;
+    content: string;
+    value: string[];
+    blank: boolean;
+    hit: boolean;
+  }[];
+}
+
 export interface PlatformMetaDTO {
   key: string;
   name: string;
@@ -214,6 +243,67 @@ export const gateway = {
     request<GatewayAnswerResult>(`/api/v1/sessions/${sid}/works/do`, "POST", body),
   doExam: (sid: string, body: { courseId: string; examId: string; source: string; submit: boolean }) =>
     request<GatewayAnswerResult>(`/api/v1/sessions/${sid}/exams/do`, "POST", body),
+  /**
+   * 逐题模式考试（SSE）：onProgress 每题回调，resolve 于最终 result。
+   * 仅英华支持；网关不支持/出错时 reject（错误信息含网关 error 事件）。
+   */
+  examDetail: (
+    sid: string,
+    body: { courseId: string; examId: string; nodeId: string; bankUrl: string; submitMode: string },
+    onProgress: (p: GatewayExamProgress) => void,
+  ): Promise<GatewayExamDetailResult> =>
+    new Promise((resolve, reject) => {
+      void (async () => {
+        let res: Response;
+        try {
+          res = await fetch(`${env.gatewayURL}/api/v1/sessions/${sid}/exams/detail`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+        } catch (err) {
+          reject(new GatewayError(`网关不可达（${env.gatewayURL}）：${(err as Error).message}`, 503));
+          return;
+        }
+        if (!res.ok && res.headers.get("content-type")?.includes("application/json")) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          reject(new GatewayError(j.error ?? `网关错误（HTTP ${res.status}）`, res.status));
+          return;
+        }
+        if (!res.body) {
+          reject(new GatewayError("网关未返回 SSE 流", 502));
+          return;
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let idx: number;
+          while ((idx = buf.indexOf("\n\n")) >= 0) {
+            const chunk = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            let event = "";
+            let data = "";
+            for (const line of chunk.split("\n")) {
+              if (line.startsWith("event: ")) event = line.slice(7);
+              else if (line.startsWith("data: ")) data += line.slice(6);
+            }
+            if (!event || !data) continue;
+            try {
+              const parsed = JSON.parse(data);
+              if (event === "progress") onProgress(parsed as GatewayExamProgress);
+              else if (event === "result") resolve(parsed as GatewayExamDetailResult);
+              else if (event === "error") reject(new GatewayError(parsed.error ?? "逐题答题失败", 500));
+            } catch {
+              /* 忽略不完整帧 */
+            }
+          }
+        }
+      })();
+    }),
   recentLogs: (sid: string) =>
     request<GatewayLogEntry[]>(`/api/v1/sessions/${sid}/logs/recent`, "GET"),
 };

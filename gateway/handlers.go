@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -52,6 +53,7 @@ func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/study", xlong(g.handleStudy))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/works/do", xlong(g.handleDoWork))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", xlong(g.handleDoExam))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/detail", g.handleExamDetail) // SSE 逐题流
 
 	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)       // SSE 长连接，不适用
 	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", long(g.handleRecentLogs))
@@ -624,6 +626,66 @@ func (g *gateway) handleDoExam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": dtoAnswerResult(result)})
+}
+
+// handleExamDetail 逐题模式考试：SSE 流式返回逐题进度与最终结果。
+// 请求体同 doExamRequest，另需题库地址（source 固定 bank）。
+// 仅支持英华（协议复刻自其底层 API）；其他平台回退 400。
+func (g *gateway) handleExamDetail(w http.ResponseWriter, r *http.Request) {
+	se, ok := g.sessionFrom(r)
+	if !ok {
+		fail(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if se.info.Platform != "YINGHUA" {
+		fail(w, http.StatusBadRequest, "逐题模式暂仅支持英华学堂，其他平台请用普通答题")
+		return
+	}
+	var req struct {
+		CourseID   string `json:"courseId"`
+		ExamID     string `json:"examId"`
+		NodeID     string `json:"nodeId"`
+		BankURL    string `json:"bankUrl"`
+		SubmitMode string `json:"submitMode"` // off / smart / direct
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.ExamID == "" {
+		fail(w, http.StatusBadRequest, "缺少考试 ID")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		fail(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	writeEvent := func(event string, payload any) bool {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	result, err := RunExamDetail(r.Context(), se.client.Session(), req.CourseID, req.ExamID, req.NodeID, req.BankURL, req.SubmitMode,
+		func(p examProgress) {
+			_ = writeEvent("progress", p)
+		})
+	if err != nil {
+		_ = writeEvent("error", map[string]string{"error": err.Error()})
+		return
+	}
+	_ = writeEvent("result", result)
 }
 
 // ---------- 日志 ----------

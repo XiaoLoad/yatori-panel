@@ -4,6 +4,7 @@ import { bus } from "../bus.ts";
 import { appendJobEvent } from "../db/jobs.ts";
 import { upsertNode } from "../db/nodes.ts";
 import { getSettings } from "../db/settings.ts";
+import { getAccount } from "../db/accounts.ts";
 import { rebuildSession } from "../sessions.ts";
 import { ensureSessionForUid } from "../sessions.ts";
 import type { JobSummary, StartJobBody } from "../shared.ts";
@@ -56,6 +57,9 @@ export async function runJob(
   const settings = getSettings();
   const tickMs = settings.tickSeconds * 1000;
   const summary = emptySummary();
+  // 账号标识（优先备注）：日志前缀，多账号并发时区分日志归属
+  const account = getAccount(accountUid);
+  const accountLabel = account ? (account.remark || account.username) : accountUid;
   // sid 用可变持有：登录超时自愈时会整会话重建
   let sid = await ensureSessionForUid(accountUid);
   let rebuilds = 0;
@@ -74,7 +78,7 @@ export async function runJob(
     message: string,
     persist = true,
   ) => {
-    const full = { type: "log", jobId, accountId: accountUid, level, message, ts: Date.now() } as import("../shared.ts").JobEvent;
+    const full = { type: "log", jobId, accountId: accountUid, level, message: `[${accountLabel}] ${message}`, ts: Date.now() } as import("../shared.ts").JobEvent;
     if (persist) appendJobEvent(jobId, full);
     bus.publish(full);
   };

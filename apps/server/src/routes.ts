@@ -449,11 +449,20 @@ export function registerRoutes(app: FastifyInstance): void {
     }
     await ensureSession(account);
     const examName = body.examName || body.examId;
+    // 查课程名用于日志标识（查不到不影响触发）
+    let courseName: string | undefined;
+    try {
+      const sid = await ensureSession(account);
+      courseName = (await gateway.courses(sid)).find((c) => c.id === courseId)?.name;
+    } catch {
+      /* 仅日志标识用途，失败不阻断 */
+    }
     void runSingleExam({
       accountUid: account.uid,
       courseId,
       examId: body.examId,
       examName,
+      courseName,
       source: body.source,
       submitMode: body.submitMode,
     });
