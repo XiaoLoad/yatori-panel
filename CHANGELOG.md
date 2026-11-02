@@ -8,6 +8,11 @@
 
 ### Added
 
+- **server**：考试列表透传 `GET /accounts/:uid/courses/:courseId/exams` 与
+  单场考试触发 `POST .../exams/do`（与任务发起同一套答题来源预检门禁）
+- **web**：课程浏览新增考试区块——考试名/题量/状态展示、答题源选择、
+  单场同步触发，结果按得分/未确认/未提交三态提示；网关离线时禁用
+
 - **build**：GitHub Actions CI——push/PR 到 main 时自动跑三包类型检查
   与网关 CGO 编译（本地 pre-commit 的服务端兜底）
 - **build**：GitHub Actions 发版自动化——推送版本 tag 自动构建
