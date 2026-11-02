@@ -88,14 +88,50 @@ export const StartJobBody = z.object({
 });
 export type StartJobBody = z.infer<typeof StartJobBody>;
 
+/** 批量启动：一次为多个账号发起任务，课程范围按账号单独指定 */
+export const BatchStartJobBody = z.object({
+  accounts: z
+    .array(
+      z.object({
+        accountUid: z
+          .string({ required_error: "请选择账号", invalid_type_error: "请选择账号" })
+          .min(1, "请选择账号"),
+        /** 为空 = 该账号全部课程 */
+        courseIds: z.array(z.string()).optional().default([]),
+      }),
+    )
+    .min(1, "请至少选择一个账号"),
+  videoMode: VideoModeEnum.optional().default(1),
+  answerSource: AnswerSourceEnum.optional().default("off"),
+  submitMode: SubmitModeEnum.optional().default("off"),
+  perCourseConcurrency: z.number().int().min(1).max(16).optional().default(4),
+});
+export type BatchStartJobBody = z.infer<typeof BatchStartJobBody>;
+
+export interface BatchStartResult {
+  started: { accountUid: string; jobId: string }[];
+  failed: { accountUid: string; error: string }[];
+}
+
 export type JobState = "running" | "stopped" | "done" | "error";
 
 // ---------- 定时任务 ----------
 
+/** 到点停止行为：看完当前节点再停 / 立即停止 */
+export const StopModeEnum = z.enum(["finish_current", "immediate"]);
+export type StopMode = z.infer<typeof StopModeEnum>;
+
 export interface ScheduleVO {
   id: string;
-  accountUid: string;
+  /** 规则名称，便于多规则区分 */
+  name: string;
+  /** 一条规则可同时作用于多个账号 */
+  accountUids: string[];
+  /** 开始时间（cron：分 时 日 月 周） */
   cron: string;
+  /** 结束时间 HH:MM；为空表示不自动停止 */
+  endTime?: string | null;
+  stopMode: StopMode;
   videoMode: 1 | 2 | 3;
   answerSource: "off" | "ai" | "bank";
   submitMode: SubmitMode;
@@ -105,12 +141,18 @@ export interface ScheduleVO {
 }
 
 export const CreateScheduleBody = z.object({
-  accountUid: z
-    .string({ required_error: "请选择账号", invalid_type_error: "请选择账号" })
-    .min(1, "请选择账号"),
+  name: z.string().optional().default(""),
+  accountUids: z
+    .array(z.string().min(1))
+    .min(1, "请至少选择一个账号"),
   cron: z
     .string({ required_error: "请填写 cron 表达式", invalid_type_error: "请填写 cron 表达式" })
     .min(1, "请填写 cron 表达式"),
+  endTime: z
+    .string()
+    .regex(/^[0-2]\d:[0-5]\d$/, "结束时间格式为 HH:MM")
+    .optional(),
+  stopMode: StopModeEnum.optional().default("finish_current"),
   videoMode: VideoModeEnum.optional().default(1),
   answerSource: AnswerSourceEnum.optional().default("off"),
   submitMode: SubmitModeEnum.optional().default("off"),
@@ -158,6 +200,8 @@ export interface JobEvent {
   jobId?: string;
   accountId?: string;
   state?: JobState;
+  /** 当前所处阶段：登录/视频/作业/考试 */
+  phase?: "login" | "video" | "work" | "exam";
   courseId?: string;
   courseName?: string;
   nodeId?: string;

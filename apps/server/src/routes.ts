@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ZodType, ZodTypeDef } from "zod";
 import {
   AnswerSourceEnum,
+  BatchStartJobBody,
   CreateAccountBody,
   CreateScheduleBody,
   StartJobBody,
@@ -11,6 +12,7 @@ import {
   UpdateAccountBody,
   UpdateSettingsBody,
 } from "./shared.ts";
+import type { BatchStartResult } from "./shared.ts";
 import { bus } from "./bus.ts";
 import {
   countAccountsByPlatform,
@@ -61,6 +63,35 @@ function ensureAnswerConfigReady(
   }
   if (source === "bank" && (!settings.questionBank.enabled || !settings.questionBank.url)) {
     throw new HttpError(400, "请先在全局设置中启用外置题库并填写服务地址");
+  }
+}
+
+/** 答题来源可用性校验：批量/单个任务共用，避免重复预检逻辑 */
+async function assertAnswerSourceReady(source: "off" | "ai" | "bank"): Promise<void> {
+  if (source === "off") return;
+  const settings = getSettings();
+  ensureAnswerConfigReady(source, settings);
+  const pre =
+    source === "ai"
+      ? await gateway.preflight({
+          source: "ai",
+          ai: {
+            type: settings.ai.type,
+            url: settings.ai.url,
+            model: settings.ai.model,
+            apiKey: settings.ai.apiKey,
+          },
+        })
+      : await gateway.preflight({
+          source: "bank",
+          questionBank: {
+            url: settings.questionBank.url,
+            key: settings.questionBank.key,
+          },
+        });
+  if (!pre.available) {
+    const label = source === "ai" ? "AI" : "外置题库";
+    throw new HttpError(400, `${label}预检未通过：${pre.error ?? "不可用"}`);
   }
 }
 
@@ -297,9 +328,19 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!cron.validate(body.cron)) {
       throw new HttpError(400, "cron 表达式无效");
     }
-    const account = getAccount(body.accountUid);
-    if (!account) throw new HttpError(404, "账号不存在");
-    const job = insertSchedule(body);
+    for (const uid of body.accountUids) {
+      if (!getAccount(uid)) throw new HttpError(404, "定时规则包含不存在的账号");
+    }
+    const job = insertSchedule({
+      name: body.name,
+      accountUids: body.accountUids,
+      cron: body.cron,
+      endTime: body.endTime,
+      stopMode: body.stopMode,
+      videoMode: body.videoMode,
+      answerSource: body.answerSource,
+      submitMode: body.submitMode,
+    });
     registerSchedule(job);
     return { ok: true, data: job };
   });
@@ -309,7 +350,7 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!schedule) throw new HttpError(404, "定时任务不存在");
     const enabled = !schedule.enabled;
     setScheduleEnabled(schedule.id, enabled);
-    if (enabled) registerSchedule(schedule);
+    if (enabled) registerSchedule({ ...schedule, enabled: true });
     else unregisterSchedule(schedule.id);
     return { ok: true, data: { enabled } };
   });
@@ -486,41 +527,49 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!account) throw new HttpError(404, "账号不存在");
     if (!account.enabled) throw new HttpError(400, "账号已被禁用");
 
-    // 答题来源预检：AI/题库不可用时直接拒绝启动（对齐 console 的前置检查）
-    if (body.answerSource !== "off") {
-      const settings = getSettings();
-      ensureAnswerConfigReady(body.answerSource, settings);
-      const pre =
-        body.answerSource === "ai"
-          ? await gateway.preflight({
-              source: "ai",
-              ai: {
-                type: settings.ai.type,
-                url: settings.ai.url,
-                model: settings.ai.model,
-                apiKey: settings.ai.apiKey,
-              },
-            })
-          : await gateway.preflight({
-              source: "bank",
-              questionBank: {
-                url: settings.questionBank.url,
-                key: settings.questionBank.key,
-              },
-            });
-      if (!pre.available) {
-        const label = body.answerSource === "ai" ? "AI" : "外置题库";
-        throw new HttpError(400, `${label}预检未通过：${pre.error ?? "不可用"}`);
-      }
-    }
+    await assertAnswerSourceReady(body.answerSource);
 
     const job = await jobManager.start(account, body);
     return { ok: true, data: job };
   });
 
+  // 批量发起：多账号同时启动，逐账号返回成功/失败，不因单个失败中断整批
+  app.post("/api/v1/jobs/batch", async (req) => {
+    const body = parse<BatchStartJobBody>(req.body, BatchStartJobBody);
+    await assertAnswerSourceReady(body.answerSource);
+
+    const result: BatchStartResult = { started: [], failed: [] };
+    for (const item of body.accounts) {
+      const account = getAccount(item.accountUid);
+      if (!account) {
+        result.failed.push({ accountUid: item.accountUid, error: "账号不存在" });
+        continue;
+      }
+      if (!account.enabled) {
+        result.failed.push({ accountUid: item.accountUid, error: "账号已被禁用" });
+        continue;
+      }
+      try {
+        const job = await jobManager.start(account, {
+          accountUid: item.accountUid,
+          courseIds: item.courseIds ?? [],
+          videoMode: body.videoMode,
+          answerSource: body.answerSource,
+          submitMode: body.submitMode,
+          perCourseConcurrency: body.perCourseConcurrency,
+        });
+        result.started.push({ accountUid: item.accountUid, jobId: job.id });
+      } catch (err) {
+        result.failed.push({ accountUid: item.accountUid, error: (err as Error).message });
+      }
+    }
+    return { ok: true, data: result };
+  });
+
   app.post("/api/v1/jobs/:id/stop", async (req) => {
     const { id } = req.params as { id: string };
-    if (!jobManager.stop(id)) {
+    const graceful = Boolean((req.body as { graceful?: boolean } | undefined)?.graceful);
+    if (!jobManager.stop(id, graceful)) {
       const job = getJob(id);
       if (!job) throw new HttpError(404, "任务不存在");
       return { ok: true, data: { stopped: false, reason: "任务已结束" } };

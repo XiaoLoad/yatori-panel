@@ -20,11 +20,11 @@ const forwarded = useForwardPropsEmits(props, emit);
   <DialogRoot v-bind="forwarded">
     <DialogPortal>
       <DialogOverlay
-        class="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=closed]:animate-out"
+        class="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out"
       />
       <DialogContent
         :class="cn(
-          'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border bg-background p-6 shadow-lg max-h-[85vh] overflow-y-auto',
+          'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-card p-6 shadow-[0_0_80px_-20px_rgba(0,0,0,0.85)] max-h-[85vh] overflow-y-auto',
           props.class,
         )"
       >

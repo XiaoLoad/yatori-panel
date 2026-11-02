@@ -1,18 +1,10 @@
 <script setup lang="ts">
-import { BookOpen } from "lucide-vue-next";
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import { api } from "@/api/resources";
 import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -37,35 +29,46 @@ async function submit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-muted/40 p-6">
-    <Card class="w-full max-w-sm">
-      <CardHeader class="items-center text-center">
-        <div class="mx-auto mb-2 flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <BookOpen class="size-5" />
+  <div class="relative grid min-h-screen place-items-center px-6">
+    <div class="pointer-events-none absolute inset-0 opacity-70">
+      <div class="absolute left-1/2 top-0 h-full w-px bg-border" />
+      <div class="absolute left-0 top-1/2 h-px w-full bg-border" />
+    </div>
+
+    <div class="relative w-full max-w-[380px]">
+      <div class="mb-7 text-center">
+        <div class="eyebrow">Yatori / Access Control</div>
+        <h1 class="display-title mt-2 text-[30px] leading-none">观测台</h1>
+        <p class="mt-3 text-[11px] text-muted-foreground">多账号课程助手 · 访问验证</p>
+      </div>
+
+      <div class="panel p-6">
+        <div class="flex items-center gap-2">
+          <span class="size-1.5 animate-breathe rounded-full bg-primary" />
+          <span class="mono text-[9px] uppercase tracking-widest text-muted-foreground">Awaiting credential</span>
         </div>
-        <CardTitle>Yatori 面板</CardTitle>
-        <CardDescription>输入访问密码解锁面板</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form
-          class="grid gap-4"
-          @submit.prevent="submit"
-        >
-          <div class="grid gap-2">
-            <Label for="password">访问密码</Label>
+        <form class="mt-5 grid gap-4" @submit.prevent="submit">
+          <div class="grid gap-1.5">
+            <Label class="text-[11px]">访问密码</Label>
             <Input
               id="password"
               v-model="password"
               type="password"
               autocomplete="current-password"
               required
+              placeholder="至少 6 位"
+              class="h-10"
             />
           </div>
-          <Button type="submit" :disabled="pending">
-            {{ pending ? "验证中…" : "解锁" }}
+          <Button type="submit" class="h-10" :disabled="pending">
+            {{ pending ? "验证中…" : "解锁面板" }}
           </Button>
         </form>
-      </CardContent>
-    </Card>
+        <div class="hair mt-5" />
+        <p class="mono mt-3 text-center text-[8.5px] leading-4 text-muted-foreground">
+          凭据加密存储于本机 · 不经过任何第三方服务
+        </p>
+      </div>
+    </div>
   </div>
 </template>

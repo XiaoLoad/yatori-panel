@@ -1,11 +1,10 @@
 import { createRouter, createWebHistory } from "vue-router";
-import DefaultLayout from "@/components/layout/DefaultLayout.vue";
+import AppShell from "@/components/layout/AppShell.vue";
 import { useAuthStore } from "@/stores/auth";
 import { setUnauthorizedHandler } from "@/api/client";
 
 export const router = createRouter({
   history: createWebHistory(),
-  // 切页回到顶部（保留前进/后退的已存位置），避免旧滚动位置造成内容跳动
   scrollBehavior(_to, _from, saved) {
     return saved ?? { top: 0 };
   },
@@ -13,13 +12,11 @@ export const router = createRouter({
     { path: "/login", name: "login", component: () => import("@/views/LoginView.vue") },
     {
       path: "/",
-      component: DefaultLayout,
+      component: AppShell,
       children: [
-        { path: "", name: "dashboard", component: () => import("@/views/DashboardView.vue") },
-        { path: "accounts", name: "accounts", component: () => import("@/views/AccountsView.vue") },
-        { path: "courses", name: "courses", component: () => import("@/views/CourseTreeView.vue") },
-        { path: "jobs", name: "jobs", component: () => import("@/views/JobsView.vue") },
-        { path: "logs", name: "logs", component: () => import("@/views/LogsView.vue") },
+        { path: "", name: "workspace", component: () => import("@/views/WorkspaceView.vue") },
+        { path: "history", name: "history", component: () => import("@/views/HistoryView.vue") },
+        { path: "schedules", name: "schedules", component: () => import("@/views/SchedulesView.vue") },
         { path: "settings", name: "settings", component: () => import("@/views/SettingsView.vue") },
       ],
     },
@@ -33,7 +30,7 @@ router.beforeEach(async (to) => {
     try {
       await auth.refresh();
     } catch {
-      return true; // 状态接口异常时不拦截，交给各页面自身的错误处理
+      return true;
     }
     setUnauthorizedHandler(() => {
       auth.authed = false;
@@ -44,7 +41,7 @@ router.beforeEach(async (to) => {
     return { name: "login" };
   }
   if (to.name === "login" && (!auth.authRequired || auth.authed)) {
-    return { name: "dashboard" };
+    return { name: "workspace" };
   }
   return true;
 });

@@ -85,6 +85,37 @@ try {
   // 列已存在
 }
 
+// 定时规则升级：单账号 → 多账号；新增结束时间与到点停止行为
+try {
+  sqlite.exec(`ALTER TABLE schedules ADD COLUMN account_uids TEXT NOT NULL DEFAULT '[]'`);
+  const rows = sqlite
+    .prepare(`SELECT id, account_uid, account_uids FROM schedules`)
+    .all() as { id: string; account_uid: string; account_uids: string }[];
+  const update = sqlite.prepare(`UPDATE schedules SET account_uids = ? WHERE id = ?`);
+  for (const r of rows) {
+    if (r.account_uids === "[]" || !r.account_uids) {
+      update.run(JSON.stringify([r.account_uid]), r.id);
+    }
+  }
+} catch {
+  // 列已存在
+}
+try {
+  sqlite.exec(`ALTER TABLE schedules ADD COLUMN end_time TEXT`);
+} catch {
+  // 列已存在
+}
+try {
+  sqlite.exec(`ALTER TABLE schedules ADD COLUMN stop_mode TEXT NOT NULL DEFAULT 'finish_current'`);
+} catch {
+  // 列已存在
+}
+try {
+  sqlite.exec(`ALTER TABLE schedules ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // 列已存在
+}
+
 export function now(): string {
   return new Date().toISOString();
 }

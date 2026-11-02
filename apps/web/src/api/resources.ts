@@ -72,6 +72,8 @@ export interface CreateAccountResult extends AccountVO {
 
 import type {
   AccountVO,
+  BatchStartJobBody,
+  BatchStartResult,
   CreateScheduleBody,
   ScheduleVO,
   CreateAccountBody,
@@ -122,8 +124,13 @@ export const api = {
     get<ExamRunningItem[]>(`/accounts/${uid}/exams/running`),
 
   startJob: (body: StartJobBody) => post<JobVO>("/jobs", body),
-  stopJob: (id: string) =>
-    post<{ stopped: boolean; reason?: string }>(`/jobs/${id}/stop`),
+  startJobsBatch: (body: BatchStartJobBody) =>
+    post<BatchStartResult>("/jobs/batch", body),
+  stopJob: (id: string, graceful = false) =>
+    post<{ stopped: boolean; reason?: string }>(
+      `/jobs/${id}/stop`,
+      graceful ? { graceful: true } : undefined,
+    ),
   jobs: (params?: { accountUid?: string; state?: string; limit?: number }) =>
     get<JobVO[]>("/jobs", params),
 
@@ -151,4 +158,7 @@ export const api = {
       runningJobs: number;
       recentJobs: JobVO[];
     }>("/dashboard"),
+
+  statsDaily: (days = 14) =>
+    get<{ day: string; jobs: number; errors: number; videos: number }[]>("/stats/daily", { days }),
 };
