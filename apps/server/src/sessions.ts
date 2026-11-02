@@ -15,6 +15,8 @@ interface LiveSession {
 
 /** accountUid → 网关会话。会话即登录态，进程重启后惰性重建。 */
 const live = new Map<string, LiveSession>();
+/** accountUid → 进行中的 ensureSession，并发调用共享同一创建过程，防止互相拆除会话 */
+const inflight = new Map<string, Promise<string>>();
 /** accountUid → 网关侧会话状态（logging_in / online / error） */
 const sessionStates = new Map<string, string>();
 
@@ -113,6 +115,18 @@ async function waitForOnline(sessionId: string, timeoutMs: number): Promise<void
  * 自动获得新配置——配置指纹不一致必须重建，否则答题静默走随机兜底。
  */
 export async function ensureSession(
+  account: AccountVO & { password: string },
+): Promise<string> {
+  const existing = inflight.get(account.uid);
+  if (existing) return existing;
+  const p = doEnsureSession(account).finally(() => {
+    if (inflight.get(account.uid) === p) inflight.delete(account.uid);
+  });
+  inflight.set(account.uid, p);
+  return p;
+}
+
+async function doEnsureSession(
   account: AccountVO & { password: string },
 ): Promise<string> {
   const wantFp = currentConfigFingerprint();
