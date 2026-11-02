@@ -68,7 +68,11 @@ export const AnswerSourceEnum = z.enum(["off", "ai", "bank"]);
 export type AnswerSource = z.infer<typeof AnswerSourceEnum>;
 
 export const VideoModeEnum = z.union([z.literal(1), z.literal(2), z.literal(3)]);
-/** 1=普通(节点串行) 2=暴力(节点并发) 3=去红(重跑未完成节点) */
+/**
+ * 1=普通：一门课内视频节点逐个刷。
+ * 2=暴力：一门课内视频节点并发上报，结束后自动对该课程做一次去红。
+ * 3=去红：只处理被平台标记「并行播放」的节点，逐条消红后结束。
+ */
 export type VideoMode = z.infer<typeof VideoModeEnum>;
 
 /** 交卷策略：off=仅保存不交卷 direct=答完直接交卷 smart=智能交卷（检测留空，留空则仅保存） */
@@ -250,6 +254,8 @@ export const SettingsSchema = z.object({
   email: EmailConfigSchema,
   tickSeconds: z.number().int().min(3).max(30).default(5),
   maxAccountsConcurrency: z.number().int().min(1).max(10).default(3),
+  /** 同一账号同时推进的课程数：1=逐门课串行；N=最多 N 门课同时刷 */
+  maxCoursesConcurrency: z.number().int().min(1).max(5).default(3),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const UpdateSettingsBody = SettingsSchema;

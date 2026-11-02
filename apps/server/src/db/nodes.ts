@@ -49,6 +49,20 @@ export function flaggedNodeIds(accountUid: string, courseId: string): string[] {
   return rows.map((r) => r.node_id);
 }
 
+/** 去红成功后清除标记，避免后续去红任务反复重跑同一节点 */
+export function clearNodeFlag(
+  accountUid: string,
+  courseId: string,
+  nodeId: string,
+): void {
+  sqlite
+    .prepare(
+      `UPDATE node_cache SET flagged = 0, updated_at = ?
+       WHERE account_uid = ? AND course_id = ? AND node_id = ?`,
+    )
+    .run(now(), accountUid, courseId, nodeId);
+}
+
 export function clearCourseCache(accountUid: string, courseId: string): void {
   sqlite
     .prepare(`DELETE FROM node_cache WHERE account_uid = ? AND course_id = ?`)

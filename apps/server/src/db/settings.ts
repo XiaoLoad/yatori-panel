@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: Settings = {
   email: { enabled: false, smtpHost: "", smtpPort: 465, user: "", pass: "", to: "" },
   tickSeconds: 5,
   maxAccountsConcurrency: 3,
+  maxCoursesConcurrency: 3,
 };
 
 export function getSettings(): Settings {
@@ -24,6 +25,8 @@ export function getSettings(): Settings {
     tickSeconds: parsed.tickSeconds ?? DEFAULT_SETTINGS.tickSeconds,
     maxAccountsConcurrency:
       parsed.maxAccountsConcurrency ?? DEFAULT_SETTINGS.maxAccountsConcurrency,
+    maxCoursesConcurrency:
+      parsed.maxCoursesConcurrency ?? DEFAULT_SETTINGS.maxCoursesConcurrency,
   };
 }
 

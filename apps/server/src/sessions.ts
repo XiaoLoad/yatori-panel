@@ -17,6 +17,8 @@ interface LiveSession {
 const live = new Map<string, LiveSession>();
 /** accountUid → 进行中的 ensureSession，并发调用共享同一创建过程，防止互相拆除会话 */
 const inflight = new Map<string, Promise<string>>();
+/** accountUid → 进行中的会话重建（单飞），避免多课程并发时同时重登互相覆盖 */
+const rebuilding = new Map<string, Promise<string>>();
 /** accountUid → 网关侧会话状态（logging_in / online / error） */
 const sessionStates = new Map<string, string>();
 
@@ -257,8 +259,16 @@ export async function ensureSessionForUid(accountUid: string): Promise<string> {
  * 用于 runner 检测到「账号登录超时，请重新登录」时的自愈。
  */
 export async function rebuildSession(accountUid: string): Promise<string> {
-  await dropSession(accountUid);
-  return ensureSessionForUid(accountUid);
+  const existing = rebuilding.get(accountUid);
+  if (existing) return existing;
+  const p = (async () => {
+    await dropSession(accountUid);
+    return ensureSessionForUid(accountUid);
+  })().finally(() => {
+    if (rebuilding.get(accountUid) === p) rebuilding.delete(accountUid);
+  });
+  rebuilding.set(accountUid, p);
+  return p;
 }
 
 export function getSessionState(accountUid: string): string | undefined {
