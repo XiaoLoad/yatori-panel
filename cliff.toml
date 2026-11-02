@@ -1,0 +1,45 @@
+# git-cliff 配置：从 Conventional Commits 生成 CHANGELOG（中文、Keep a Changelog 格式）
+# 生成结果只是初稿，发布前仍需人工润色（补充背景/实测数据），见 docs/development-standards.md
+[changelog]
+header = """
+# Changelog
+
+本项目的全部显著变更记录于此文件。
+格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
+版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+"""
+body = """
+{% if version %}## [{{ version }}]{% if timestamp %} - {{ timestamp | date(format="%Y-%m-%d") }}{% endif %}
+
+{% else %}## [Unreleased]
+
+{% endif %}{% for group in ["Added", "Changed", "Fixed", "Docs", "Verified"] %}{% set items = commits | filter(attribute="group", value=group) %}{% if items | length > 0 %}### {{ group }}
+
+{% for commit in items %}- {% if commit.scope %}**{{ commit.scope }}**：{% endif %}{{ commit.message | split(pat="\n") | first }}
+{% endfor %}
+{% endif %}{% endfor %}
+"""
+footer = ""
+
+[git]
+conventional_commits = true
+# 非规范提交不进日志（提交格式由 commitlint 与 CI 兜底）
+filter_unconventional = true
+split_commits = false
+protect_breaking_commits = false
+tag_pattern = "v[0-9]*"
+sort_commits = "oldest"
+
+commit_parsers = [
+  # 发版提交、合入提交与"记入未发布段"的维护提交本身不是变更内容
+  { message = "^chore: 合并", skip = true },
+  { message = "^docs: (发布|记录)", skip = true },
+  { message = "^docs:", group = "Docs" },
+  { message = "^feat", group = "Added" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^perf", group = "Changed" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^test", group = "Verified" },
+  { message = "^chore", skip = true },
+]

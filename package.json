@@ -6,12 +6,16 @@
     "dev:server": "bun --filter @yatori/server dev",
     "dev:web": "bun --filter @yatori/web dev",
     "typecheck:all": "cd packages/shared && bunx tsc --noEmit && cd ../../apps/server && bunx tsc --noEmit && cd ../web && bunx vue-tsc --noEmit",
+    "changelog:preview": "bunx git-cliff --unreleased --strip header",
+    "changelog:update": "node scripts/changelog.mjs update",
+    "changelog:release": "node scripts/changelog.mjs release",
     "gateway:build": "cd gateway && go build -ldflags \"-s -w\" -o bin/gateway.exe .",
     "gateway:start": "cd gateway && ./bin/gateway.exe"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.0",
     "@commitlint/config-conventional": "^19.6.0",
+    "git-cliff": "2.14.2",
     "simple-git-hooks": "^2.11.1",
     "typescript": "^5.7.0"
   },
