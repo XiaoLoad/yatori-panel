@@ -1,0 +1,34 @@
+name: CI
+
+# main 每个提交必须可构建：类型检查（三包）+ 网关 Go 编译（CGO）
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  typecheck:
+    name: 类型检查（shared / server / web）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: 安装依赖
+        run: bun install --frozen-lockfile
+      - name: 三包类型检查
+        run: bun run typecheck:all
+
+  gateway-build:
+    name: 网关编译（Go + CGO）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+      - name: 编译网关（CGO 必须，OCR 依赖）
+        working-directory: gateway
+        run: go build -ldflags "-s -w" -o bin/gateway .
