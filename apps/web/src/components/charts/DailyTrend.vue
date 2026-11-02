@@ -14,7 +14,7 @@ const option = computed(() => {
   const dark = theme.dark;
   const mint = dark ? "#7CF2C0" : "#1E6F52";
   const amber = dark ? "#F2B45C" : "#B27316";
-  const text = dark ? "#6E8579" : "#5F7469";
+  const text = dark ? "#9CB3A7" : "#4C5F55";
   const axis = dark ? "rgba(190,235,215,0.14)" : "rgba(20,60,45,0.14)";
   const days = props.data.map((d) => d.day.slice(5));
   return {
@@ -28,7 +28,7 @@ const option = computed(() => {
       borderColor: dark ? "rgba(190,235,215,0.2)" : "rgba(20,60,45,0.16)",
       borderWidth: 1,
       padding: [6, 9],
-      textStyle: { color: dark ? "#E4EFE8" : "#16211B", fontSize: 11, fontFamily: "ui-monospace, monospace" },
+      textStyle: { color: dark ? "#E4EFE8" : "#16211B", fontSize: 13, fontFamily: "ui-monospace, monospace" },
       axisPointer: { type: "line", lineStyle: { color: axis, width: 1 } },
     },
     xAxis: {
@@ -37,7 +37,7 @@ const option = computed(() => {
       boundaryGap: true,
       axisLine: { lineStyle: { color: axis } },
       axisTick: { show: false },
-      axisLabel: { color: text, fontSize: 9, fontFamily: "ui-monospace, monospace", interval: 1 },
+      axisLabel: { color: text, fontSize: 11.5, fontFamily: "ui-monospace, monospace", interval: 1 },
     },
     yAxis: [
       {

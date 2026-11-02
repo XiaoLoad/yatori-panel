@@ -78,14 +78,14 @@ function stateLabel(state: JobVO["state"]): string {
   <div class="space-y-4">
     <header>
       <div class="eyebrow">Operation ledger</div>
-      <h1 class="display-title mt-1.5 text-[26px] leading-none">台账</h1>
-      <p class="mt-2 text-[11.5px] text-muted-foreground">最近 80 条任务记录，运行中的任务可直接停止</p>
+      <h1 class="display-title mt-1.5 text-[28px] leading-none">台账</h1>
+      <p class="mt-2 text-[14px] text-muted-foreground">最近 80 条任务记录，运行中的任务可直接停止</p>
     </header>
 
     <div class="panel flex flex-wrap items-center gap-4 px-4 py-3">
       <div class="flex items-baseline gap-2">
-        <span class="mono text-[22px] font-semibold leading-none">{{ totalJobs }}</span>
-        <span class="mono text-[9px] text-muted-foreground">JOBS</span>
+        <span class="mono text-[24px] font-semibold leading-none">{{ totalJobs }}</span>
+        <span class="mono text-[11.5px] text-muted-foreground">JOBS</span>
       </div>
       <div class="h-6 w-px bg-border" />
       <div class="min-w-[220px] flex-1">
@@ -103,21 +103,21 @@ function stateLabel(state: JobVO["state"]): string {
           />
         </div>
         <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-          <span class="mono flex items-center gap-1.5 text-[9px] text-muted-foreground">
+          <span class="mono flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
             <span class="size-1.5 rounded-full" style="background: var(--mint)" />运行 {{ stateCounts.running }}
           </span>
-          <span class="mono flex items-center gap-1.5 text-[9px] text-muted-foreground">
+          <span class="mono flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
             <span class="size-1.5 rounded-full" style="background: var(--ice)" />完成 {{ stateCounts.done }}
           </span>
-          <span class="mono flex items-center gap-1.5 text-[9px] text-muted-foreground">
+          <span class="mono flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
             <span class="size-1.5 rounded-full" style="background: var(--coral)" />出错 {{ stateCounts.error }}
           </span>
-          <span class="mono flex items-center gap-1.5 text-[9px] text-muted-foreground">
+          <span class="mono flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
             <span class="size-1.5 rounded-full" style="background: var(--muted-foreground)" />停止 {{ stateCounts.stopped }}
           </span>
         </div>
       </div>
-      <Select v-model="accountFilter" :options="accountOptions" class="h-8 w-44 text-[11px]" />
+      <Select v-model="accountFilter" :options="accountOptions" class="h-8 w-44 text-[13.5px]" />
     </div>
 
     <div class="flex flex-wrap items-center gap-1.5">
@@ -130,7 +130,7 @@ function stateLabel(state: JobVO["state"]): string {
           { key: 'error', label: '出错' },
         ] as const"
         :key="s.key"
-        :class="cn('rounded-full border px-2.5 py-1 text-[10.5px] transition-colors', stateFilter === s.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
+        :class="cn('rounded-full border px-2.5 py-1 text-[13px] transition-colors', stateFilter === s.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
         @click="stateFilter = s.key"
       >{{ s.label }}</button>
     </div>
@@ -142,27 +142,27 @@ function stateLabel(state: JobVO["state"]): string {
       <div class="mx-auto grid size-12 place-items-center rounded-2xl border border-border bg-panel-2 text-muted-foreground">
         <History class="size-5" />
       </div>
-      <h2 class="mt-4 text-[14px] font-semibold">还没有任务记录</h2>
-      <p class="mt-1 text-[11.5px] text-muted-foreground">到观测台勾选账号并点击「发起任务」</p>
+      <h2 class="mt-4 text-[16px] font-semibold">还没有任务记录</h2>
+      <p class="mt-1 text-[14px] text-muted-foreground">到观测台勾选账号并点击「发起任务」</p>
     </div>
     <div v-else class="panel overflow-x-auto">
-      <div class="min-w-[940px]">
-        <div class="grid grid-cols-[80px_minmax(140px,1fr)_170px_110px_minmax(0,1.6fr)_64px] gap-3 border-b border-border bg-panel-2/60 px-4 py-1.5">
-          <span class="eyebrow !text-[8px]">状态</span>
-          <span class="eyebrow !text-[8px]">账号</span>
-          <span class="eyebrow !text-[8px]">配置</span>
-          <span class="eyebrow !text-[8px]">开始时间</span>
-          <span class="eyebrow !text-[8px]">结果</span>
-          <span class="eyebrow !text-right !text-[8px]">操作</span>
+      <div class="min-w-[1040px]">
+        <div class="grid grid-cols-[92px_minmax(170px,1fr)_200px_124px_minmax(0,1.6fr)_76px] gap-3 border-b border-border bg-panel-2/60 px-4 py-1.5">
+          <span class="eyebrow !text-[10.5px]">状态</span>
+          <span class="eyebrow !text-[10.5px]">账号</span>
+          <span class="eyebrow !text-[10.5px]">配置</span>
+          <span class="eyebrow !text-[10.5px]">开始时间</span>
+          <span class="eyebrow !text-[10.5px]">结果</span>
+          <span class="eyebrow !text-right !text-[10.5px]">操作</span>
         </div>
         <div
           v-for="job in jobs"
           :key="job.id"
-          class="grid grid-cols-[80px_minmax(140px,1fr)_170px_110px_minmax(0,1.6fr)_64px] items-center gap-3 border-b border-border/60 px-4 py-2.5 text-[11px] last:border-b-0 hover:bg-accent/20"
+          class="grid grid-cols-[92px_minmax(170px,1fr)_200px_124px_minmax(0,1.6fr)_76px] items-center gap-3 border-b border-border/60 px-4 py-2.5 text-[13.5px] last:border-b-0 hover:bg-accent/20"
         >
           <span
             :class="cn(
-              'mono w-fit rounded-full border px-2 py-0.5 text-[9px]',
+              'mono w-fit rounded-full border px-2 py-0.5 text-[11.5px]',
               job.state === 'running' && 'border-mint/30 bg-mint/10 text-mint',
               job.state === 'done' && 'border-ice/30 bg-ice/10 text-ice',
               job.state === 'error' && 'border-coral/30 bg-coral/10 text-coral',
@@ -170,11 +170,11 @@ function stateLabel(state: JobVO["state"]): string {
             )"
           >{{ stateLabel(job.state) }}</span>
           <span class="truncate">{{ label(job.accountUid) }}</span>
-          <span class="mono truncate text-[9.5px] text-muted-foreground">
+          <span class="mono truncate text-[12px] text-muted-foreground">
             {{ modeText(job.options.videoMode) }} · {{ sourceText(job.options.answerSource) }} · {{ submitText(job.options.submitMode) }}
           </span>
-          <span class="mono text-[9.5px] text-muted-foreground">{{ relativeTime(job.startedAt) }}</span>
-          <span class="flex flex-wrap items-center gap-1 text-[9px]">
+          <span class="mono text-[12px] text-muted-foreground">{{ relativeTime(job.startedAt) }}</span>
+          <span class="flex flex-wrap items-center gap-1 text-[11.5px]">
             <template v-if="job.summary">
               <span v-if="job.summary.videosCompleted" class="mono rounded bg-muted px-1.5 py-0.5">视频 {{ job.summary.videosCompleted }}</span>
               <span v-if="job.summary.worksDone" class="mono rounded bg-muted px-1.5 py-0.5">作业 {{ job.summary.worksDone }}</span>
@@ -190,7 +190,7 @@ function stateLabel(state: JobVO["state"]): string {
               v-if="job.state === 'running'"
               variant="outline"
               size="sm"
-              class="h-6 gap-1 px-2 text-[9.5px]"
+              class="h-6 gap-1 px-2 text-[12px]"
               @click="stopMutation.mutate(job.id)"
             ><Square class="size-3" />停止</Button>
           </span>

@@ -134,7 +134,7 @@ function submit() {
             v-for="a in accounts"
             :key="a.uid"
             :class="cn(
-              'flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] transition-colors',
+              'flex items-center gap-1.5 rounded-full border px-2 py-1 text-[13.5px] transition-colors',
               selected.includes(a.uid)
                 ? 'border-primary/40 bg-primary/10 text-primary'
                 : 'border-border text-muted-foreground hover:text-foreground',
@@ -154,7 +154,7 @@ function submit() {
             v-for="d in WEEK"
             :key="d.value"
             :class="cn(
-              'size-7 rounded-md border text-[11px] transition-colors',
+              'size-7 rounded-md border text-[13.5px] transition-colors',
               days.includes(d.value)
                 ? 'border-primary/40 bg-primary/10 text-primary'
                 : 'border-border text-muted-foreground',
@@ -179,11 +179,11 @@ function submit() {
         <Label>到点停止行为</Label>
         <div class="flex gap-1 rounded-lg bg-muted p-1">
           <button
-            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[11px] transition-colors', stopMode === 'finish_current' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', stopMode === 'finish_current' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
             @click="stopMode = 'finish_current'"
           >看完当前节点再停</button>
           <button
-            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[11px] transition-colors', stopMode === 'immediate' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', stopMode === 'immediate' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
             @click="stopMode = 'immediate'"
           >立即停止</button>
         </div>
@@ -213,11 +213,11 @@ function submit() {
         </div>
       </div>
 
-      <div class="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[10.5px] text-muted-foreground">
+      <div class="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[13px] text-muted-foreground">
         {{ preview }} · cron <code class="mono rounded bg-muted px-1">{{ cron }}</code>
       </div>
 
-      <p class="text-[10px] leading-relaxed text-muted-foreground">
+      <p class="text-[12.5px] leading-relaxed text-muted-foreground">
         普通 = 课内视频逐个刷；暴力+去红 = 课内并发刷完后自动清理标红节点；仅去红 = 只做补救不刷课。
         作业/考试随节点触发；同一账号同时刷几门课由“设置 → 单账号课程并发数”统一控制。
       </p>

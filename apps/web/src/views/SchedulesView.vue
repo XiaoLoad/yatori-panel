@@ -103,12 +103,12 @@ const deleteMutation = useMutation({
     <header class="flex flex-wrap items-end gap-3">
       <div>
         <div class="eyebrow">Schedule automation</div>
-        <h1 class="display-title mt-1.5 text-[26px] leading-none">定时</h1>
-        <p class="mt-2 text-[11.5px] text-muted-foreground">
+        <h1 class="display-title mt-1.5 text-[28px] leading-none">定时</h1>
+        <p class="mt-2 text-[14px] text-muted-foreground">
           一条规则绑定多个账号，到点自动开始，到点自动停止
         </p>
       </div>
-      <Button size="sm" class="ml-auto h-8 gap-1.5 text-[11px]" @click="dialogOpen = true">
+      <Button size="sm" class="ml-auto h-8 gap-1.5 text-[13.5px]" @click="dialogOpen = true">
         <Plus class="size-3.5" />新建规则
       </Button>
     </header>
@@ -121,8 +121,8 @@ const deleteMutation = useMutation({
       <div class="mx-auto grid size-12 place-items-center rounded-2xl border border-border bg-panel-2 text-primary">
         <AlarmClock class="size-5" />
       </div>
-      <h2 class="mt-4 text-[14px] font-semibold">还没有定时规则</h2>
-      <p class="mt-1 text-[11.5px] text-muted-foreground">例如工作日 20:30 开始刷课，22:30 自动停止</p>
+      <h2 class="mt-4 text-[16px] font-semibold">还没有定时规则</h2>
+      <p class="mt-1 text-[14px] text-muted-foreground">例如工作日 20:30 开始刷课，22:30 自动停止</p>
       <Button class="mt-4" @click="dialogOpen = true"><Plus class="size-4" />新建规则</Button>
     </div>
 
@@ -131,15 +131,15 @@ const deleteMutation = useMutation({
       <section class="panel px-4 py-3.5">
         <div class="flex flex-wrap items-baseline gap-2">
           <div class="eyebrow">24h timeline</div>
-          <h2 class="text-[12.5px] font-medium">今日排程</h2>
-          <span class="mono ml-auto text-[9px] text-muted-foreground">{{ activeCount }} ACTIVE / {{ schedulesQuery.data.value?.length ?? 0 }}</span>
+          <h2 class="text-[15px] font-medium">今日排程</h2>
+          <span class="mono ml-auto text-[11.5px] text-muted-foreground">{{ activeCount }} ACTIVE / {{ schedulesQuery.data.value?.length ?? 0 }}</span>
         </div>
 
         <div class="mt-3 grid grid-cols-[132px_minmax(0,1fr)] gap-3">
           <div />
           <div class="relative">
             <div class="flex justify-between border-b border-border pb-1">
-              <span v-for="h in [0, 6, 12, 18, 24]" :key="h" class="mono text-[8.5px] text-muted-foreground">
+              <span v-for="h in [0, 6, 12, 18, 24]" :key="h" class="mono text-[11px] text-muted-foreground">
                 {{ String(h).padStart(2, "0") }}:00
               </span>
             </div>
@@ -147,8 +147,8 @@ const deleteMutation = useMutation({
 
           <template v-for="s in schedulesQuery.data.value" :key="s.id">
             <div class="min-w-0 self-center">
-              <div class="truncate text-[11px]">{{ s.name || "未命名规则" }}</div>
-              <div class="mono truncate text-[8.5px] text-muted-foreground">{{ s.accountUids.length }} ACCOUNTS · {{ daysOf(s.cron) }}</div>
+              <div class="truncate text-[13.5px]">{{ s.name || "未命名规则" }}</div>
+              <div class="mono truncate text-[11px] text-muted-foreground">{{ s.accountUids.length }} ACCOUNTS · {{ daysOf(s.cron) }}</div>
             </div>
             <div class="relative my-1 h-6 rounded-md border border-border/60 bg-panel-2/60">
               <div
@@ -157,7 +157,7 @@ const deleteMutation = useMutation({
                 :style="barStyle(s)"
               >
                 <div class="absolute inset-y-0 left-0 w-px bg-mint" />
-                <span class="mono absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[8.5px] text-mint">
+                <span class="mono absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] text-mint">
                   {{ timeOf(s.cron) }}<template v-if="s.endTime"> → {{ s.endTime }}</template>
                 </span>
               </div>
@@ -178,14 +178,14 @@ const deleteMutation = useMutation({
           </div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <span class="truncate text-[12.5px] font-medium">{{ s.name || "未命名规则" }}</span>
+              <span class="truncate text-[15px] font-medium">{{ s.name || "未命名规则" }}</span>
               <span
                 :class="s.enabled
-                  ? 'mono rounded-full border border-mint/30 bg-mint/10 px-1.5 py-0.5 text-[8.5px] text-mint'
-                  : 'mono rounded-full border border-border px-1.5 py-0.5 text-[8.5px] text-muted-foreground'"
+                  ? 'mono rounded-full border border-mint/30 bg-mint/10 px-1.5 py-0.5 text-[11px] text-mint'
+                  : 'mono rounded-full border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground'"
               >{{ s.enabled ? "ENABLED" : "PAUSED" }}</span>
             </div>
-            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
               <span class="mono text-foreground/80">{{ summary(s) }}</span>
               <span class="text-border">/</span>
               <span>{{ s.accountUids.map(accountLabel).join("、") }}</span>

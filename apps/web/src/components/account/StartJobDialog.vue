@@ -109,7 +109,7 @@ function submit() {
         </DialogDescription>
       </div>
 
-      <div class="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+      <div class="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[13.5px] text-muted-foreground">
         {{ accounts.map((a) => a.label).join(" · ") }}
       </div>
 
@@ -117,11 +117,11 @@ function submit() {
         <Label>课程范围</Label>
         <div class="flex gap-1 rounded-lg bg-muted p-1">
           <button
-            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[11px] transition-colors', scope === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
             @click="scope = 'all'"
           >全部未完成课程</button>
           <button
-            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[11px] transition-colors', scope === 'pick' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'pick' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
             @click="scope = 'pick'"
           >手动选择</button>
         </div>
@@ -129,7 +129,7 @@ function submit() {
           <div v-if="coursesQuery.isLoading.value" class="space-y-1.5 p-1">
             <Skeleton v-for="i in 3" :key="i" class="h-5 w-full" />
           </div>
-          <p v-else-if="!(coursesQuery.data.value ?? []).length" class="p-2 text-[11px] text-muted-foreground">
+          <p v-else-if="!(coursesQuery.data.value ?? []).length" class="p-2 text-[13.5px] text-muted-foreground">
             该账号下暂无课程（可先到详情里检测登录）
           </p>
           <div
@@ -138,8 +138,8 @@ function submit() {
             class="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/40"
           >
             <Checkbox :model-value="selected.includes(course.id)" @update:model-value="toggleCourse(course.id)" />
-            <span class="min-w-0 flex-1 truncate text-[11.5px]">{{ course.name }}</span>
-            <span class="mono text-[9.5px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
+            <span class="min-w-0 flex-1 truncate text-[14px]">{{ course.name }}</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
           </div>
         </div>
       </div>
@@ -184,7 +184,7 @@ function submit() {
         </div>
       </div>
 
-      <div class="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
+      <div class="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-[13px] leading-relaxed text-muted-foreground">
         <p><span class="text-foreground">普通</span>：一门课里的视频一个一个刷，最稳，耗时约等于视频总时长。</p>
         <p><span class="text-foreground">暴力</span>：一门课里的视频同时上报，速度快，但容易触发平台「并行播放」标记；结束时会自动执行一次去红。</p>
         <p><span class="text-foreground">去红</span>：只处理已经被标记的节点，不刷正常视频，适合事后补救。</p>

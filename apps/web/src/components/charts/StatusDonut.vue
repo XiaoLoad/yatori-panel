@@ -30,7 +30,7 @@ const option = computed(() => {
       backgroundColor: dark ? "#111815" : "#FFFFFF",
       borderColor: dark ? "rgba(190,235,215,0.2)" : "rgba(20,60,45,0.16)",
       borderWidth: 1,
-      textStyle: { color: dark ? "#E4EFE8" : "#16211B", fontSize: 11 },
+      textStyle: { color: dark ? "#E4EFE8" : "#16211B", fontSize: 13 },
     },
     legend: {
       orient: "vertical",
@@ -41,8 +41,8 @@ const option = computed(() => {
       itemGap: 9,
       icon: "circle",
       textStyle: {
-        color: dark ? "#93A79D" : "#5F7469",
-        fontSize: 10,
+        color: dark ? "#A9BFB4" : "#4C5F55",
+        fontSize: 12.5,
         fontFamily: "ui-monospace, monospace",
       },
       formatter: (name: string) => {
@@ -80,7 +80,7 @@ const option = computed(() => {
         style: {
           text: String(total.value),
           fill: dark ? "#E4EFE8" : "#16211B",
-          font: "600 16px ui-monospace, monospace",
+          font: "600 18px ui-monospace, monospace",
           textAlign: "center",
         },
       },
@@ -90,8 +90,8 @@ const option = computed(() => {
         top: "56%",
         style: {
           text: "ACCOUNTS",
-          fill: dark ? "#6E8579" : "#5F7469",
-          font: "9px ui-monospace, monospace",
+          fill: dark ? "#9CB3A7" : "#4C5F55",
+          font: "11px ui-monospace, monospace",
           textAlign: "center",
         },
       },
