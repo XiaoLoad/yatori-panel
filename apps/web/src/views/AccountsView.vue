@@ -18,10 +18,14 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { useEventStore } from "@/stores/events";
 import AccountCard from "@/components/AccountCard.vue";
 import EmptyState from "@/components/EmptyState.vue";
 
 const queryClient = useQueryClient();
+const events = useEventStore();
+// 网关离线时禁用"添加账号"（添加默认走登录检测）
+const gatewayOffline = computed(() => events.gatewayStatus !== null && !events.gatewayStatus.up);
 
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
 const platformsQuery = useQuery({ queryKey: ["platforms"], queryFn: api.platforms });
@@ -239,6 +243,15 @@ function submitImport() {
 const errorDialog = ref<{ title: string; message: string; logs: GatewayLogEntry[] } | null>(null);
 
 function showError(err: ApiError, fallback: string) {
+  // 网关离线：错误对话框升级为诊断指引，并提示点击右上角徽章
+  if (err.gatewayOffline) {
+    errorDialog.value = {
+      title: "网关离线",
+      message: "网关服务不可达，登录/刷课功能暂不可用。请点击右上角网关徽章查看诊断与修复指引。",
+      logs: [],
+    };
+    return;
+  }
   errorDialog.value = {
     title: fallback,
     message: err.message,
@@ -260,7 +273,11 @@ function showError(err: ApiError, fallback: string) {
         <Button variant="outline" @click="importOpen = true">
           <FileUp />导入 config.yaml
         </Button>
-        <Button @click="openCreate"><Plus />添加账号</Button>
+        <Button
+          @click="openCreate"
+          :disabled="gatewayOffline"
+          :title="gatewayOffline ? '网关离线——请先修复网关' : undefined"
+        ><Plus />添加账号</Button>
       </div>
     </div>
 

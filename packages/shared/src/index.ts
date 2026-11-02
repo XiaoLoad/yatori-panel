@@ -143,7 +143,10 @@ export type JobEventType =
   | "task.progress"
   | "task.flag"
   | "log"
-  | "account.state";
+  | "account.state"
+  | "gateway.status";
+
+export type GatewayDetail = "ok" | "conn-refused" | "timeout" | "error";
 
 export interface JobEvent {
   type: JobEventType;
@@ -162,6 +165,9 @@ export interface JobEvent {
   level?: string;
   message?: string;
   summary?: JobSummary;
+  /** gateway.status 专用：当前在线状态与故障类别 */
+  up?: boolean;
+  detail?: GatewayDetail;
 }
 
 // ---------- 全局设置 ----------

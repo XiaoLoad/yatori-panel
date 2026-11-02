@@ -43,6 +43,7 @@ import { parse as parseYaml } from "yaml";
 import { getSettings, saveSettings } from "./db/settings.ts";
 import { HttpError } from "./errors.ts";
 import { GatewayError, gateway } from "./gateway.ts";
+import { refreshGatewayStatus, snapshot } from "./gateway-status.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { dropSession, ensureSession, getSessionId, getSessionState } from "./sessions.ts";
 
@@ -128,15 +129,28 @@ export function registerRoutes(app: FastifyInstance): void {
   });
 
   // ---------- 基础 ----------
+  // 网关状态由后台心跳维护（gateway-status.ts），这里只读快照；detail 供前端诊断提示
   app.get("/api/v1/health", async () => {
-    let gatewayOk = false;
-    try {
-      await gateway.health();
-      gatewayOk = true;
-    } catch {
-      gatewayOk = false;
-    }
-    return { ok: true, data: { status: "up", gateway: gatewayOk ? "up" : "down" } };
+    const s = snapshot();
+    return {
+      ok: true,
+      data: {
+        status: "up",
+        gateway: s.up ? "up" : "down",
+        detail: s.detail,
+        downAt: s.downAt,
+        upAt: s.upAt,
+      },
+    };
+  });
+
+  // 前端"重新检测"按钮：立即探测而非等下一个心跳周期
+  app.post("/api/v1/health/recheck", async () => {
+    const s = await refreshGatewayStatus();
+    return {
+      ok: true,
+      data: { status: "up", gateway: s.up ? "up" : "down", detail: s.detail, downAt: s.downAt, upAt: s.upAt },
+    };
   });
 
   app.get("/api/v1/platforms", async () => {
@@ -500,6 +514,9 @@ export function registerRoutes(app: FastifyInstance): void {
       }
     };
     send({ type: "hello", ts: Date.now() });
+    // 新订阅者立即获知当前网关状态，无需等下一次 up/down 变化
+    const gs = snapshot();
+    send({ type: "gateway.status", ts: Date.now(), up: gs.up, detail: gs.detail });
     const unsubscribe = bus.subscribe(
       { accountId: q.accountId, jobId: q.jobId },
       send,

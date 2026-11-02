@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import CourseTreeNode from "@/components/CourseTreeNode.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { Select } from "@/components/ui/select";
+import { toastError } from "@/lib/errors";
 
 const queryClient = useQueryClient();
 
@@ -68,7 +69,7 @@ const startCourseMutation = useMutation({
     toast.success("任务已启动，可在任务控制台查看实时进度");
     queryClient.invalidateQueries({ queryKey: ["jobs"] });
   },
-  onError: (err) => toast.error((err as Error).message),
+  onError: (err) => toastError(err, "任务启动失败"),
 });
 
 function pick(course: CourseDTO) {
