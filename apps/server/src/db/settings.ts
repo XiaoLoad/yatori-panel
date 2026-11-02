@@ -6,6 +6,7 @@ const SETTINGS_KEY = "global";
 export const DEFAULT_SETTINGS: Settings = {
   ai: { enabled: false, type: "TONGYI", url: "", model: "", apiKey: "" },
   questionBank: { enabled: false, url: "", key: "" },
+  email: { enabled: false, smtpHost: "", smtpPort: 465, user: "", pass: "", to: "" },
   tickSeconds: 5,
   maxAccountsConcurrency: 3,
 };
@@ -19,8 +20,10 @@ export function getSettings(): Settings {
   return {
     ai: { ...DEFAULT_SETTINGS.ai, ...parsed.ai },
     questionBank: { ...DEFAULT_SETTINGS.questionBank, ...parsed.questionBank },
+    email: { ...DEFAULT_SETTINGS.email, ...parsed.email },
     tickSeconds: parsed.tickSeconds ?? DEFAULT_SETTINGS.tickSeconds,
-    maxAccountsConcurrency: parsed.maxAccountsConcurrency ?? DEFAULT_SETTINGS.maxAccountsConcurrency,
+    maxAccountsConcurrency:
+      parsed.maxAccountsConcurrency ?? DEFAULT_SETTINGS.maxAccountsConcurrency,
   };
 }
 

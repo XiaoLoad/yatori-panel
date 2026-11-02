@@ -1,11 +1,13 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { JobEvent, JobSummary } from "@yatori/shared";
+import { playJobSound } from "@/lib/audio";
 
 const LOG_BUFFER = 800;
 
 export interface JobLiveState {
   state?: string;
+  lastState?: string;
   message?: string;
   summary?: JobSummary;
   /** 任务内最近一次进度事件，用于控制台实时展示当前节点 */
@@ -40,6 +42,11 @@ export const useEventStore = defineStore("events", () => {
         s.state = e.state;
         s.message = e.message;
         if (e.summary) s.summary = e.summary;
+        // 终态提示音（运行中→完成/出错），手动停止不响
+        if ((e.state === "done" || e.state === "error") && s.lastState === "running") {
+          playJobSound(e.state === "error" ? "error" : "done");
+        }
+        s.lastState = e.state;
         break;
       }
     }

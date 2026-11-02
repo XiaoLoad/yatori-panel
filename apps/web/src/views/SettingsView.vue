@@ -6,6 +6,7 @@ import {
   Database,
   Gauge,
   Lock,
+  Mail,
   PencilLine,
   RotateCcw,
   Save,
@@ -43,6 +44,7 @@ const serverData = ref<Settings | null>(null);
 const draft = reactive<Settings>({
   ai: { enabled: false, type: "TONGYI", url: "", model: "", apiKey: "" },
   questionBank: { enabled: false, url: "", key: "" },
+  email: { enabled: false, smtpHost: "", smtpPort: 465, user: "", pass: "", to: "" },
   tickSeconds: 5,
   maxAccountsConcurrency: 3,
 });
@@ -54,6 +56,7 @@ function syncFromServer(data: Settings) {
   serverData.value = snap;
   draft.ai = { ...snap.ai };
   draft.questionBank = { ...snap.questionBank };
+  draft.email = { ...snap.email };
   draft.tickSeconds = snap.tickSeconds;
   draft.maxAccountsConcurrency = snap.maxAccountsConcurrency;
 }
@@ -88,8 +91,14 @@ const LABELS: Record<string, string> = {
   "questionBank.key": "题库密钥",
   tickSeconds: "学时提交间隔（秒）",
   maxAccountsConcurrency: "最大并发账号数",
+  "email.enabled": "邮箱通知开关",
+  "email.smtpHost": "SMTP 服务器",
+  "email.smtpPort": "SMTP 端口",
+  "email.user": "发件邮箱账号",
+  "email.pass": "发件邮箱密码/授权码",
+  "email.to": "收件人",
 };
-const SECRET_KEYS = new Set(["ai.apiKey", "questionBank.key"]);
+const SECRET_KEYS = new Set(["ai.apiKey", "questionBank.key", "email.pass"]);
 
 function flatten(s: Settings): Record<string, string | number | boolean> {
   return {
@@ -103,6 +112,12 @@ function flatten(s: Settings): Record<string, string | number | boolean> {
     "questionBank.key": s.questionBank.key,
     tickSeconds: s.tickSeconds,
     maxAccountsConcurrency: s.maxAccountsConcurrency,
+    "email.enabled": s.email.enabled,
+    "email.smtpHost": s.email.smtpHost,
+    "email.smtpPort": s.email.smtpPort,
+    "email.user": s.email.user,
+    "email.pass": s.email.pass,
+    "email.to": s.email.to,
   };
 }
 
@@ -203,6 +218,14 @@ const concurrencyModel = computed({
   set: (v: string) => {
     const n = Number(v);
     draft.maxAccountsConcurrency = Math.min(10, Math.max(1, Number.isFinite(n) ? n : 3));
+  },
+});
+
+const emailPortModel = computed({
+  get: () => String(draft.email.smtpPort),
+  set: (v: string) => {
+    const n = Number(v);
+    draft.email.smtpPort = Math.min(65535, Math.max(1, Number.isFinite(n) ? n : 465));
   },
 });
 
@@ -430,6 +453,78 @@ const disableMutation = useMutation({
         >
           {{ bankTestMutation.isPending.value ? "测试中…" : "测试连接" }}
         </Button>
+      </CardContent>
+    </Card>
+
+    <!-- 邮箱通知 -->
+    <Card class="reveal">
+      <CardHeader class="flex-row items-center justify-between space-y-0">
+        <div class="flex items-center gap-2.5">
+          <div class="flex size-9 items-center justify-center rounded-lg bg-muted">
+            <Mail class="size-4 text-muted-foreground" />
+          </div>
+          <div class="space-y-0.5">
+            <CardTitle class="text-base">邮箱通知</CardTitle>
+            <CardDescription>任务完成/出错时发送邮件（手动停止不打扰）</CardDescription>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <Badge
+            v-if="dirtyKeys.some((k) => k.startsWith('email.'))"
+            variant="warning"
+          >
+            已修改
+          </Badge>
+          <Switch v-model="draft.email.enabled" />
+        </div>
+      </CardHeader>
+      <CardContent class="space-y-4" :class="draft.email.enabled ? '' : 'opacity-60'">
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between">
+              <Label>SMTP 服务器</Label>
+              <span v-if="isFieldDirty('email.smtpHost')" class="text-[11px] text-amber-600">已修改</span>
+            </div>
+            <Input v-model="draft.email.smtpHost" placeholder="smtp.qq.com" :disabled="!draft.email.enabled" />
+          </div>
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between">
+              <Label>端口</Label>
+              <span v-if="isFieldDirty('email.smtpPort')" class="text-[11px] text-amber-600">已修改</span>
+            </div>
+            <Input v-model="emailPortModel" type="number" min="1" max="65535" :disabled="!draft.email.enabled" />
+          </div>
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between">
+              <Label>发件邮箱账号</Label>
+              <span v-if="isFieldDirty('email.user')" class="text-[11px] text-amber-600">已修改</span>
+            </div>
+            <Input v-model="draft.email.user" placeholder="xxx@qq.com" :disabled="!draft.email.enabled" />
+          </div>
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between">
+              <Label>密码 / 授权码</Label>
+              <span v-if="isFieldDirty('email.pass')" class="text-[11px] text-amber-600">已修改</span>
+            </div>
+            <Input
+              v-model="draft.email.pass"
+              type="password"
+              autocomplete="off"
+              :disabled="!draft.email.enabled"
+            />
+          </div>
+          <div class="grid gap-2 md:col-span-2">
+            <div class="flex items-center justify-between">
+              <Label>收件人</Label>
+              <span v-if="isFieldDirty('email.to')" class="text-[11px] text-amber-600">已修改</span>
+            </div>
+            <Input
+              v-model="draft.email.to"
+              placeholder="多个收件人用英文逗号分隔"
+              :disabled="!draft.email.enabled"
+            />
+          </div>
+        </div>
       </CardContent>
     </Card>
 

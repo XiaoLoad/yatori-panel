@@ -149,9 +149,20 @@ export const BankConfigSchema = z.object({
   key: z.string().default(""),
 });
 
+export const EmailConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  smtpHost: z.string().default(""),
+  smtpPort: z.number().int().min(1).max(65535).default(465),
+  user: z.string().default(""),
+  pass: z.string().default(""),
+  /** 收件人，逗号分隔 */
+  to: z.string().default(""),
+});
+
 export const SettingsSchema = z.object({
   ai: AiConfigSchema,
   questionBank: BankConfigSchema,
+  email: EmailConfigSchema,
   tickSeconds: z.number().int().min(3).max(30).default(5),
   maxAccountsConcurrency: z.number().int().min(1).max(10).default(3),
 });
