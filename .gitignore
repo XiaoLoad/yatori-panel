@@ -8,5 +8,6 @@ gateway/bin/
 assets/
 assets/
 gateway/assets/
+docs/
 .env
 *.log
