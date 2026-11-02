@@ -1,6 +1,6 @@
 name: CI
 
-# main 每个提交必须可构建：类型检查（三包）+ 网关 Go 编译（CGO）
+# main 每个提交必须可构建：类型检查（三包）+ 网关 Go 编译（CGO）+ 提交信息规范 + 构建冒烟
 on:
   push:
     branches: [main]
@@ -32,3 +32,51 @@ jobs:
       - name: 编译网关（CGO 必须，OCR 依赖）
         working-directory: gateway
         run: go build -ldflags "-s -w" -o bin/gateway .
+
+  commitlint:
+    name: 提交信息校验（Conventional Commits）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要完整历史才能校验本次推送/PR 的提交区间
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: 安装依赖
+        run: bun install --frozen-lockfile
+      - name: 校验提交信息
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PR_BASE}" ]; then
+            bunx commitlint --from "${PR_BASE}" --to "${HEAD_SHA}"
+          elif [ -n "${PUSH_BEFORE}" ] && [ "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ]; then
+            bunx commitlint --from "${PUSH_BEFORE}" --to "${HEAD_SHA}"
+          else
+            bunx commitlint --last
+          fi
+
+  build-smoke:
+    name: 构建冒烟（web 产物 + 后端健康检查）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          # 面板后端使用 node:sqlite，需要与运行镜像一致的 Node 版本
+          node-version: 24
+      - name: 安装依赖
+        run: bun install --frozen-lockfile
+      - name: 构建前端产物
+        working-directory: apps/web
+        run: bun run build
+      - name: 启动后端并验证 /api/v1/health
+        run: node scripts/smoke.mjs
