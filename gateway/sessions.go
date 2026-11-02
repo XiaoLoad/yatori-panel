@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
@@ -23,8 +24,29 @@ type sessionInfo struct {
 	Account      string   `json:"account"`
 	Capabilities []string `json:"capabilities"`
 	CreatedAt    string   `json:"createdAt"`
-	State        string   `json:"state"`            // logging_in / online / error
+	State        string   `json:"state"` // logging_in / online / error
 	LastError    string   `json:"lastError,omitempty"`
+	// ConfigFingerprint 创建会话时 AI/题库配置的指纹（sha256 前 16 位）。
+	// 面板复用会话前比对当前配置指纹，不一致则重建会话——SDK 的
+	// Options 在创建后不可更新，旧会话不会自动获得新配置。
+	ConfigFingerprint string `json:"configFingerprint,omitempty"`
+}
+
+// fingerprintConfig 计算 AI/题库配置指纹（空配置返回空串）。
+// 格式须与面板侧 sessions.ts 的 currentConfigFingerprint 保持一致。
+func fingerprintConfig(ai *aiConfigDTO, bank *bankDTO) string {
+	if ai == nil && bank == nil {
+		return ""
+	}
+	var sb strings.Builder
+	if ai != nil {
+		fmt.Fprintf(&sb, "ai|type=%s|url=%s|model=%s|key=%s", ai.Type, ai.URL, ai.Model, ai.APIKey)
+	}
+	if bank != nil {
+		fmt.Fprintf(&sb, "|bank|url=%s|key=%s", bank.URL, bank.Key)
+	}
+	sum := sha256.Sum256([]byte(sb.String()))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // session = 一个上游账号的存活 SDK 客户端 + 它的日志管道 + 心跳保活。

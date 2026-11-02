@@ -88,6 +88,8 @@ export interface GatewaySessionInfo {
   createdAt: string;
   state: string; // logging_in / online / error
   lastError?: string;
+  /** 创建会话时 AI/题库配置指纹（sha256 前 16 位，空配置为空串） */
+  configFingerprint?: string;
 }
 
 export interface GatewayLogEntry {

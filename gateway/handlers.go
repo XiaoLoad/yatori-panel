@@ -210,13 +210,14 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	se := &session{
 		info: sessionInfo{
-			ID:           newID(),
-			Platform:     platform.String(),
-			PlatformName: platform.Description(),
-			Account:      req.Username,
-			Capabilities: capsToStrings(client.Capabilities()),
-			CreatedAt:    time.Now().Format(time.RFC3339),
-			State:        "logging_in",
+			ID:                newID(),
+			Platform:          platform.String(),
+			PlatformName:      platform.Description(),
+			Account:           req.Username,
+			Capabilities:      capsToStrings(client.Capabilities()),
+			CreatedAt:         time.Now().Format(time.RFC3339),
+			State:             "logging_in",
+			ConfigFingerprint: fingerprintConfig(req.AI, req.QuestionBank),
 		},
 		client: client,
 		logs:   logger,
