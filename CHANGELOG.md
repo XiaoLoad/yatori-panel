@@ -11,7 +11,7 @@
 - **build**：GitHub Actions CI——push/PR 到 main 时自动跑三包类型检查
   与网关 CGO 编译（本地 pre-commit 的服务端兜底）
 - **build**：GitHub Actions 发版自动化——推送版本 tag 自动构建
-  web 产物 + 网关双平台二进制，从 CHANGELOG 提取版本段创建 Release
+  web 产物 + 网关 Linux 二进制，从 CHANGELOG 提取版本段创建 Release
 - **server**：网关状态机——后台 10s 心跳探测（区分未启动/假死/异常三类故障），
   up/down 变化经 SSE `gateway.status` 事件实时广播
 - **server**：`GET /health` 返回网关故障细节（detail）；新增
