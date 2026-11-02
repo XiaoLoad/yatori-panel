@@ -39,6 +39,7 @@ import {
 } from "./db/schedules.ts";
 import { registerSchedule, unregisterSchedule } from "./scheduler.ts";
 import cron from "node-cron";
+import { parse as parseYaml } from "yaml";
 import { getSettings, saveSettings } from "./db/settings.ts";
 import { HttpError } from "./errors.ts";
 import { GatewayError, gateway } from "./gateway.ts";
@@ -286,6 +287,63 @@ export function registerRoutes(app: FastifyInstance): void {
     unregisterSchedule(id);
     deleteSchedule(id);
     return { ok: true };
+  });
+
+  // config.yaml 批量导入（对齐 console 的配置结构）
+  app.post("/api/v1/accounts/import", async (req) => {
+    const body = (req.body ?? {}) as { yaml?: string };
+    if (!body.yaml?.trim()) throw new HttpError(400, "请提供 config.yaml 内容");
+    if (body.yaml.length > 512 * 1024) throw new HttpError(400, "文件过大");
+
+    let parsed: {
+      users?: {
+        accountType?: string;
+        url?: string;
+        account?: string;
+        password?: string;
+        remarkName?: string;
+      }[];
+    };
+    try {
+      parsed = parseYaml(body.yaml);
+    } catch (err) {
+      throw new HttpError(400, `YAML 解析失败：${(err as Error).message}`);
+    }
+    const users = parsed.users ?? [];
+    if (!users.length) throw new HttpError(400, "config.yaml 中没有 users 配置");
+
+    // 平台别名归一（对齐 core 的 platformAliases 子集）
+    const alias: Record<string, string> = {
+      YINGHUA: "YINGHUA", XUEXITONG: "XUEXITONG", XXT: "XUEXITONG", CHAOXING: "XUEXITONG",
+      ICVE: "ICVE", ZJY: "ICVE", CQIE: "CQIE", ENAAE: "ENAAE", WELEARN: "WELEARN",
+      QSXT: "QSXT", QINGSHUXUETANG: "QSXT", TTCDW: "TTCDW", KETANGX: "KETANGX",
+      ZXCPKS: "ZXCPKS", HAIQIKEJI: "ZXCPKS", WEIBAN: "WEIBAN", ZHIHUISHU: "ZHIHUISHU", GONGXUE: "GONGXUE",
+    };
+
+    const result = { imported: 0, skipped: 0, failed: [] as { account: string; error: string }[] };
+    for (const u of users) {
+      const rawType = (u.accountType ?? "").trim();
+      const platform = alias[rawType.toUpperCase()];
+      const username = (u.account ?? "").trim();
+      const password = (u.password ?? "").trim();
+      if (!platform || !username || !password) {
+        result.failed.push({ account: username || "(空)", error: "缺少平台/账号/密码字段" });
+        continue;
+      }
+      try {
+        insertAccount({
+          platform,
+          baseUrl: (u.url ?? "").trim(),
+          username,
+          password,
+          remark: (u.remarkName ?? "").trim(),
+        });
+        result.imported += 1;
+      } catch (err) {
+        result.failed.push({ account: username, error: (err as Error).message });
+      }
+    }
+    return { ok: true, data: result };
   });
 
   // ---------- 课程 ----------

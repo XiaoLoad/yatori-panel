@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { Plus, Users } from "lucide-vue-next";
+import { FileUp, Plus, Users } from "lucide-vue-next";
 import { computed, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { PlatformMeta } from "@yatori/shared";
@@ -189,6 +189,46 @@ const removeMutation = useMutation({
   onError: (err) => showError(err as ApiError, "删除失败"),
 });
 
+// ---------- config.yaml 导入 ----------
+
+const importOpen = ref(false);
+const importText = ref("");
+const importFileName = ref("");
+const importResult = ref<{ imported: number; skipped: number; failed: { account: string; error: string }[] } | null>(null);
+
+const importMutation = useMutation({
+  mutationFn: () => api.importConfig(importText.value),
+  onSuccess: (r) => {
+    importResult.value = r;
+    queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    if (r.failed.length === 0) {
+      toast.success(`导入完成：成功 ${r.imported} 个账号`);
+      importOpen.value = false;
+      importText.value = "";
+      importFileName.value = "";
+    }
+  },
+  onError: (err) => showError(err as ApiError, "导入失败"),
+});
+
+function onImportFile(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  importFileName.value = file.name;
+  void file.text().then((text) => {
+    importText.value = text;
+  });
+}
+
+function submitImport() {
+  if (!importText.value.trim()) {
+    toast.error("请粘贴 config.yaml 内容或选择文件");
+    return;
+  }
+  importMutation.mutate();
+}
+
 // ---------- 失败日志对话框 ----------
 
 const errorDialog = ref<{ title: string; message: string; logs: GatewayLogEntry[] } | null>(null);
@@ -211,7 +251,12 @@ function showError(err: ApiError, fallback: string) {
           每个账号一张卡片：点「开始刷课」即按默认策略刷全部未完成课程
         </p>
       </div>
-      <Button @click="openCreate"><Plus />添加账号</Button>
+      <div class="flex items-center gap-2">
+        <Button variant="outline" @click="importOpen = true">
+          <FileUp />导入 config.yaml
+        </Button>
+        <Button @click="openCreate"><Plus />添加账号</Button>
+      </div>
     </div>
 
     <div v-if="accountsQuery.isLoading.value" class="space-y-4">
@@ -311,6 +356,59 @@ function showError(err: ApiError, fallback: string) {
           <Button variant="outline" @click="errorDialog = null">知道了</Button>
         </DialogFooter>
       </div>
+    </Dialog>
+
+    <!-- config.yaml 批量导入 -->
+    <Dialog v-model:open="importOpen">
+      <form class="grid gap-4" @submit.prevent="submitImport">
+        <div class="grid gap-1.5">
+          <DialogTitle>导入 config.yaml</DialogTitle>
+          <DialogDescription>
+            兼容 yatori-go-console 的配置格式，自动导入其中全部账号（密码加密入库）
+          </DialogDescription>
+        </div>
+        <div class="grid gap-2">
+          <Label>选择文件</Label>
+          <Input
+            type="file"
+            accept=".yaml,.yml,.txt"
+            class="cursor-pointer file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1 file:text-xs"
+            @change="onImportFile"
+          />
+        </div>
+        <div class="grid gap-2">
+          <Label>或直接粘贴内容</Label>
+          <textarea
+            v-model="importText"
+            rows="8"
+            spellcheck="false"
+            class="w-full rounded-md border border-input bg-transparent p-3 font-mono text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            placeholder="users:
+  - accountType: YINGHUA
+    url: https://xxx.suwankj.com
+    account: '2025xxxx'
+    password: 'xxxx'"
+          />
+        </div>
+
+        <div v-if="importResult" class="rounded-md border bg-muted/40 p-3 text-sm">
+          <p>
+            导入 <span class="font-semibold text-emerald-500">{{ importResult.imported }}</span> 个
+            · 跳过 {{ importResult.skipped }} 个
+            · 失败 {{ importResult.failed.length }} 个
+          </p>
+          <p v-for="f in importResult.failed" :key="f.account" class="text-xs text-red-500">
+            {{ f.account }}：{{ f.error }}
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" type="button" @click="importOpen = false">取消</Button>
+          <Button type="submit" :disabled="importMutation.isPending.value || !importText.trim()">
+            {{ importMutation.isPending.value ? "导入中…" : "开始导入" }}
+          </Button>
+        </DialogFooter>
+      </form>
     </Dialog>
   </div>
 </template>
