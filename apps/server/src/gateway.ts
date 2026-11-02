@@ -185,6 +185,8 @@ export const gateway = {
     cookie?: string;
     proxyURL?: string;
     loginTimeoutSeconds?: number;
+    /** 面板侧配置指纹：网关原样存入 sessionInfo，复用会话时比对 */
+    configFingerprint?: string;
     ai?: { enabled?: boolean; type: string; url: string; model: string; apiKey: string };
     questionBank?: { url: string; key: string };
   }) => request<GatewaySessionInfo>("/api/v1/sessions", "POST", payload),

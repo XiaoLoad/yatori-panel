@@ -220,6 +220,9 @@ type createSessionRequest struct {
 	LoginTimeoutSeconds int     `json:"loginTimeoutSeconds"`
 	AI                  *aiConfigDTO   `json:"ai"`
 	QuestionBank        *bankDTO       `json:"questionBank"`
+	// ConfigFingerprint 面板侧计算并透传的配置指纹，网关只存/回显不做解释。
+	// 面板复用会话时比对当前指纹与此值，不一致即重建会话。
+	ConfigFingerprint string `json:"configFingerprint,omitempty"`
 }
 
 func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -293,7 +296,7 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			Capabilities:      capsToStrings(client.Capabilities()),
 			CreatedAt:         time.Now().Format(time.RFC3339),
 			State:             "logging_in",
-			ConfigFingerprint: fingerprintConfig(req.AI, req.QuestionBank),
+			ConfigFingerprint: req.ConfigFingerprint,
 		},
 		client: client,
 		logs:   logger,

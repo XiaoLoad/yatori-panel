@@ -182,6 +182,8 @@ export async function ensureSession(
     url: account.baseUrl || undefined,
     proxyURL: account.proxyUrl || undefined,
     loginTimeoutSeconds: 90,
+    // 指纹由面板计算并透传，网关只存/回显——复用会话时比对此值判断配置是否变更
+    configFingerprint: wantFp,
     ai:
       settings.ai.enabled && settings.ai.apiKey
         ? {
