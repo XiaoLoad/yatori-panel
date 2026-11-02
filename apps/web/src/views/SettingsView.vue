@@ -365,7 +365,7 @@ const disableMutation = useMutation({
             </div>
             <Input v-model="draft.ai.model" placeholder="如 qwen-plus" :disabled="!draft.ai.enabled" />
           </div>
-          <div class="grid gap-2">
+          <div class="grid gap-2 md:col-span-2">
             <div class="flex items-center justify-between">
               <Label>接口地址</Label>
               <span v-if="isFieldDirty('ai.url')" class="text-[11px] text-amber-600">已修改</span>
@@ -421,14 +421,14 @@ const disableMutation = useMutation({
       </CardHeader>
       <CardContent class="space-y-4" :class="draft.questionBank.enabled ? '' : 'opacity-60'">
         <div class="grid gap-4 md:grid-cols-2">
-          <div class="grid gap-2">
+          <div class="grid gap-2 md:col-span-2">
             <div class="flex items-center justify-between">
               <Label>服务地址</Label>
               <span v-if="isFieldDirty('questionBank.url')" class="text-[11px] text-amber-600">已修改</span>
             </div>
             <Input
               v-model="draft.questionBank.url"
-              placeholder="http://localhost:8083"
+              placeholder="如 http://host:8083/api/external/yatori?token=xxx（密钥随 URL 参数携带）"
               :disabled="!draft.questionBank.enabled"
             />
           </div>
@@ -441,6 +441,7 @@ const disableMutation = useMutation({
               v-model="draft.questionBank.key"
               type="password"
               autocomplete="off"
+              placeholder="多数题库服务把密钥拼在地址里，本项留空即可"
               :disabled="!draft.questionBank.enabled"
             />
           </div>
