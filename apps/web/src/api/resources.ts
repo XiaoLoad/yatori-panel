@@ -23,6 +23,37 @@ export interface NodeDTO {
   extra?: Record<string, string>;
 }
 
+export interface ExamDTO {
+  id: string;
+  courseId: string;
+  name: string;
+  status: string;
+  startAt?: string;
+  endAt?: string;
+  durationSeconds: number;
+  questionCount: number;
+  extra?: Record<string, string>;
+}
+
+export interface ExamResultDTO {
+  taskId: string;
+  title: string;
+  submitted: boolean;
+  score: number;
+  message?: string;
+}
+
+export interface ExamStartResult {
+  started: boolean;
+  examName: string;
+}
+
+export interface ExamRunningItem {
+  accountUid: string;
+  courseId: string;
+  examId: string;
+}
+
 export interface AccountWithSession extends AccountVO {
   hasSession: boolean;
   sessionState?: string; // logging_in / online / error
@@ -75,6 +106,20 @@ export const api = {
   courses: (uid: string) => get<CourseDTO[]>(`/accounts/${uid}/courses`),
   tree: (uid: string, courseId: string) =>
     get<NodeDTO[]>(`/accounts/${uid}/courses/${courseId}/tree`),
+  exams: (uid: string, courseId: string) =>
+    get<ExamDTO[]>(`/accounts/${uid}/courses/${courseId}/exams`),
+  doExam: (
+    uid: string,
+    courseId: string,
+    body: {
+      examId: string;
+      examName?: string;
+      source: "off" | "ai" | "bank";
+      submitMode?: "off" | "direct" | "smart";
+    },
+  ) => post<ExamStartResult>(`/accounts/${uid}/courses/${courseId}/exams/do`, body),
+  runningExams: (uid: string) =>
+    get<ExamRunningItem[]>(`/accounts/${uid}/exams/running`),
 
   startJob: (body: StartJobBody) => post<JobVO>("/jobs", body),
   stopJob: (id: string) =>

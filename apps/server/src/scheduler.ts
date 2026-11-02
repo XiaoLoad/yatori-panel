@@ -34,7 +34,7 @@ function fire(schedule: ScheduleVO): void {
       courseIds: [],
       videoMode: schedule.videoMode,
       answerSource: schedule.answerSource,
-      autoSubmit: schedule.autoSubmit,
+      submitMode: schedule.submitMode,
       perCourseConcurrency: 4,
     })
     .catch((err: unknown) => {

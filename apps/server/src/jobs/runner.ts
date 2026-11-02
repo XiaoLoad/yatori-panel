@@ -4,6 +4,7 @@ import { bus } from "../bus.ts";
 import { appendJobEvent } from "../db/jobs.ts";
 import { upsertNode } from "../db/nodes.ts";
 import { getSettings } from "../db/settings.ts";
+import { getAccount } from "../db/accounts.ts";
 import { rebuildSession } from "../sessions.ts";
 import { ensureSessionForUid } from "../sessions.ts";
 import type { JobSummary, StartJobBody } from "../shared.ts";
@@ -56,6 +57,9 @@ export async function runJob(
   const settings = getSettings();
   const tickMs = settings.tickSeconds * 1000;
   const summary = emptySummary();
+  // 账号标识（优先备注）：日志前缀，多账号并发时区分日志归属
+  const account = getAccount(accountUid);
+  const accountLabel = account ? (account.remark || account.username) : accountUid;
   // sid 用可变持有：登录超时自愈时会整会话重建
   let sid = await ensureSessionForUid(accountUid);
   let rebuilds = 0;
@@ -74,7 +78,7 @@ export async function runJob(
     message: string,
     persist = true,
   ) => {
-    const full = { type: "log", jobId, accountId: accountUid, level, message, ts: Date.now() } as import("../shared.ts").JobEvent;
+    const full = { type: "log", jobId, accountId: accountUid, level, message: `[${accountLabel}] ${message}`, ts: Date.now() } as import("../shared.ts").JobEvent;
     if (persist) appendJobEvent(jobId, full);
     bus.publish(full);
   };
@@ -242,6 +246,50 @@ export async function runJob(
   }
 
   // ---------- 作业 / 考试 ----------
+
+  /**
+   * 智能交卷：先全部保存（submit=false），检查返回的逐题答案有无留空，
+   * 全部作答才二次调用交卷。对齐 console 的 ExamAutoSubmit==2 档。
+   */
+  async function smartSubmit(
+    label: string,
+    id: string,
+    kind: "work" | "exam",
+    courseId: string,
+  ): Promise<Awaited<ReturnType<typeof gateway.doWork>>> {
+    const saved = await doAnswer(kind, courseId, id, false);
+    const answers = saved.answers ?? [];
+    const blank = answers.filter((a) => !a.value || a.value.length === 0).length;
+    if (blank > 0) {
+      emitLog("warn", `${label}：${blank} 题未答上（留空），仅保存不交卷`);
+      return saved;
+    }
+    return doAnswer(kind, courseId, id, true);
+  }
+
+  /** 按交卷策略执行一次作业/考试调用；返回作答结果（submitted 字段在 smart 两段式下由外层判断） */
+  function doAnswer(
+    kind: "work" | "exam",
+    courseId: string,
+    id: string,
+    submit: boolean,
+  ): Promise<Awaited<ReturnType<typeof gateway.doWork>>> {
+    if (kind === "work") {
+      return gateway.doWork(sid, {
+        courseId,
+        workId: id,
+        source: options.answerSource,
+        submit,
+      });
+    }
+    return gateway.doExam(sid, {
+      courseId,
+      examId: id,
+      source: options.answerSource,
+      submit,
+    });
+  }
+
   async function runWorks(course: GatewayCourse): Promise<void> {
     if (options.answerSource === "off") return;
     let works;
@@ -256,18 +304,21 @@ export async function runJob(
     for (const w of works) {
       if (checkAbort()) return;
       try {
-        const r = await gateway.doWork(sid, {
-          courseId: course.id,
-          workId: w.id,
-          source: options.answerSource,
-          submit: options.autoSubmit,
-        });
+        let submitted: boolean;
+        let r: Awaited<ReturnType<typeof gateway.doWork>>;
+        if (options.submitMode === "smart") {
+          r = await smartSubmit(`作业 ${course.name}/${w.name}`, w.id, "work", course.id);
+          submitted = r.submitted;
+        } else {
+          r = await doAnswer("work", course.id, w.id, options.submitMode === "direct");
+          submitted = r.submitted;
+        }
         summary.worksDone += 1;
-        if (r.submitted && r.score > 0) {
+        if (submitted && r.score > 0) {
           const s = `${w.name} ${r.score}分`;
           summary.scores.push(s);
           emitLog("info", `作业完成：${course.name} / ${w.name}（得分 ${r.score}）`);
-        } else if (r.submitted) {
+        } else if (submitted) {
           emitLog(
             "warn",
             `作业已提交但未确认得分，请到平台核实：${course.name} / ${w.name}`,
@@ -297,18 +348,21 @@ export async function runJob(
     for (const x of exams) {
       if (checkAbort()) return;
       try {
-        const r = await gateway.doExam(sid, {
-          courseId: course.id,
-          examId: x.id,
-          source: options.answerSource,
-          submit: options.autoSubmit,
-        });
+        let submitted: boolean;
+        let r: Awaited<ReturnType<typeof gateway.doExam>>;
+        if (options.submitMode === "smart") {
+          r = await smartSubmit(`考试 ${course.name}/${x.name}`, x.id, "exam", course.id);
+          submitted = r.submitted;
+        } else {
+          r = await doAnswer("exam", course.id, x.id, options.submitMode === "direct");
+          submitted = r.submitted;
+        }
         summary.examsDone += 1;
-        if (r.submitted && r.score > 0) {
+        if (submitted && r.score > 0) {
           const s = `${x.name} ${r.score}分`;
           summary.scores.push(s);
           emitLog("info", `考试完成：${course.name} / ${x.name}（得分 ${r.score}）`);
-        } else if (r.submitted) {
+        } else if (submitted) {
           emitLog(
             "warn",
             `考试已提交但未确认得分，请到平台核实：${course.name} / ${x.name}`,

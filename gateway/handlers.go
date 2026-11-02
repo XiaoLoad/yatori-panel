@@ -5,10 +5,12 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yatori-dev/yatori-go-core/models/ctype"
@@ -25,26 +27,102 @@ type gateway struct {
 func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	g := &gateway{store: store, platforms: buildPlatformMeta()}
 
+	// SDK 调用超时包装：上游接口卡死（如平台风控页重试循环）时，
+	// 会话互斥锁会让后续请求无限排队，最终拖垮整个网关。
+	// 每类路由限时返回 504，保证网关整体可用性。
+	const sdkTimeout = 60 * time.Second        // 列表/树等普通读取
+	const answerTimeout = 30 * time.Minute     // 作业/考试/学时：本身就是长操作
+
+	long := withTimeoutMiddleware(sdkTimeout)
+	xlong := withTimeoutMiddleware(answerTimeout)
+
 	mux.HandleFunc("GET /api/v1/health", g.handleHealth)
-	mux.HandleFunc("GET /api/v1/platforms", g.handlePlatforms)
-	mux.HandleFunc("POST /api/v1/preflight", g.handlePreflight)
-	mux.HandleFunc("POST /api/v1/sessions", g.handleCreateSession)
-	mux.HandleFunc("GET /api/v1/sessions", g.handleListSessions)
-	mux.HandleFunc("GET /api/v1/sessions/{id}", g.handleSessionInfo)
-	mux.HandleFunc("DELETE /api/v1/sessions/{id}", g.handleCloseSession)
+	mux.HandleFunc("GET /api/v1/platforms", g.handlePlatforms) // 纯内存
+	mux.HandleFunc("POST /api/v1/preflight", long(g.handlePreflight))
+	mux.HandleFunc("POST /api/v1/sessions", xlong(g.handleCreateSession)) // 含登录等待
+	mux.HandleFunc("GET /api/v1/sessions", long(g.handleListSessions))
+	mux.HandleFunc("GET /api/v1/sessions/{id}", long(g.handleSessionInfo))
+	mux.HandleFunc("DELETE /api/v1/sessions/{id}", long(g.handleCloseSession))
 
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses", g.handleCourses)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/profile", g.handleProfile)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/tree", g.handleTree)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/works", g.handleWorks)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/exams", g.handleExams)
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses", long(g.handleCourses))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/profile", long(g.handleProfile))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/tree", long(g.handleTree))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/works", long(g.handleWorks))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/exams", long(g.handleExams))
 
-	mux.HandleFunc("POST /api/v1/sessions/{id}/study", g.handleStudy)
-	mux.HandleFunc("POST /api/v1/sessions/{id}/works/do", g.handleDoWork)
-	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", g.handleDoExam)
+	mux.HandleFunc("POST /api/v1/sessions/{id}/study", xlong(g.handleStudy))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/works/do", xlong(g.handleDoWork))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", xlong(g.handleDoExam))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/detail", g.handleExamDetail) // SSE 逐题流
 
-	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", g.handleRecentLogs)
+	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)       // SSE 长连接，不适用
+	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", long(g.handleRecentLogs))
+}
+
+// withTimeoutMiddleware 给 handler 套 context 截止时间：超时返回 504。
+// 注意：这只让 HTTP 响应及时返回，被阻塞的 SDK 调用（等待会话锁）
+// 仍在后台排队——彻底解死锁需上游支持 ctx 取消，此处是服务可用性兜底。
+func withTimeoutMiddleware(d time.Duration) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), d)
+			defer cancel()
+			done := make(chan struct{})
+			tw := newTimeoutWriter(w)
+			go func() {
+				defer close(done)
+				next(tw, r.WithContext(ctx))
+			}()
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				tw.markTimedOut()
+				if !tw.wroteHeader {
+					fail(w, http.StatusGatewayTimeout, "上游平台响应超时，请稍后重试或重启网关")
+				}
+			}
+		}
+	}
+}
+
+// timeoutWriter 屏蔽超时后后台 goroutine 的写操作（写已关闭的响应会 panic）。
+type timeoutWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+	mu          sync.Mutex
+	timedOut    bool
+}
+
+func newTimeoutWriter(w http.ResponseWriter) *timeoutWriter {
+	return &timeoutWriter{ResponseWriter: w}
+}
+
+func (t *timeoutWriter) WriteHeader(code int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.timedOut {
+		return
+	}
+	t.wroteHeader = true
+	t.ResponseWriter.WriteHeader(code)
+}
+
+func (t *timeoutWriter) Write(b []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.timedOut {
+		return 0, http.ErrHandlerTimeout
+	}
+	t.wroteHeader = true
+	return t.ResponseWriter.Write(b)
+}
+
+// markTimedOut 在超时分支调用，之后后台 goroutine 的写被丢弃。
+func (t *timeoutWriter) markTimedOut() {
+	t.mu.Lock()
+	t.timedOut = true
+	t.mu.Unlock()
 }
 
 // ---------- 基础 ----------
@@ -144,6 +222,9 @@ type createSessionRequest struct {
 	LoginTimeoutSeconds int     `json:"loginTimeoutSeconds"`
 	AI                  *aiConfigDTO   `json:"ai"`
 	QuestionBank        *bankDTO       `json:"questionBank"`
+	// ConfigFingerprint 面板侧计算并透传的配置指纹，网关只存/回显不做解释。
+	// 面板复用会话时比对当前指纹与此值，不一致即重建会话。
+	ConfigFingerprint string `json:"configFingerprint,omitempty"`
 }
 
 func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -210,13 +291,14 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 	se := &session{
 		info: sessionInfo{
-			ID:           newID(),
-			Platform:     platform.String(),
-			PlatformName: platform.Description(),
-			Account:      req.Username,
-			Capabilities: capsToStrings(client.Capabilities()),
-			CreatedAt:    time.Now().Format(time.RFC3339),
-			State:        "logging_in",
+			ID:                newID(),
+			Platform:          platform.String(),
+			PlatformName:      platform.Description(),
+			Account:           req.Username,
+			Capabilities:      capsToStrings(client.Capabilities()),
+			CreatedAt:         time.Now().Format(time.RFC3339),
+			State:             "logging_in",
+			ConfigFingerprint: req.ConfigFingerprint,
 		},
 		client: client,
 		logs:   logger,
@@ -228,6 +310,9 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if se.cookieHeader == "" && sess.Token != "" {
 		se.cookieHeader = "token=" + sess.Token
 	}
+	// 英华逐题模式（方案 B）需要账密自建完整 Cookie 会话
+	se.yhUsername = req.Username
+	se.yhPassword = req.Password
 	// 清理同账号失败的历史会话，避免反复登录失败导致堆积
 	g.store.removeFailedFor(platform.String(), req.Username)
 	g.store.put(se)
@@ -247,7 +332,7 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 		if loginErr != nil {
 			se.setState("error", loginErr.Error())
-			se.logs.logf("error", "登录失败: "+loginErr.Error())
+			se.logs.logf("error", "登录失败: %s", loginErr.Error())
 			return
 		}
 		sess := client.Session()
@@ -323,6 +408,10 @@ func (g *gateway) handleTree(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
+	if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+		fail(w, mapStatus(err), err.Error())
+		return
+	}
 	tree, err := se.client.Tree(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
@@ -341,7 +430,12 @@ func (g *gateway) handleWorks(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
-	works, err := se.client.Works(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	works, err := func() ([]yatori.Work, error) {
+		if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+			return nil, err
+		}
+		return se.client.Works(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
 		return
@@ -359,7 +453,12 @@ func (g *gateway) handleExams(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
-	exams, err := se.client.Exams(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	exams, err := func() ([]yatori.Exam, error) {
+		if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+			return nil, err
+		}
+		return se.client.Exams(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
 		return
@@ -530,6 +629,67 @@ func (g *gateway) handleDoExam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": dtoAnswerResult(result)})
+}
+
+// handleExamDetail 逐题模式考试：SSE 流式返回逐题进度与最终结果。
+// 请求体同 doExamRequest，另需题库地址（source 固定 bank）。
+// 仅支持英华（协议复刻自其底层 API）；其他平台回退 400。
+func (g *gateway) handleExamDetail(w http.ResponseWriter, r *http.Request) {
+	se, ok := g.sessionFrom(r)
+	if !ok {
+		fail(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if se.info.Platform != "YINGHUA" {
+		fail(w, http.StatusBadRequest, "逐题模式暂仅支持英华学堂，其他平台请用普通答题")
+		return
+	}
+	var req struct {
+		CourseID   string `json:"courseId"`
+		ExamID     string `json:"examId"`
+		NodeID     string `json:"nodeId"`
+		BankURL    string `json:"bankUrl"`
+		SubmitMode string `json:"submitMode"` // off / smart / direct
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.ExamID == "" {
+		fail(w, http.StatusBadRequest, "缺少考试 ID")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		fail(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	writeEvent := func(event string, payload any) bool {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	result, err := RunExamDetailWithCreds(r.Context(), se.client.Session(), se.yhUsername, se.yhPassword,
+		req.CourseID, req.ExamID, req.NodeID, req.BankURL, req.SubmitMode,
+		func(p examProgress) {
+			_ = writeEvent("progress", p)
+		})
+	if err != nil {
+		_ = writeEvent("error", map[string]string{"error": err.Error()})
+		return
+	}
+	_ = writeEvent("result", result)
 }
 
 // ---------- 日志 ----------

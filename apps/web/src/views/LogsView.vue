@@ -16,8 +16,7 @@ const accountsQuery = useQuery({
   queryFn: api.accounts,
 });
 
-const accountFilter = ref("");
-// 默认 INFO 及以上：DEBUG 级是逐次学时提交的高频行，按需切换查看
+const accountFilter = ref("all"); // 哨兵值：reka-ui SelectItem 禁止空串 value
 const levelFilter = ref("info");
 const keyword = ref("");
 
@@ -25,10 +24,10 @@ const LEVEL_RANK: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 
 
 const filtered = computed(() => {
   let list = events.logs;
-  if (accountFilter.value) {
+  if (accountFilter.value !== "all") {
     list = list.filter((e) => e.accountId === accountFilter.value);
   }
-  if (levelFilter.value) {
+  if (levelFilter.value !== "all") {
     const min = LEVEL_RANK[levelFilter.value] ?? 0;
     list = list.filter((e) => (LEVEL_RANK[e.level ?? "info"] ?? 1) >= min);
   }
@@ -91,7 +90,7 @@ function line(e: JobEvent) {
         v-model="accountFilter"
         class="max-w-56"
         :options="[
-          { value: '', label: '全部账号' },
+          { value: 'all', label: '全部账号' },
           ...(accountsQuery.data.value ?? []).map((a) => ({
             value: a.uid,
             label: `${a.platformName} · ${a.username}`,
@@ -105,7 +104,7 @@ function line(e: JobEvent) {
           { value: 'error', label: 'ERROR' },
           { value: 'warn', label: 'WARN 及以上' },
           { value: 'info', label: 'INFO 及以上' },
-          { value: '', label: '全部（含 DEBUG）' },
+          { value: 'all', label: '全部（含 DEBUG）' },
         ]"
       />
       <Input v-model="keyword" placeholder="关键字过滤" class="max-w-64" />

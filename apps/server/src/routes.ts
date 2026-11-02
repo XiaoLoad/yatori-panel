@@ -1,10 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import "@fastify/cookie";
+import { z } from "zod";
 import type { ZodType, ZodTypeDef } from "zod";
 import {
+  AnswerSourceEnum,
   CreateAccountBody,
   CreateScheduleBody,
   StartJobBody,
+  SubmitModeEnum,
   UpdateAccountBody,
   UpdateSettingsBody,
 } from "./shared.ts";
@@ -46,6 +49,20 @@ import { GatewayError, gateway } from "./gateway.ts";
 import { refreshGatewayStatus, snapshot } from "./gateway-status.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { dropSession, ensureSession, getSessionId, getSessionState } from "./sessions.ts";
+import { isExamRunning, listRunningExams, runSingleExam } from "./single-exam.ts";
+
+/** AI/题库配置的零成本前置校验：缺配置直接拒绝，不发起注定失败的探针请求 */
+function ensureAnswerConfigReady(
+  source: "off" | "ai" | "bank",
+  settings: ReturnType<typeof getSettings>,
+): void {
+  if (source === "ai" && (!settings.ai.enabled || !settings.ai.url || !settings.ai.apiKey)) {
+    throw new HttpError(400, "请先在全局设置中完成 AI 答题配置（接口地址与 API Key 必填）");
+  }
+  if (source === "bank" && (!settings.questionBank.enabled || !settings.questionBank.url)) {
+    throw new HttpError(400, "请先在全局设置中启用外置题库并填写服务地址");
+  }
+}
 
 function parse<T>(body: unknown, schema: ZodType<T, ZodTypeDef, unknown>): T {
   const r = schema.safeParse(body);
@@ -377,6 +394,91 @@ export function registerRoutes(app: FastifyInstance): void {
     return { ok: true, data: await gateway.tree(sid, courseId) };
   });
 
+  // 考试列表透传（单场考试快捷触发的前置数据）
+  app.get("/api/v1/accounts/:uid/courses/:courseId/exams", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const { courseId } = req.params as { courseId: string };
+    const sid = await ensureSession(account);
+    return { ok: true, data: await gateway.exams(sid, courseId) };
+  });
+
+  // 单场考试触发：与任务发起同一套答题来源预检门禁，不可用直接拒绝。
+  // 后台执行 + SSE 实时状态（同步 HTTP 会让答题期间前端无任何反馈）。
+  app.post("/api/v1/accounts/:uid/courses/:courseId/exams/do", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const { courseId } = req.params as { courseId: string };
+    const body = parse(
+      req.body,
+      z.object({
+        examId: z.string({ required_error: "缺少考试 ID" }).min(1, "缺少考试 ID"),
+        examName: z.string().optional().default(""),
+        source: AnswerSourceEnum,
+        submitMode: SubmitModeEnum.optional().default("direct"),
+      }),
+    );
+    if (isExamRunning(account.uid, courseId, body.examId)) {
+      throw new HttpError(409, "该考试正在答题中，请等待完成");
+    }
+    if (body.source !== "off") {
+      const settings = getSettings();
+      ensureAnswerConfigReady(body.source, settings);
+      const pre =
+        body.source === "ai"
+          ? await gateway.preflight({
+              source: "ai",
+              ai: {
+                type: settings.ai.type,
+                url: settings.ai.url,
+                model: settings.ai.model,
+                apiKey: settings.ai.apiKey,
+              },
+            })
+          : await gateway.preflight({
+              source: "bank",
+              questionBank: {
+                url: settings.questionBank.url,
+                key: settings.questionBank.key,
+              },
+            });
+      if (!pre.available) {
+        const label = body.source === "ai" ? "AI" : "外置题库";
+        throw new HttpError(400, `${label}预检未通过：${pre.error ?? "不可用"}`);
+      }
+    }
+    await ensureSession(account);
+    const examName = body.examName || body.examId;
+    // 查课程名用于日志标识（查不到不影响触发）
+    let courseName: string | undefined;
+    try {
+      const sid = await ensureSession(account);
+      courseName = (await gateway.courses(sid)).find((c) => c.id === courseId)?.name;
+    } catch {
+      /* 仅日志标识用途，失败不阻断 */
+    }
+    void runSingleExam({
+      accountUid: account.uid,
+      courseId,
+      examId: body.examId,
+      examName,
+      courseName,
+      source: body.source,
+      submitMode: body.submitMode,
+    });
+    return { ok: true, data: { started: true, examName } };
+  });
+
+  // 单场考试运行状态（前端刷新页面后恢复"答题中"显示）
+  app.get("/api/v1/accounts/:uid/exams/running", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    return {
+      ok: true,
+      data: listRunningExams().filter((r) => r.accountUid === account.uid),
+    };
+  });
+
   // ---------- 任务 ----------
   app.post("/api/v1/jobs", async (req) => {
     const body = parse<StartJobBody>(req.body, StartJobBody);
@@ -387,6 +489,7 @@ export function registerRoutes(app: FastifyInstance): void {
     // 答题来源预检：AI/题库不可用时直接拒绝启动（对齐 console 的前置检查）
     if (body.answerSource !== "off") {
       const settings = getSettings();
+      ensureAnswerConfigReady(body.answerSource, settings);
       const pre =
         body.answerSource === "ai"
           ? await gateway.preflight({

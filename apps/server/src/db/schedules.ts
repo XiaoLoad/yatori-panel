@@ -1,4 +1,4 @@
-import type { ScheduleVO } from "../shared.ts";
+import type { ScheduleVO, SubmitMode } from "../shared.ts";
 import { newId, now, sqlite } from "./index.ts";
 
 interface ScheduleRow {
@@ -8,6 +8,7 @@ interface ScheduleRow {
   video_mode: number;
   answer_source: string;
   auto_submit: number;
+  submit_mode: string;
   enabled: number;
   last_run_at: string | null;
   created_at: string;
@@ -21,7 +22,7 @@ function toVO(r: ScheduleRow): ScheduleVO {
     cron: r.cron,
     videoMode: r.video_mode as ScheduleVO["videoMode"],
     answerSource: r.answer_source as ScheduleVO["answerSource"],
-    autoSubmit: r.auto_submit === 1,
+    submitMode: (r.submit_mode as SubmitMode) || "off",
     enabled: r.enabled === 1,
     lastRunAt: r.last_run_at,
     createdAt: r.created_at,
@@ -44,7 +45,7 @@ export function insertSchedule(input: {
   cron: string;
   videoMode: ScheduleVO["videoMode"];
   answerSource: ScheduleVO["answerSource"];
-  autoSubmit: boolean;
+  submitMode: SubmitMode;
 }): ScheduleVO {
   const row: ScheduleRow = {
     id: newId(),
@@ -52,15 +53,16 @@ export function insertSchedule(input: {
     cron: input.cron,
     video_mode: input.videoMode,
     answer_source: input.answerSource,
-    auto_submit: input.autoSubmit ? 1 : 0,
+    auto_submit: input.submitMode === "direct" ? 1 : 0, // 旧列兼容保留
+    submit_mode: input.submitMode,
     enabled: 1,
     last_run_at: null,
     created_at: now(),
   };
   sqlite
     .prepare(
-      `INSERT INTO schedules (id, account_uid, cron, video_mode, answer_source, auto_submit, enabled, last_run_at, created_at)
-       VALUES (@id, @account_uid, @cron, @video_mode, @answer_source, @auto_submit, @enabled, @last_run_at, @created_at)`,
+      `INSERT INTO schedules (id, account_uid, cron, video_mode, answer_source, auto_submit, submit_mode, enabled, last_run_at, created_at)
+       VALUES (@id, @account_uid, @cron, @video_mode, @answer_source, @auto_submit, @submit_mode, @enabled, @last_run_at, @created_at)`,
     )
     .run(row);
   return toVO(row);

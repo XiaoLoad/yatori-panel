@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
@@ -23,8 +24,12 @@ type sessionInfo struct {
 	Account      string   `json:"account"`
 	Capabilities []string `json:"capabilities"`
 	CreatedAt    string   `json:"createdAt"`
-	State        string   `json:"state"`            // logging_in / online / error
+	State        string   `json:"state"` // logging_in / online / error
 	LastError    string   `json:"lastError,omitempty"`
+	// ConfigFingerprint 创建会话时 AI/题库配置的指纹（sha256 前 16 位）。
+	// 面板复用会话前比对当前配置指纹，不一致则重建会话——SDK 的
+	// Options 在创建后不可更新，旧会话不会自动获得新配置。
+	ConfigFingerprint string `json:"configFingerprint,omitempty"`
 }
 
 // session = 一个上游账号的存活 SDK 客户端 + 它的日志管道 + 心跳保活。
@@ -39,6 +44,10 @@ type session struct {
 	token        string
 	cookieHeader string
 
+	// 英华逐题模式的自管理会话凭据（方案 B：验证码 OCR 登录，完整 Cookie 链）。
+	yhUsername string
+	yhPassword string
+
 	stateMu     sync.RWMutex
 	state       string
 	lastError   string
@@ -47,6 +56,27 @@ type session struct {
 	stopHB    chan struct{}
 	stopOnce  sync.Once
 	startOnce sync.Once
+
+	// coursesWarmed 标记本会话是否已加载过课程缓存（SDK 适配器在
+	// Courses() 时缓存课程原始数据，Tree/Works/Exams 依赖该缓存；
+	// 会话重建后若直接调 Tree 会报 "course raw data is missing"）。
+	coursesWarmed bool
+	coursesMu     sync.Mutex
+}
+
+// ensureCoursesWarmed 首次调用时拉一次课程列表以填充 SDK 内部缓存。
+// 并发安全：多请求同时到达只预热一次。
+func (s *session) ensureCoursesWarmed(ctx context.Context) error {
+	s.coursesMu.Lock()
+	defer s.coursesMu.Unlock()
+	if s.coursesWarmed {
+		return nil
+	}
+	if _, err := s.client.Courses(ctx); err != nil {
+		return err
+	}
+	s.coursesWarmed = true
+	return nil
 }
 
 // setState 更新会话生命周期状态（logging_in / online / error）。
