@@ -29,6 +29,8 @@ async function notifyCompletion(
 interface RunningJob {
   ctrl: AbortController;
   accountUid: string;
+  /** 到点停止：置位后在节点边界收尾，不中断当前视频 */
+  graceful: boolean;
 }
 
 /**
@@ -54,7 +56,8 @@ class JobManager {
 
     const job = insertJob(options);
     const ctrl = new AbortController();
-    this.running.set(job.id, { ctrl, accountUid: account.uid });
+    const runningJob: RunningJob = { ctrl, accountUid: account.uid, graceful: false };
+    this.running.set(job.id, runningJob);
 
     bus.publish({
       type: "job.status",
@@ -64,9 +67,9 @@ class JobManager {
       state: "running",
     });
 
-    void runJob(job.id, account.uid, options, ctrl.signal)
+    void runJob(job.id, account.uid, options, ctrl.signal, () => runningJob.graceful)
       .then((summary: JobSummary) => {
-        const state = ctrl.signal.aborted ? "stopped" : "done";
+        const state = ctrl.signal.aborted || runningJob.graceful ? "stopped" : "done";
         finishJob(job.id, state, summary);
         bus.publish({
           type: "job.status",
@@ -116,10 +119,12 @@ class JobManager {
     return job;
   }
 
-  stop(jobId: string): boolean {
+  /** graceful=true 时只置停止标记，由运行器在节点边界收尾 */
+  stop(jobId: string, graceful = false): boolean {
     const r = this.running.get(jobId);
     if (!r) return false;
-    r.ctrl.abort();
+    if (graceful) r.graceful = true;
+    else r.ctrl.abort();
     return true;
   }
 

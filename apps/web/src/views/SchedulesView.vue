@@ -1,0 +1,218 @@
+<script setup lang="ts">
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+import { AlarmClock, Plus, Trash2 } from "lucide-vue-next";
+import { computed, ref } from "vue";
+import { toast } from "vue-sonner";
+import type { ScheduleVO } from "@yatori/shared";
+import { api } from "@/api/resources";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import ScheduleDialog from "@/components/account/ScheduleDialog.vue";
+import { relativeTime } from "@/lib/utils";
+import { toastError } from "@/lib/errors";
+
+const queryClient = useQueryClient();
+const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const schedulesQuery = useQuery({
+  queryKey: ["schedules"],
+  queryFn: api.schedules,
+  refetchInterval: 30_000,
+});
+const dialogOpen = ref(false);
+
+const accounts = computed(() => accountsQuery.data.value ?? []);
+const accountOptions = computed(() =>
+  accounts.value.map((a) => ({ uid: a.uid, label: a.remark || a.username })),
+);
+
+function accountLabel(uid: string): string {
+  const a = accounts.value.find((x) => x.uid === uid);
+  return a ? a.remark || a.username : uid.slice(0, 8);
+}
+
+const WEEK_TEXT: Record<string, string> = {
+  "*": "每天",
+  "0,1,2,3,4,5,6": "每天",
+  "1,2,3,4,5": "工作日",
+  "1-5": "工作日",
+  "0,6": "周末",
+  "6,0": "周末",
+};
+
+function minutesOf(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+function startMinutes(s: ScheduleVO): number {
+  const parts = s.cron.trim().split(/\s+/);
+  return (Number(parts[1] ?? 0) * 60 + Number(parts[0] ?? 0)) || 0;
+}
+
+function timeOf(cron: string): string {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length < 2) return cron;
+  const pad = (v: string) => (v === "*" ? "?" : v.padStart(2, "0"));
+  return `${pad(parts[1]!)}:${pad(parts[0]!)}`;
+}
+
+function daysOf(cron: string): string {
+  const dow = cron.trim().split(/\s+/)[4] ?? "*";
+  if (WEEK_TEXT[dow]) return WEEK_TEXT[dow]!;
+  if (/^\d(,\d)+$/.test(dow)) return `周 ${dow.split(",").join("、")}`;
+  if (/^\d-\d$/.test(dow)) return `周 ${dow.replace("-", " 至 ")}`;
+  return dow === "*" ? "每天" : dow;
+}
+
+function summary(s: ScheduleVO): string {
+  return s.endTime
+    ? `${daysOf(s.cron)} ${timeOf(s.cron)} → ${s.endTime}`
+    : `${daysOf(s.cron)} ${timeOf(s.cron)} 开始`;
+}
+
+function barStyle(s: ScheduleVO): { left: string; width: string } {
+  const start = startMinutes(s);
+  const end = s.endTime ? minutesOf(s.endTime) : start + 30;
+  const span = end > start ? end - start : 1440 - start;
+  return {
+    left: `${(start / 1440) * 100}%`,
+    width: `${Math.max(0.8, (span / 1440) * 100)}%`,
+  };
+}
+
+const activeCount = computed(() => (schedulesQuery.data.value ?? []).filter((s) => s.enabled).length);
+
+const toggleMutation = useMutation({
+  mutationFn: (id: string) => api.toggleSchedule(id),
+  onSuccess: () => queryClient.invalidateQueries({ queryKey: ["schedules"] }),
+  onError: (err) => toastError(err, "切换规则失败"),
+});
+const deleteMutation = useMutation({
+  mutationFn: (id: string) => api.deleteSchedule(id),
+  onSuccess: () => {
+    toast.success("定时规则已删除");
+    void queryClient.invalidateQueries({ queryKey: ["schedules"] });
+  },
+  onError: (err) => toastError(err, "删除规则失败"),
+});
+</script>
+
+<template>
+  <div class="space-y-4">
+    <header class="flex flex-wrap items-end gap-3">
+      <div>
+        <div class="eyebrow">Schedule automation</div>
+        <h1 class="display-title mt-1.5 text-[26px] leading-none">定时</h1>
+        <p class="mt-2 text-[11.5px] text-muted-foreground">
+          一条规则绑定多个账号，到点自动开始，到点自动停止
+        </p>
+      </div>
+      <Button size="sm" class="ml-auto h-8 gap-1.5 text-[11px]" @click="dialogOpen = true">
+        <Plus class="size-3.5" />新建规则
+      </Button>
+    </header>
+
+    <div v-if="schedulesQuery.isLoading.value" class="panel space-y-2 p-4">
+      <Skeleton v-for="i in 4" :key="i" class="h-14 w-full" />
+    </div>
+
+    <div v-else-if="!(schedulesQuery.data.value ?? []).length" class="panel px-6 py-16 text-center">
+      <div class="mx-auto grid size-12 place-items-center rounded-2xl border border-border bg-panel-2 text-primary">
+        <AlarmClock class="size-5" />
+      </div>
+      <h2 class="mt-4 text-[14px] font-semibold">还没有定时规则</h2>
+      <p class="mt-1 text-[11.5px] text-muted-foreground">例如工作日 20:30 开始刷课，22:30 自动停止</p>
+      <Button class="mt-4" @click="dialogOpen = true"><Plus class="size-4" />新建规则</Button>
+    </div>
+
+    <template v-else>
+      <!-- 24 小时排程 -->
+      <section class="panel px-4 py-3.5">
+        <div class="flex flex-wrap items-baseline gap-2">
+          <div class="eyebrow">24h timeline</div>
+          <h2 class="text-[12.5px] font-medium">今日排程</h2>
+          <span class="mono ml-auto text-[9px] text-muted-foreground">{{ activeCount }} ACTIVE / {{ schedulesQuery.data.value?.length ?? 0 }}</span>
+        </div>
+
+        <div class="mt-3 grid grid-cols-[132px_minmax(0,1fr)] gap-3">
+          <div />
+          <div class="relative">
+            <div class="flex justify-between border-b border-border pb-1">
+              <span v-for="h in [0, 6, 12, 18, 24]" :key="h" class="mono text-[8.5px] text-muted-foreground">
+                {{ String(h).padStart(2, "0") }}:00
+              </span>
+            </div>
+          </div>
+
+          <template v-for="s in schedulesQuery.data.value" :key="s.id">
+            <div class="min-w-0 self-center">
+              <div class="truncate text-[11px]">{{ s.name || "未命名规则" }}</div>
+              <div class="mono truncate text-[8.5px] text-muted-foreground">{{ s.accountUids.length }} ACCOUNTS · {{ daysOf(s.cron) }}</div>
+            </div>
+            <div class="relative my-1 h-6 rounded-md border border-border/60 bg-panel-2/60">
+              <div
+                class="absolute inset-y-1 rounded bg-mint/25"
+                :class="s.enabled ? 'border border-mint/40' : 'opacity-40'"
+                :style="barStyle(s)"
+              >
+                <div class="absolute inset-y-0 left-0 w-px bg-mint" />
+                <span class="mono absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[8.5px] text-mint">
+                  {{ timeOf(s.cron) }}<template v-if="s.endTime"> → {{ s.endTime }}</template>
+                </span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- 规则列表 -->
+      <div class="grid gap-2">
+        <div
+          v-for="s in schedulesQuery.data.value"
+          :key="s.id"
+          class="panel flex flex-wrap items-center gap-3 px-4 py-3"
+        >
+          <div class="grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-panel-2 text-primary">
+            <AlarmClock class="size-4" />
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="truncate text-[12.5px] font-medium">{{ s.name || "未命名规则" }}</span>
+              <span
+                :class="s.enabled
+                  ? 'mono rounded-full border border-mint/30 bg-mint/10 px-1.5 py-0.5 text-[8.5px] text-mint'
+                  : 'mono rounded-full border border-border px-1.5 py-0.5 text-[8.5px] text-muted-foreground'"
+              >{{ s.enabled ? "ENABLED" : "PAUSED" }}</span>
+            </div>
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+              <span class="mono text-foreground/80">{{ summary(s) }}</span>
+              <span class="text-border">/</span>
+              <span>{{ s.accountUids.map(accountLabel).join("、") }}</span>
+              <span class="text-border">/</span>
+              <span>{{ { 1: "普通", 2: "暴力", 3: "去红" }[s.videoMode] }} · {{ { off: "不答题", ai: "AI", bank: "题库" }[s.answerSource] }}</span>
+              <template v-if="s.lastRunAt">
+                <span class="text-border">/</span><span>上次 {{ relativeTime(s.lastRunAt) }}</span>
+              </template>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <Switch :model-value="s.enabled" @update:model-value="toggleMutation.mutate(s.id)" />
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-7 text-muted-foreground hover:text-coral"
+              @click="deleteMutation.mutate(s.id)"
+            ><Trash2 class="size-3.5" /></Button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <ScheduleDialog
+      v-model:open="dialogOpen"
+      :accounts="accountOptions"
+      @saved="queryClient.invalidateQueries({ queryKey: ['schedules'] })"
+    />
+  </div>
+</template>

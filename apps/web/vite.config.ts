@@ -23,4 +23,16 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // 图表运行时单独成块：只在观测台加载，避免与主框架代码一起失效缓存
+        manualChunks(id) {
+          if (id.includes("node_modules/echarts") || id.includes("node_modules/zrender") || id.includes("node_modules/vue-echarts")) {
+            return "charts";
+          }
+        },
+      },
+    },
+  },
 });

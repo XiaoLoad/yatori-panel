@@ -49,7 +49,8 @@ export const useEventStore = defineStore("events", () => {
         break;
       case "task.progress": {
         const s = ensureJob(e.jobId);
-        s.lastProgress = e;
+        // 阶段事件（作业/考试）不带进度字段，合并保留上一次进度，避免进度条回落到 0
+        s.lastProgress = { ...s.lastProgress, ...e };
         break;
       }
       case "task.flag":

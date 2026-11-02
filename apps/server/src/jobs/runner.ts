@@ -53,6 +53,8 @@ export async function runJob(
   accountUid: string,
   options: StartJobBody,
   signal: AbortSignal,
+  /** 到点停止：true 时在节点/作业/考试边界收尾，当前节点允许看完 */
+  shouldStop?: () => boolean,
 ): Promise<JobSummary> {
   const settings = getSettings();
   const tickMs = settings.tickSeconds * 1000;
@@ -84,6 +86,8 @@ export async function runJob(
   };
 
   const checkAbort = (): boolean => signal.aborted;
+  // 到点停止（graceful）只在节点/作业/考试边界生效，避免半截断连丢进度
+  const stopRequested = (): boolean => signal.aborted || (shouldStop?.() ?? false);
 
   // ---------- 单节点刷课循环 ----------
   async function studyVideo(
@@ -292,6 +296,7 @@ export async function runJob(
 
   async function runWorks(course: GatewayCourse): Promise<void> {
     if (options.answerSource === "off") return;
+    emit({ type: "task.progress", phase: "work", courseId: course.id, courseName: course.name });
     let works;
     try {
       works = await gateway.works(sid, course.id);
@@ -302,7 +307,7 @@ export async function runJob(
       return;
     }
     for (const w of works) {
-      if (checkAbort()) return;
+      if (stopRequested()) return;
       try {
         let submitted: boolean;
         let r: Awaited<ReturnType<typeof gateway.doWork>>;
@@ -336,6 +341,7 @@ export async function runJob(
 
   async function runExams(course: GatewayCourse): Promise<void> {
     if (options.answerSource === "off") return;
+    emit({ type: "task.progress", phase: "exam", courseId: course.id, courseName: course.name });
     let exams;
     try {
       exams = await gateway.exams(sid, course.id);
@@ -346,7 +352,7 @@ export async function runJob(
       return;
     }
     for (const x of exams) {
-      if (checkAbort()) return;
+      if (stopRequested()) return;
       try {
         let submitted: boolean;
         let r: Awaited<ReturnType<typeof gateway.doExam>>;
@@ -413,6 +419,7 @@ export async function runJob(
 
   async function runCourse(course: GatewayCourse): Promise<void> {
     emitLog("info", `开始课程：${course.name}`);
+    emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name });
     const tree = await gateway.tree(sid, course.id);
     const videos = collectVideoLeaves(tree).filter((v) => !v.completed);
     emitLog(
@@ -430,7 +437,7 @@ export async function runJob(
       });
     } else {
       for (const n of videos) {
-        if (checkAbort()) return;
+        if (stopRequested()) return;
         const r = await studyVideo(course, n);
         if (r === "blocked") return; // 前置链被锁，剩余节点无需再试
       }
@@ -461,7 +468,7 @@ export async function runJob(
   );
 
   for (const course of courses) {
-    if (checkAbort()) break;
+    if (stopRequested()) break;
     try {
       await runCourse(course);
       await runWorks(course);
@@ -473,8 +480,8 @@ export async function runJob(
     }
   }
 
-  if (signal.aborted) {
-    emitLog("info", "任务已手动停止");
+  if (stopRequested()) {
+    emitLog("info", "任务已停止（当前节点已保存进度）");
   }
   emitLog(
     "info",
