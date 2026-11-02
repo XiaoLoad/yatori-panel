@@ -1,10 +1,13 @@
 name: Release
 
 # 发版自动化：推送 vX.Y.Z tag → 构建 web 产物与网关二进制 → 创建 Release
-# 附 CHANGELOG 对应版本段落。产物命名与 start.bat/Docker 部署对齐。
+# 附 CHANGELOG 对应版本段落。
+# 仅产出 Linux 网关二进制：gateway 依赖 CGO（ddddocr-go OCR 运行库），
+# Windows 交叉编译需 MinGW 且上游 onnx 运行库兼容性未知——Windows 用户
+# 走 start.bat 本地构建或 Docker Compose（Linux 容器）部署。
 on:
   push:
-    tags: ["v*.*.*", "v*.*.*-*"]
+    tags: ["v*.*.*"]
 
 permissions:
   contents: write # 创建 Release 与上传产物
@@ -32,27 +35,28 @@ jobs:
 
       - name: 构建前端产物
         working-directory: apps/web
-        run: bunx vite build
+        run: bun run build
 
       - name: 提取 CHANGELOG 对应版本段落
-        id: notes
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
           node -e '
             const fs = require("fs");
             const md = fs.readFileSync("CHANGELOG.md", "utf8");
-            const tag = process.argv[1];
+            const tag = process.env.GITHUB_REF_NAME.slice(1); // 去掉前缀 v
             const lines = md.split("\n");
             const start = lines.findIndex((l) => l.startsWith("## [v" + tag + "]"));
-            if (start < 0) { console.log("## " + process.env.GITHUB_REF_NAME + "\n\n见提交历史。"); process.exit(0); }
-            const body = [];
-            for (let i = start + 1; i < lines.length; i++) {
-              if (lines[i].startsWith("## [")) break;
-              body.push(lines[i]);
+            if (start < 0) {
+              fs.writeFileSync("RELEASE_NOTES.md", "## " + process.env.GITHUB_REF_NAME + "\n\n见提交历史。\n");
+            } else {
+              const body = [];
+              for (let i = start + 1; i < lines.length; i++) {
+                if (lines[i].startsWith("## [")) break;
+                body.push(lines[i]);
+              }
+              while (body.length && !body[body.length - 1].trim()) body.pop();
+              fs.writeFileSync("RELEASE_NOTES.md", body.join("\n") + "\n");
             }
-            while (body.length && !body[body.length - 1].trim()) body.pop();
-            console.log(body.join("\n"));
-          ' "$TAG" > RELEASE_NOTES.md
+          '
 
       - name: 打包产物
         run: |
@@ -61,22 +65,16 @@ jobs:
           cp -r apps/server/src dist/server-src
           cp -r packages/shared/src dist/shared-src
           cp package.json bun.lock compose.yaml panel.Dockerfile README.md CHANGELOG.md dist/
-          tar -czf yatori-panel-web-${GITHUB_REF_NAME}.tar.gz -C dist .
+          tar -czf yatori-panel-${GITHUB_REF_NAME}.tar.gz -C dist .
 
-      - name: 构建 Linux 网关
+      - name: 构建 Linux 网关（CGO，OCR 依赖）
         working-directory: gateway
         run: go build -ldflags "-s -w" -o ../yatori-gateway-${GITHUB_REF_NAME}-linux-amd64 .
-
-      - name: 构建 Windows 网关
-        working-directory: gateway
-        run: |
-          GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ../yatori-gateway-${GITHUB_REF_NAME}-windows-amd64.exe .
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md
           files: |
-            yatori-panel-web-*.tar.gz
+            yatori-panel-*.tar.gz
             yatori-gateway-*-linux-amd64
-            yatori-gateway-*-windows-amd64.exe
