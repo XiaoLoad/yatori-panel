@@ -25,6 +25,8 @@ export interface AccountVO {
   platform: string;
   platformName?: string;
   baseUrl?: string;
+  /** 可选出站代理，如 http://127.0.0.1:7890 */
+  proxyUrl?: string;
   username: string;
   remark: string;
   enabled: boolean;
@@ -38,6 +40,7 @@ export const CreateAccountBody = z.object({
     .string({ required_error: "请选择平台", invalid_type_error: "请选择平台" })
     .min(1, "请选择平台"),
   baseUrl: z.string().optional().default(""),
+  proxyUrl: z.string().optional().default(""),
   username: z
     .string({ required_error: "账号不能为空", invalid_type_error: "账号不能为空" })
     .min(1, "账号不能为空"),
@@ -51,6 +54,7 @@ export type CreateAccountBody = z.infer<typeof CreateAccountBody>;
 
 export const UpdateAccountBody = z.object({
   baseUrl: z.string().optional(),
+  proxyUrl: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
   remark: z.string().optional(),

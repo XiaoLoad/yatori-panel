@@ -48,6 +48,7 @@ const form = reactive({
   platform: "",
   fields: {} as Record<string, string>,
   remark: "",
+  proxyUrl: "",
   verify: true,
 });
 const fieldErrors = reactive<Record<string, string>>({});
@@ -100,6 +101,7 @@ function openCreate() {
   form.platform = platforms.value.find((p) => p.mvp)?.key ?? "";
   form.fields = {};
   form.remark = "";
+  form.proxyUrl = "";
   form.verify = true;
   clearFieldErrors();
   dialogOpen.value = true;
@@ -114,6 +116,7 @@ function openEdit(account: AccountWithSession) {
     url: account.baseUrl ?? "",
   };
   form.remark = account.remark;
+  form.proxyUrl = account.proxyUrl ?? "";
   form.verify = false;
   clearFieldErrors();
   dialogOpen.value = true;
@@ -135,6 +138,7 @@ const saveMutation = useMutation({
         username,
         password: password || undefined,
         remark: form.remark,
+        proxyUrl: form.proxyUrl,
       });
       return null;
     }
@@ -144,6 +148,7 @@ const saveMutation = useMutation({
       username,
       password,
       remark: form.remark,
+      proxyUrl: form.proxyUrl,
       verify: form.verify,
     });
   },
@@ -325,6 +330,12 @@ function showError(err: ApiError, fallback: string) {
         <div class="grid gap-2">
           <Label>备注</Label>
           <Input v-model="form.remark" placeholder="留空自动填入平台姓名" />
+        </div>
+
+        <div class="grid gap-2">
+          <Label>代理地址（可选）</Label>
+          <Input v-model="form.proxyUrl" placeholder="http://127.0.0.1:7890" autocomplete="off" />
+          <p class="text-xs text-muted-foreground">刷课流量经此代理出网（HTTP 代理），留则直连</p>
         </div>
 
         <div v-if="!editingUid" class="flex items-center gap-3">

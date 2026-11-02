@@ -127,6 +127,7 @@ export async function ensureSession(
     username: account.username,
     password: account.password,
     url: account.baseUrl || undefined,
+    proxyURL: account.proxyUrl || undefined,
     loginTimeoutSeconds: 90,
     ai:
       settings.ai.enabled && settings.ai.apiKey

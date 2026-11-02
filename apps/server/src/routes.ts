@@ -190,6 +190,7 @@ export function registerRoutes(app: FastifyInstance): void {
       username: body.username,
       password: body.password,
       remark: body.remark,
+      proxyUrl: body.proxyUrl ?? "",
     });
 
     if (body.verify) {
