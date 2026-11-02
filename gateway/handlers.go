@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yatori-dev/yatori-go-core/models/ctype"
@@ -25,26 +26,101 @@ type gateway struct {
 func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	g := &gateway{store: store, platforms: buildPlatformMeta()}
 
+	// SDK 调用超时包装：上游接口卡死（如平台风控页重试循环）时，
+	// 会话互斥锁会让后续请求无限排队，最终拖垮整个网关。
+	// 每类路由限时返回 504，保证网关整体可用性。
+	const sdkTimeout = 60 * time.Second        // 列表/树等普通读取
+	const answerTimeout = 30 * time.Minute     // 作业/考试/学时：本身就是长操作
+
+	long := withTimeoutMiddleware(sdkTimeout)
+	xlong := withTimeoutMiddleware(answerTimeout)
+
 	mux.HandleFunc("GET /api/v1/health", g.handleHealth)
-	mux.HandleFunc("GET /api/v1/platforms", g.handlePlatforms)
-	mux.HandleFunc("POST /api/v1/preflight", g.handlePreflight)
-	mux.HandleFunc("POST /api/v1/sessions", g.handleCreateSession)
-	mux.HandleFunc("GET /api/v1/sessions", g.handleListSessions)
-	mux.HandleFunc("GET /api/v1/sessions/{id}", g.handleSessionInfo)
-	mux.HandleFunc("DELETE /api/v1/sessions/{id}", g.handleCloseSession)
+	mux.HandleFunc("GET /api/v1/platforms", g.handlePlatforms) // 纯内存
+	mux.HandleFunc("POST /api/v1/preflight", long(g.handlePreflight))
+	mux.HandleFunc("POST /api/v1/sessions", xlong(g.handleCreateSession)) // 含登录等待
+	mux.HandleFunc("GET /api/v1/sessions", long(g.handleListSessions))
+	mux.HandleFunc("GET /api/v1/sessions/{id}", long(g.handleSessionInfo))
+	mux.HandleFunc("DELETE /api/v1/sessions/{id}", long(g.handleCloseSession))
 
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses", g.handleCourses)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/profile", g.handleProfile)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/tree", g.handleTree)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/works", g.handleWorks)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/exams", g.handleExams)
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses", long(g.handleCourses))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/profile", long(g.handleProfile))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/tree", long(g.handleTree))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/works", long(g.handleWorks))
+	mux.HandleFunc("GET /api/v1/sessions/{id}/courses/{courseId}/exams", long(g.handleExams))
 
-	mux.HandleFunc("POST /api/v1/sessions/{id}/study", g.handleStudy)
-	mux.HandleFunc("POST /api/v1/sessions/{id}/works/do", g.handleDoWork)
-	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", g.handleDoExam)
+	mux.HandleFunc("POST /api/v1/sessions/{id}/study", xlong(g.handleStudy))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/works/do", xlong(g.handleDoWork))
+	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", xlong(g.handleDoExam))
 
-	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)
-	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", g.handleRecentLogs)
+	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)       // SSE 长连接，不适用
+	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", long(g.handleRecentLogs))
+}
+
+// withTimeoutMiddleware 给 handler 套 context 截止时间：超时返回 504。
+// 注意：这只让 HTTP 响应及时返回，被阻塞的 SDK 调用（等待会话锁）
+// 仍在后台排队——彻底解死锁需上游支持 ctx 取消，此处是服务可用性兜底。
+func withTimeoutMiddleware(d time.Duration) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), d)
+			defer cancel()
+			done := make(chan struct{})
+			tw := newTimeoutWriter(w)
+			go func() {
+				defer close(done)
+				next(tw, r.WithContext(ctx))
+			}()
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				tw.markTimedOut()
+				if !tw.wroteHeader {
+					fail(w, http.StatusGatewayTimeout, "上游平台响应超时，请稍后重试或重启网关")
+				}
+			}
+		}
+	}
+}
+
+// timeoutWriter 屏蔽超时后后台 goroutine 的写操作（写已关闭的响应会 panic）。
+type timeoutWriter struct {
+	http.ResponseWriter
+	wroteHeader bool
+	mu          sync.Mutex
+	timedOut    bool
+}
+
+func newTimeoutWriter(w http.ResponseWriter) *timeoutWriter {
+	return &timeoutWriter{ResponseWriter: w}
+}
+
+func (t *timeoutWriter) WriteHeader(code int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.timedOut {
+		return
+	}
+	t.wroteHeader = true
+	t.ResponseWriter.WriteHeader(code)
+}
+
+func (t *timeoutWriter) Write(b []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.timedOut {
+		return 0, http.ErrHandlerTimeout
+	}
+	t.wroteHeader = true
+	return t.ResponseWriter.Write(b)
+}
+
+// markTimedOut 在超时分支调用，之后后台 goroutine 的写被丢弃。
+func (t *timeoutWriter) markTimedOut() {
+	t.mu.Lock()
+	t.timedOut = true
+	t.mu.Unlock()
 }
 
 // ---------- 基础 ----------
@@ -248,7 +324,7 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 		if loginErr != nil {
 			se.setState("error", loginErr.Error())
-			se.logs.logf("error", "登录失败: "+loginErr.Error())
+			se.logs.logf("error", "登录失败: %s", loginErr.Error())
 			return
 		}
 		sess := client.Session()
