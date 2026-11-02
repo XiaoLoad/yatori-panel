@@ -381,6 +381,32 @@ export function registerRoutes(app: FastifyInstance): void {
     return { ok: true };
   });
 
+  // ---------- 统计 ----------
+  app.get("/api/v1/stats/daily", async (req) => {
+    const q = req.query as { days?: string };
+    const days = Math.min(60, Math.max(7, Number(q.days) || 14));
+    const rows = sqlite
+      .prepare(
+        `SELECT substr(started_at, 1, 10) AS day,
+                COUNT(*) AS jobs,
+                SUM(CASE WHEN state = 'error' THEN 1 ELSE 0 END) AS errors,
+                COALESCE(SUM(CAST(json_extract(summary_json, '$.videosCompleted') AS INTEGER)), 0) AS videos
+         FROM jobs
+         WHERE started_at >= datetime('now', ?)
+         GROUP BY day ORDER BY day`,
+      )
+      .all(`-${days - 1} days`) as { day: string; jobs: number; errors: number; videos: number }[];
+    // 补齐空缺日期，保证图表时间轴连续
+    const byDay = new Map(rows.map((r) => [r.day, r]));
+    const out: { day: string; jobs: number; errors: number; videos: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+      const hit = byDay.get(d);
+      out.push({ day: d, jobs: hit?.jobs ?? 0, errors: hit?.errors ?? 0, videos: hit?.videos ?? 0 });
+    }
+    return { ok: true, data: out };
+  });
+
   // ---------- 仪表盘 ----------
   app.get("/api/v1/dashboard", async () => {
     const accounts = listAccounts();
