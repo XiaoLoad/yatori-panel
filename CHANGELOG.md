@@ -8,6 +8,10 @@
 
 ### Added
 
+- **shared/server/web**：交卷策略三态化（对齐 console 的 ExamAutoSubmit 三档）——
+  不交卷（仅保存）/ 智能交卷（两段式：先全保存，检测逐题留空，全部作答才交卷，
+  耗时约翻倍）/ 直接交卷；原「完成后自动提交」开关退役，定时任务与单场考试
+  触发同步支持三态；旧 auto_submit 数据自动迁移
 - **server**：考试列表透传 `GET /accounts/:uid/courses/:courseId/exams` 与
   单场考试触发 `POST .../exams/do`（与任务发起同一套答题来源预检门禁）
 - **web**：课程浏览新增考试区块——考试名/题量/状态展示、答题源选择、
