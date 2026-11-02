@@ -310,6 +310,9 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	if se.cookieHeader == "" && sess.Token != "" {
 		se.cookieHeader = "token=" + sess.Token
 	}
+	// 英华逐题模式（方案 B）需要账密自建完整 Cookie 会话
+	se.yhUsername = req.Username
+	se.yhPassword = req.Password
 	// 清理同账号失败的历史会话，避免反复登录失败导致堆积
 	g.store.removeFailedFor(platform.String(), req.Username)
 	g.store.put(se)
@@ -677,7 +680,8 @@ func (g *gateway) handleExamDetail(w http.ResponseWriter, r *http.Request) {
 		return true
 	}
 
-	result, err := RunExamDetail(r.Context(), se.client.Session(), req.CourseID, req.ExamID, req.NodeID, req.BankURL, req.SubmitMode,
+	result, err := RunExamDetailWithCreds(r.Context(), se.client.Session(), se.yhUsername, se.yhPassword,
+		req.CourseID, req.ExamID, req.NodeID, req.BankURL, req.SubmitMode,
 		func(p examProgress) {
 			_ = writeEvent("progress", p)
 		})

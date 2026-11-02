@@ -44,6 +44,10 @@ type session struct {
 	token        string
 	cookieHeader string
 
+	// 英华逐题模式的自管理会话凭据（方案 B：验证码 OCR 登录，完整 Cookie 链）。
+	yhUsername string
+	yhPassword string
+
 	stateMu     sync.RWMutex
 	state       string
 	lastError   string
