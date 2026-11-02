@@ -24,7 +24,6 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { useEventStore } from "@/stores/events";
 import { relativeTime } from "@/lib/utils";
 import { toastError } from "@/lib/errors";
@@ -69,11 +68,11 @@ const stat = computed(() => {
 // 不含 accountUid：启动时再与当前账号组合
 const advanced: Pick<
   StartJobBody,
-  "videoMode" | "answerSource" | "autoSubmit" | "perCourseConcurrency" | "courseIds"
+  "videoMode" | "answerSource" | "submitMode" | "perCourseConcurrency" | "courseIds"
 > = reactive({
   videoMode: 1,
   answerSource: "off",
-  autoSubmit: false,
+  submitMode: "off",
   perCourseConcurrency: 4,
   courseIds: [],
 });
@@ -97,7 +96,7 @@ const startMutation = useMutation({
       courseIds: advanced.courseIds,
       videoMode: advanced.videoMode,
       answerSource: advanced.answerSource,
-      autoSubmit: advanced.autoSubmit,
+      submitMode: advanced.submitMode,
       perCourseConcurrency: advanced.perCourseConcurrency,
     }),
   onSuccess: () => {
@@ -130,6 +129,11 @@ const sourceText = computed(() =>
     props.runningJob?.options.answerSource ?? "off"
   ] ?? "",
 );
+const submitText = computed(() =>
+  ({ off: "不交卷", smart: "智能交卷", direct: "直接交卷" })[
+    props.runningJob?.options.submitMode ?? "off"
+  ] ?? "",
+);
 
 const videoModeModel = computed({
   get: () => String(advanced.videoMode),
@@ -149,6 +153,11 @@ const sourceOptions = [
   { value: "off", label: "不自动答题" },
   { value: "ai", label: "AI 答题（需在全局设置配置）" },
   { value: "bank", label: "外置题库（需在全局设置配置）" },
+];
+const submitModeOptions = [
+  { value: "off", label: "不交卷（答案仅保存为草稿）" },
+  { value: "smart", label: "智能交卷（有留空则不交卷，耗时约翻倍）" },
+  { value: "direct", label: "直接交卷（答完立即交卷出分）" },
 ];
 const modeOptions = [
   { value: "1", label: "普通模式（按顺序串行）" },
@@ -239,7 +248,7 @@ const modeOptions = [
               <Button variant="outline" size="sm" @click="stopMutation.mutate(runningJob.id)">
                 <Square />停止任务
               </Button>
-              <Badge variant="success">{{ modeText }}模式 · {{ sourceText }}</Badge>
+              <Badge variant="success">{{ modeText }}模式 · {{ sourceText }} · {{ submitText }}</Badge>
             </template>
             <div class="ms-auto flex gap-0.5">
               <Button
@@ -301,9 +310,9 @@ const modeOptions = [
             <Label>课程内并发数</Label>
             <Input v-model="concurrencyModel" type="number" min="1" max="16" />
           </div>
-          <div class="flex items-end gap-3 pb-1">
-            <Switch v-model="advanced.autoSubmit" />
-            <Label class="font-normal">完成后自动提交</Label>
+          <div class="grid gap-2">
+            <Label>交卷策略</Label>
+            <Select v-model="advanced.submitMode" :options="submitModeOptions" />
           </div>
         </div>
 

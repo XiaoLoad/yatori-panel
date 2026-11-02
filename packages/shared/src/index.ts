@@ -71,6 +71,10 @@ export const VideoModeEnum = z.union([z.literal(1), z.literal(2), z.literal(3)])
 /** 1=普通(节点串行) 2=暴力(节点并发) 3=去红(重跑未完成节点) */
 export type VideoMode = z.infer<typeof VideoModeEnum>;
 
+/** 交卷策略：off=仅保存不交卷 direct=答完直接交卷 smart=智能交卷（检测留空，留空则仅保存） */
+export const SubmitModeEnum = z.enum(["off", "direct", "smart"]);
+export type SubmitMode = z.infer<typeof SubmitModeEnum>;
+
 export const StartJobBody = z.object({
   accountUid: z
     .string({ required_error: "请选择账号", invalid_type_error: "请选择账号" })
@@ -79,7 +83,7 @@ export const StartJobBody = z.object({
   courseIds: z.array(z.string()).optional().default([]),
   videoMode: VideoModeEnum.optional().default(1),
   answerSource: AnswerSourceEnum.optional().default("off"),
-  autoSubmit: z.boolean().optional().default(false),
+  submitMode: SubmitModeEnum.optional().default("off"),
   perCourseConcurrency: z.number().int().min(1).max(16).optional().default(4),
 });
 export type StartJobBody = z.infer<typeof StartJobBody>;
@@ -94,7 +98,7 @@ export interface ScheduleVO {
   cron: string;
   videoMode: 1 | 2 | 3;
   answerSource: "off" | "ai" | "bank";
-  autoSubmit: boolean;
+  submitMode: SubmitMode;
   enabled: boolean;
   lastRunAt?: string | null;
   createdAt: string;
@@ -109,7 +113,7 @@ export const CreateScheduleBody = z.object({
     .min(1, "请填写 cron 表达式"),
   videoMode: VideoModeEnum.optional().default(1),
   answerSource: AnswerSourceEnum.optional().default("off"),
-  autoSubmit: z.boolean().optional().default(false),
+  submitMode: SubmitModeEnum.optional().default("off"),
 });
 export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
 

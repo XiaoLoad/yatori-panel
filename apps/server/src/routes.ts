@@ -7,6 +7,7 @@ import {
   CreateAccountBody,
   CreateScheduleBody,
   StartJobBody,
+  SubmitModeEnum,
   UpdateAccountBody,
   UpdateSettingsBody,
 } from "./shared.ts";
@@ -398,7 +399,7 @@ export function registerRoutes(app: FastifyInstance): void {
       z.object({
         examId: z.string({ required_error: "缺少考试 ID" }).min(1, "缺少考试 ID"),
         source: AnswerSourceEnum,
-        submit: z.boolean().optional().default(false),
+        submitMode: SubmitModeEnum.optional().default("direct"),
       }),
     );
     if (body.source !== "off") {
@@ -427,12 +428,28 @@ export function registerRoutes(app: FastifyInstance): void {
       }
     }
     const sid = await ensureSession(account);
-    const r = await gateway.doExam(sid, {
-      courseId,
-      examId: body.examId,
-      source: body.source,
-      submit: body.submit,
-    });
+    // 智能交卷：先全保存，检测留空，无留空才二次交卷
+    const run = (submit: boolean) =>
+      gateway.doExam(sid, {
+        courseId,
+        examId: body.examId,
+        source: body.source,
+        submit,
+      });
+    let r;
+    if (body.submitMode === "smart") {
+      const saved = await run(false);
+      const blank = (saved.answers ?? []).filter((a) => !a.value || a.value.length === 0).length;
+      if (blank > 0) {
+        return {
+          ok: true,
+          data: { ...saved, message: `${blank} 题未答上（留空），仅保存不交卷` },
+        };
+      }
+      r = await run(true);
+    } else {
+      r = await run(body.submitMode === "direct");
+    }
     return { ok: true, data: r };
   });
 

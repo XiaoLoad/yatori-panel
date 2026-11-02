@@ -59,12 +59,24 @@ export interface GatewayStudyResult {
   raw?: unknown;
 }
 
+export interface GatewayAnswerDetail {
+  questionId: string;
+  question?: string;
+  type?: string;
+  options?: string[];
+  /** AI/题库给出的答案数组；留空的题为空数组 */
+  value?: string[];
+  correct?: boolean;
+}
+
 export interface GatewayAnswerResult {
   taskId: string;
   title: string;
   submitted: boolean;
   score: number;
   message?: string;
+  /** 逐题作答明细（智能交卷据此判断留空） */
+  answers?: GatewayAnswerDetail[];
 }
 
 export interface GatewaySessionInfo {

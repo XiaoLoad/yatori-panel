@@ -12,7 +12,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { api } from "@/api/resources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -114,7 +113,7 @@ const scheduleForm = ref({
   cron: "0 2 * * *",
   videoMode: 1,
   answerSource: "off",
-  autoSubmit: false,
+  submitMode: "off",
 });
 
 const accountOptions = computed(() =>
@@ -137,7 +136,7 @@ function openScheduleDialog() {
     cron: "0 2 * * *",
     videoMode: 1,
     answerSource: "off",
-    autoSubmit: false,
+    submitMode: "off",
   };
   scheduleDialogOpen.value = true;
 }
@@ -149,7 +148,7 @@ const createScheduleMutation = useMutation({
       cron: scheduleForm.value.cron,
       videoMode: scheduleForm.value.videoMode as 1 | 2 | 3,
       answerSource: scheduleForm.value.answerSource as "off" | "ai" | "bank",
-      autoSubmit: scheduleForm.value.autoSubmit,
+      submitMode: scheduleForm.value.submitMode as "off" | "direct" | "smart",
     }),
   onSuccess: () => {
     toast.success("定时任务已创建");
@@ -348,9 +347,16 @@ function scheduleAccountLabel(uid: string) {
             ]"
           />
         </div>
-        <div class="flex items-center gap-3">
-          <Switch v-model="scheduleForm.autoSubmit" />
-          <Label class="font-normal">完成后自动提交</Label>
+        <div class="grid gap-2">
+          <Label>交卷策略</Label>
+          <Select
+            v-model="scheduleForm.submitMode"
+            :options="[
+              { value: 'off', label: '不交卷（答案仅保存为草稿）' },
+              { value: 'smart', label: '智能交卷（有留空则不交卷）' },
+              { value: 'direct', label: '直接交卷（答完立即交卷）' },
+            ]"
+          />
         </div>
         <DialogFooter>
           <Button variant="outline" type="button" @click="scheduleDialogOpen = false">取消</Button>

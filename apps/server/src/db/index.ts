@@ -77,6 +77,14 @@ try {
   // 列已存在
 }
 
+// auto_submit(0/1) → submit_mode(off/direct/smart)：迁移旧布尔值，off 兼容旧数据
+try {
+  sqlite.exec(`ALTER TABLE schedules ADD COLUMN submit_mode TEXT NOT NULL DEFAULT 'off'`);
+  sqlite.exec(`UPDATE schedules SET submit_mode = CASE WHEN auto_submit = 1 THEN 'direct' ELSE 'off' END`);
+} catch {
+  // 列已存在
+}
+
 export function now(): string {
   return new Date().toISOString();
 }

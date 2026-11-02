@@ -30,12 +30,18 @@ const examsQuery = useQuery({
   staleTime: 60_000,
 });
 
-// 答题源在区块级选择，逐场复用；默认不提交（可先答题后到平台核对）
+// 答题源与交卷策略在区块级选择，逐场复用
 const source = ref<"off" | "ai" | "bank">("ai");
 const sourceOptions = [
   { value: "off", label: "仅拉取题目，不答题" },
   { value: "ai", label: "AI 答题（需在全局设置配置）" },
   { value: "bank", label: "外置题库（需在全局设置配置）" },
+];
+const submitMode = ref<"off" | "direct" | "smart">("smart");
+const submitModeOptions = [
+  { value: "off", label: "不交卷（答案仅保存为草稿）" },
+  { value: "smart", label: "智能交卷（有留空则不交卷）" },
+  { value: "direct", label: "直接交卷（答完立即交卷）" },
 ];
 
 const doExamMutation = useMutation({
@@ -43,10 +49,11 @@ const doExamMutation = useMutation({
     api.doExam(props.accountUid, props.courseId, {
       examId: exam.id,
       source: source.value,
-      submit: true,
+      submitMode: submitMode.value,
     }),
   onSuccess: (r) => {
-    if (r.submitted && r.score > 0) toast.success(`考试完成：${r.title}（得分 ${r.score}）`);
+    if (r.message && !r.submitted) toast.warning(`${r.title}：${r.message}`);
+    else if (r.submitted && r.score > 0) toast.success(`考试完成：${r.title}（得分 ${r.score}）`);
     else if (r.submitted) toast.warning(`已提交但未确认得分，请到平台核实：${r.title}`);
     else toast.info(`已答题，未提交：${r.title}`);
   },
@@ -72,6 +79,7 @@ function statusBadge(status: string): { label: string; variant: "secondary" | "s
         </Badge>
       </div>
       <Select v-model="source" class="w-56" :options="sourceOptions" />
+      <Select v-model="submitMode" class="w-64" :options="submitModeOptions" />
     </div>
 
     <div v-if="examsQuery.isLoading.value" class="space-y-2">

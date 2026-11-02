@@ -63,7 +63,7 @@ const startCourseMutation = useMutation({
       courseIds: [courseId],
       videoMode: 1,
       answerSource: "off",
-      autoSubmit: false,
+      submitMode: "off",
       perCourseConcurrency: 4,
     }),
   onSuccess: () => {

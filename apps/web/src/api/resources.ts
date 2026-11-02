@@ -100,7 +100,7 @@ export const api = {
   doExam: (
     uid: string,
     courseId: string,
-    body: { examId: string; source: "off" | "ai" | "bank"; submit?: boolean },
+    body: { examId: string; source: "off" | "ai" | "bank"; submitMode?: "off" | "direct" | "smart" },
   ) => post<ExamResultDTO>(`/accounts/${uid}/courses/${courseId}/exams/do`, body),
 
   startJob: (body: StartJobBody) => post<JobVO>("/jobs", body),
