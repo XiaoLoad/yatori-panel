@@ -222,6 +222,9 @@ function fieldModel(key: string) {
             autocomplete="off"
           />
           <p v-if="fieldErrors[field.key]" class="text-[11px] text-red-500">{{ fieldErrors[field.key] }}</p>
+          <p v-else-if="field.key === 'url'" class="text-[10px] text-muted-foreground">
+            可粘贴带 <code class="mono rounded bg-muted px-1">/user</code> 的登录页完整地址，保存时会自动归一化为平台根地址
+          </p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
