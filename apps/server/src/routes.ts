@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import "@fastify/cookie";
+import { z } from "zod";
 import type { ZodType, ZodTypeDef } from "zod";
 import {
+  AnswerSourceEnum,
   CreateAccountBody,
   CreateScheduleBody,
   StartJobBody,
@@ -375,6 +377,63 @@ export function registerRoutes(app: FastifyInstance): void {
     const { courseId } = req.params as { courseId: string };
     const sid = await ensureSession(account);
     return { ok: true, data: await gateway.tree(sid, courseId) };
+  });
+
+  // 考试列表透传（单场考试快捷触发的前置数据）
+  app.get("/api/v1/accounts/:uid/courses/:courseId/exams", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const { courseId } = req.params as { courseId: string };
+    const sid = await ensureSession(account);
+    return { ok: true, data: await gateway.exams(sid, courseId) };
+  });
+
+  // 单场考试触发：与任务发起同一套答题来源预检门禁，不可用直接拒绝
+  app.post("/api/v1/accounts/:uid/courses/:courseId/exams/do", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const { courseId } = req.params as { courseId: string };
+    const body = parse(
+      req.body,
+      z.object({
+        examId: z.string({ required_error: "缺少考试 ID" }).min(1, "缺少考试 ID"),
+        source: AnswerSourceEnum,
+        submit: z.boolean().optional().default(false),
+      }),
+    );
+    if (body.source !== "off") {
+      const settings = getSettings();
+      const pre =
+        body.source === "ai"
+          ? await gateway.preflight({
+              source: "ai",
+              ai: {
+                type: settings.ai.type,
+                url: settings.ai.url,
+                model: settings.ai.model,
+                apiKey: settings.ai.apiKey,
+              },
+            })
+          : await gateway.preflight({
+              source: "bank",
+              questionBank: {
+                url: settings.questionBank.url,
+                key: settings.questionBank.key,
+              },
+            });
+      if (!pre.available) {
+        const label = body.source === "ai" ? "AI" : "外置题库";
+        throw new HttpError(400, `${label}预检未通过：${pre.error ?? "不可用"}`);
+      }
+    }
+    const sid = await ensureSession(account);
+    const r = await gateway.doExam(sid, {
+      courseId,
+      examId: body.examId,
+      source: body.source,
+      submit: body.submit,
+    });
+    return { ok: true, data: r };
   });
 
   // ---------- 任务 ----------

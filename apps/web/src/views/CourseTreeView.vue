@@ -15,6 +15,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import CourseTreeNode from "@/components/CourseTreeNode.vue";
+import ExamSection from "@/components/ExamSection.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { Select } from "@/components/ui/select";
 import { toastError } from "@/lib/errors";
@@ -151,16 +152,19 @@ function pick(course: CourseDTO) {
             {{ selectedCourse ? "点击章节展开，查看每个节点的完成情况" : "在左侧选择一门课程查看详情" }}
           </CardDescription>
         </CardHeader>
-        <CardContent v-if="selectedCourse">
-          <div v-if="treeQuery.isLoading.value" class="space-y-2">
-            <Skeleton v-for="i in 6" :key="i" class="h-8 w-full" />
+        <CardContent v-if="selectedCourse" class="space-y-4">
+          <div>
+            <div v-if="treeQuery.isLoading.value" class="space-y-2">
+              <Skeleton v-for="i in 6" :key="i" class="h-8 w-full" />
+            </div>
+            <div
+              v-else
+              class="max-h-[calc(100vh-26rem)] space-y-0.5 overflow-y-auto pr-1"
+            >
+              <CourseTreeNode v-for="node in treeQuery.data.value ?? []" :key="node.id" :node="node" />
+            </div>
           </div>
-          <div
-            v-else
-            class="max-h-[calc(100vh-22rem)] space-y-0.5 overflow-y-auto pr-1"
-          >
-            <CourseTreeNode v-for="node in treeQuery.data.value ?? []" :key="node.id" :node="node" />
-          </div>
+          <ExamSection :account-uid="accountUid" :course-id="selectedCourse.id" />
         </CardContent>
       </Card>
     </div>
