@@ -50,6 +50,19 @@ import { refreshGatewayStatus, snapshot } from "./gateway-status.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { dropSession, ensureSession, getSessionId, getSessionState } from "./sessions.ts";
 
+/** AI/题库配置的零成本前置校验：缺配置直接拒绝，不发起注定失败的探针请求 */
+function ensureAnswerConfigReady(
+  source: "off" | "ai" | "bank",
+  settings: ReturnType<typeof getSettings>,
+): void {
+  if (source === "ai" && (!settings.ai.enabled || !settings.ai.url || !settings.ai.apiKey)) {
+    throw new HttpError(400, "请先在全局设置中完成 AI 答题配置（接口地址与 API Key 必填）");
+  }
+  if (source === "bank" && (!settings.questionBank.enabled || !settings.questionBank.url)) {
+    throw new HttpError(400, "请先在全局设置中启用外置题库并填写服务地址");
+  }
+}
+
 function parse<T>(body: unknown, schema: ZodType<T, ZodTypeDef, unknown>): T {
   const r = schema.safeParse(body);
   if (!r.success) {
@@ -404,6 +417,7 @@ export function registerRoutes(app: FastifyInstance): void {
     );
     if (body.source !== "off") {
       const settings = getSettings();
+      ensureAnswerConfigReady(body.source, settings);
       const pre =
         body.source === "ai"
           ? await gateway.preflight({
@@ -463,6 +477,7 @@ export function registerRoutes(app: FastifyInstance): void {
     // 答题来源预检：AI/题库不可用时直接拒绝启动（对齐 console 的前置检查）
     if (body.answerSource !== "off") {
       const settings = getSettings();
+      ensureAnswerConfigReady(body.answerSource, settings);
       const pre =
         body.answerSource === "ai"
           ? await gateway.preflight({
