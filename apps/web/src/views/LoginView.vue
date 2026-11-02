@@ -38,18 +38,18 @@ async function submit() {
     <div class="relative w-full max-w-[380px]">
       <div class="mb-7 text-center">
         <div class="eyebrow">Yatori / Access Control</div>
-        <h1 class="display-title mt-2 text-[30px] leading-none">观测台</h1>
-        <p class="mt-3 text-[11px] text-muted-foreground">多账号课程助手 · 访问验证</p>
+        <h1 class="display-title mt-2 text-[32px] leading-none">观测台</h1>
+        <p class="mt-3 text-[13.5px] text-muted-foreground">多账号课程助手 · 访问验证</p>
       </div>
 
       <div class="panel p-6">
         <div class="flex items-center gap-2">
           <span class="size-1.5 animate-breathe rounded-full bg-primary" />
-          <span class="mono text-[9px] uppercase tracking-widest text-muted-foreground">Awaiting credential</span>
+          <span class="mono text-[11.5px] uppercase tracking-widest text-muted-foreground">Awaiting credential</span>
         </div>
         <form class="mt-5 grid gap-4" @submit.prevent="submit">
           <div class="grid gap-1.5">
-            <Label class="text-[11px]">访问密码</Label>
+            <Label class="text-[13.5px]">访问密码</Label>
             <Input
               id="password"
               v-model="password"
@@ -65,7 +65,7 @@ async function submit() {
           </Button>
         </form>
         <div class="hair mt-5" />
-        <p class="mono mt-3 text-center text-[8.5px] leading-4 text-muted-foreground">
+        <p class="mono mt-3 text-center text-[11px] leading-4 text-muted-foreground">
           凭据加密存储于本机 · 不经过任何第三方服务
         </p>
       </div>

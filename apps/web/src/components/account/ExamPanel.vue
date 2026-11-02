@@ -103,13 +103,13 @@ function statusText(status: string): string {
       <Select v-model="submitMode" :options="submitOptions" />
     </div>
 
-    <div v-if="!courseId" class="py-8 text-center text-[11px] text-muted-foreground">
+    <div v-if="!courseId" class="py-8 text-center text-[13.5px] text-muted-foreground">
       先从课程标签选择一门课程
     </div>
     <div v-else-if="examsQuery.isLoading.value" class="space-y-1.5">
       <Skeleton v-for="i in 3" :key="i" class="h-8 w-full" />
     </div>
-    <p v-else-if="!(examsQuery.data.value ?? []).length" class="py-8 text-center text-[11px] text-muted-foreground">
+    <p v-else-if="!(examsQuery.data.value ?? []).length" class="py-8 text-center text-[13.5px] text-muted-foreground">
       该课程暂无考试
     </p>
     <div v-else class="space-y-1.5">
@@ -119,13 +119,13 @@ function statusText(status: string): string {
         class="flex items-center gap-2 rounded-lg border border-border px-2.5 py-2"
       >
         <div class="min-w-0 flex-1">
-          <div class="truncate text-[11.5px]">{{ exam.name }}</div>
-          <div class="text-[9.5px] text-muted-foreground">
+          <div class="truncate text-[14px]">{{ exam.name }}</div>
+          <div class="text-[12px] text-muted-foreground">
             {{ exam.questionCount ? `${exam.questionCount} 题` : "题量未知" }} · {{ statusText(exam.status) }}
           </div>
         </div>
         <button
-          class="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
+          class="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
           :disabled="doExamMutation.isPending.value || gatewayOffline || isRunning(exam.id)"
           @click="doExamMutation.mutate(exam)"
         >
@@ -137,7 +137,7 @@ function statusText(status: string): string {
     </div>
 
     <div v-if="liveLogs.length" class="mt-3 rounded-lg border border-border bg-muted/30 p-2.5">
-      <div class="mb-1 flex items-center justify-between text-[9.5px] text-muted-foreground">
+      <div class="mb-1 flex items-center justify-between text-[12px] text-muted-foreground">
         <span>实时过程</span>
         <span v-if="progress" class="mono">{{ progress.current }}/{{ progress.total }}</span>
       </div>
@@ -148,7 +148,7 @@ function statusText(status: string): string {
         <p
           v-for="(l, i) in liveLogs.slice(-10)"
           :key="i"
-          class="mono text-[9.5px] leading-4"
+          class="mono text-[12px] leading-4"
           :class="{ 'text-amber-500': l.level === 'warn', 'text-red-500': l.level === 'error' }"
         >{{ l.message }}</p>
       </div>

@@ -63,7 +63,7 @@ const color = computed(() => {
     </svg>
     <span
       v-if="showLabel"
-      :class="cn('mono relative text-[10px] font-semibold leading-none')"
+      :class="cn('mono relative text-[12.5px] font-semibold leading-none')"
       :style="{ color }"
     >{{ Math.round(pct) }}</span>
   </div>

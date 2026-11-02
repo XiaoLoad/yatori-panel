@@ -131,7 +131,7 @@ const TABS = [
       <header class="border-b border-border px-5 py-4">
         <div class="flex items-start gap-3">
           <div class="relative">
-            <div class="grid size-11 place-items-center rounded-xl border border-border bg-panel-2 text-[13px] font-semibold text-primary">
+            <div class="grid size-11 place-items-center rounded-xl border border-border bg-panel-2 text-[15.5px] font-semibold text-primary">
               {{ (account.remark || account.username).slice(0, 1) }}
             </div>
             <span
@@ -143,12 +143,12 @@ const TABS = [
           </div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <h2 class="truncate text-[15px] font-semibold">{{ account.remark || account.username }}</h2>
-              <span class="mono rounded border border-border px-1 py-px text-[8px] uppercase text-muted-foreground">
+              <h2 class="truncate text-[17px] font-semibold">{{ account.remark || account.username }}</h2>
+              <span class="mono rounded border border-border px-1 py-px text-[10.5px] uppercase text-muted-foreground">
                 {{ account.platformName ?? account.platform }}
               </span>
             </div>
-            <div class="mono mt-1 truncate text-[9.5px] text-muted-foreground">
+            <div class="mono mt-1 truncate text-[12px] text-muted-foreground">
               {{ account.username }} · {{ scheduleText }}
             </div>
           </div>
@@ -160,12 +160,12 @@ const TABS = [
           <div class="min-w-0 flex-1">
             <div class="flex items-baseline gap-2">
               <span class="stage-chip border-mint/30 bg-mint/10 text-mint">{{ phaseText }}</span>
-              <span class="mono text-[10px] text-muted-foreground">{{ running ? "LIVE" : "IDLE" }}</span>
+              <span class="mono text-[12.5px] text-muted-foreground">{{ running ? "LIVE" : "IDLE" }}</span>
             </div>
-            <div class="mt-1.5 truncate text-[12px]">
+            <div class="mt-1.5 truncate text-[14.5px]">
               {{ progress?.courseName || currentCourse?.name || "当前没有运行中的任务" }}
             </div>
-            <div class="mono mt-0.5 truncate text-[9.5px] text-muted-foreground">
+            <div class="mono mt-0.5 truncate text-[12px] text-muted-foreground">
               <template v-if="progress?.watchedSeconds">
                 已看 {{ duration(progress.watchedSeconds) }} / {{ progress.totalSeconds ? duration(progress.totalSeconds) : "?" }}
               </template>
@@ -177,10 +177,10 @@ const TABS = [
               v-if="running"
               variant="outline"
               size="sm"
-              class="h-7 gap-1 text-[10.5px]"
+              class="h-7 gap-1 text-[13px]"
               @click="emit('stop')"
             ><Square class="size-3" />停止</Button>
-            <Button v-else size="sm" class="h-7 text-[10.5px]" @click="emit('start')">开始任务</Button>
+            <Button v-else size="sm" class="h-7 text-[13px]" @click="emit('start')">开始任务</Button>
             <div class="flex items-center justify-center gap-0.5">
               <Button variant="ghost" size="icon" class="size-6" title="检测登录" @click="emit('verify')">
                 <RefreshCw class="size-3" />
@@ -211,7 +211,7 @@ const TABS = [
           v-for="t in TABS"
           :key="t.key"
           :class="cn(
-            'relative flex items-center gap-1.5 py-2 text-[11px] transition-colors',
+            'relative flex items-center gap-1.5 py-2 text-[13.5px] transition-colors',
             tab === t.key ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
           )"
           @click="tab = t.key"
@@ -237,8 +237,8 @@ const TABS = [
               @click="courseId = course.id"
             >
               <div class="flex items-center gap-2">
-                <span class="min-w-0 flex-1 truncate text-[11.5px]">{{ course.name }}</span>
-                <span class="mono text-[9.5px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
+                <span class="min-w-0 flex-1 truncate text-[14px]">{{ course.name }}</span>
+                <span class="mono text-[12px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
               </div>
               <div class="h-0.5 overflow-hidden rounded-full bg-muted">
                 <div class="h-full rounded-full bg-mint/70" :style="{ width: `${Math.round(course.progress)}%` }" />
@@ -249,7 +249,7 @@ const TABS = [
           <div v-if="courseId" class="border-t border-border px-5 py-4">
             <div class="mb-2 flex items-baseline justify-between">
               <span class="eyebrow">Chapter tree</span>
-              <span class="mono text-[9px] text-muted-foreground">{{ flatTree.length }} 节点</span>
+              <span class="mono text-[11.5px] text-muted-foreground">{{ flatTree.length }} 节点</span>
             </div>
             <div v-if="treeQuery.isLoading.value" class="space-y-1.5">
               <Skeleton v-for="i in 6" :key="i" class="h-6 w-full" />
@@ -258,16 +258,16 @@ const TABS = [
               <div
                 v-for="item in flatTree"
                 :key="item.node.id"
-                class="flex items-center gap-2 py-1.5 text-[11px]"
+                class="flex items-center gap-2 py-1.5 text-[13.5px]"
                 :class="item.node.children?.length ? 'font-medium text-foreground/90' : 'text-muted-foreground'"
                 :style="{ paddingLeft: `${item.depth * 11}px` }"
               >
                 <span
-                  class="mono shrink-0 text-[9px]"
+                  class="mono shrink-0 text-[11.5px]"
                   :class="item.node.completed ? 'text-mint' : item.node.progress > 0 ? 'text-amber' : 'text-muted-foreground/50'"
                 >{{ item.node.completed ? "✓" : item.node.progress > 0 ? "▶" : "○" }}</span>
                 <span class="min-w-0 flex-1 truncate">{{ item.node.name }}</span>
-                <span class="mono shrink-0 text-[9px]">{{ duration(item.node.durationSeconds) }}</span>
+                <span class="mono shrink-0 text-[11.5px]">{{ duration(item.node.durationSeconds) }}</span>
               </div>
             </div>
           </div>
@@ -276,11 +276,11 @@ const TABS = [
         <ExamPanel v-else-if="tab === 'exams'" :account-uid="account.uid" :course-id="courseId" />
 
         <div v-else class="p-4">
-          <div v-if="!logs.length" class="py-12 text-center text-[11px] text-muted-foreground">
+          <div v-if="!logs.length" class="py-12 text-center text-[13.5px] text-muted-foreground">
             暂无日志，发起任务后会实时出现在这里
           </div>
           <div v-else class="space-y-1">
-            <p v-for="(l, i) in logs" :key="i" class="flex items-baseline gap-2 font-mono text-[10px] leading-4">
+            <p v-for="(l, i) in logs" :key="i" class="flex items-baseline gap-2 font-mono text-[12.5px] leading-4">
               <span class="shrink-0 text-muted-foreground/60">{{ timeOf(l.ts) }}</span>
               <span
                 :class="{

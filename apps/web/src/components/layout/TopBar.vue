@@ -50,11 +50,11 @@ async function logout() {
       <RouterLink to="/" class="group flex shrink-0 items-center gap-3">
         <span class="relative grid size-8 place-items-center overflow-hidden rounded-lg border border-border bg-card">
           <span class="absolute inset-x-0 top-0 h-px bg-primary/60" />
-          <span class="mono text-[11px] font-semibold tracking-tight text-primary">Y</span>
+          <span class="mono text-[13.5px] font-semibold tracking-tight text-primary">Y</span>
         </span>
         <span class="leading-none">
-          <span class="display-title block text-[15px]">Yatori</span>
-          <span class="eyebrow mt-1 block !text-[8.5px]">Course Instrument</span>
+          <span class="display-title block text-[17px]">Yatori</span>
+          <span class="eyebrow mt-1 block !text-[11px]">Course Instrument</span>
         </span>
       </RouterLink>
 
@@ -64,11 +64,11 @@ async function logout() {
           :key="item.name"
           :to="item.to"
           :class="cn(
-            'relative flex items-center gap-1.5 px-3 text-[12px] transition-colors',
+            'relative flex items-center gap-1.5 px-3 text-[14.5px] transition-colors',
             active === item.name ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
           )"
         >
-          <span class="mono text-[9px] opacity-50">{{ item.index }}</span>
+          <span class="mono text-[11.5px] opacity-50">{{ item.index }}</span>
           {{ item.label }}
           <span
             v-if="active === item.name"
@@ -78,7 +78,7 @@ async function logout() {
       </nav>
 
       <div class="ml-auto flex items-center gap-2">
-        <span class="mono hidden text-[10px] text-muted-foreground sm:inline">{{ clock }}</span>
+        <span class="mono hidden text-[12.5px] text-muted-foreground sm:inline">{{ clock }}</span>
         <span class="hidden h-3 w-px bg-border sm:block" />
         <GatewayBadge />
         <Button variant="ghost" size="icon" class="size-8 rounded-full" title="切换主题" @click="theme.toggle()">

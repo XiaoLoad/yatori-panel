@@ -100,8 +100,8 @@ const jobLabel = computed(() => {
 <template>
   <div
     :class="cn(
-      'group relative grid min-w-[980px] items-center gap-3 border-b border-border/70 px-4 py-3 transition-colors last:border-b-0',
-      'grid-cols-[20px_minmax(168px,1.05fr)_82px_minmax(0,1.65fr)_132px_116px_92px]',
+      'group relative grid min-w-[1060px] items-center gap-3 border-b border-border/70 px-4 py-3 transition-colors last:border-b-0',
+      'grid-cols-[20px_minmax(180px,1.05fr)_92px_minmax(0,1.65fr)_140px_124px_108px]',
       selected ? 'bg-primary/5' : 'hover:bg-accent/30',
     )"
   >
@@ -111,7 +111,7 @@ const jobLabel = computed(() => {
     <div class="flex min-w-0 items-center gap-2.5">
       <div
         :class="cn(
-          'grid size-8 shrink-0 place-items-center rounded-lg border text-[11px] font-semibold',
+          'grid size-8 shrink-0 place-items-center rounded-lg border text-[13.5px] font-semibold',
           selected
             ? 'border-primary/40 bg-primary/10 text-primary'
             : 'border-border bg-panel-2 text-muted-foreground',
@@ -121,14 +121,14 @@ const jobLabel = computed(() => {
       </div>
       <div class="min-w-0">
         <div class="flex items-center gap-1.5">
-          <span class="truncate text-[12.5px] font-medium">{{ subtitle }}</span>
-          <span class="mono rounded border border-border px-1 py-px text-[8px] uppercase text-muted-foreground">{{ platformName }}</span>
+          <span class="truncate text-[15px] font-medium">{{ subtitle }}</span>
+          <span class="mono rounded border border-border px-1 py-px text-[10.5px] uppercase text-muted-foreground">{{ platformName }}</span>
         </div>
-        <div class="mono mt-0.5 truncate text-[9.5px] text-muted-foreground">{{ account.username }}</div>
+        <div class="mono mt-0.5 truncate text-[12px] text-muted-foreground">{{ account.username }}</div>
       </div>
     </div>
 
-    <div class="flex items-center gap-1.5 text-[10.5px]">
+    <div class="flex items-center gap-1.5 text-[13px]">
       <span
         :class="cn(
           'size-1.5 rounded-full',
@@ -152,13 +152,13 @@ const jobLabel = computed(() => {
             stageTone === 'muted' && 'text-muted-foreground',
           )"
         >{{ phase }}</span>
-        <span class="min-w-0 truncate text-[11.5px]">
+        <span class="min-w-0 truncate text-[14px]">
           <template v-if="running">{{ courseName || "正在建立会话" }}<span v-if="nodeName" class="text-muted-foreground"> · {{ nodeName }}</span></template>
           <template v-else-if="job"><span class="text-muted-foreground">上次任务：{{ jobLabel }}</span></template>
           <template v-else><span class="text-muted-foreground">— 未启动</span></template>
         </span>
       </div>
-      <div class="mono mt-1 truncate text-[9px] text-muted-foreground">
+      <div class="mono mt-1 truncate text-[11.5px] text-muted-foreground">
         <template v-if="watched">{{ watched }}</template>
         <template v-else-if="job?.summary">视频 {{ job.summary.videosCompleted }} · 作业 {{ job.summary.worksDone }} · 考试 {{ job.summary.examsDone }}</template>
         <template v-else>{{ account.enabled ? "READY" : "DISABLED" }}</template>
@@ -168,7 +168,7 @@ const jobLabel = computed(() => {
     <div class="flex items-center gap-2.5">
       <ProgressRing :value="percent" :size="38" :stroke="3.5" :tone="ringTone" />
       <div class="min-w-0 flex-1">
-        <div class="mono flex items-baseline justify-between text-[9.5px] text-muted-foreground">
+        <div class="mono flex items-baseline justify-between text-[12px] text-muted-foreground">
           <span>{{ running ? "LIVE" : job ? jobLabel : "IDLE" }}</span>
           <span>{{ Math.round(percent) }}%</span>
         </div>
@@ -187,27 +187,27 @@ const jobLabel = computed(() => {
       </div>
     </div>
 
-    <div class="text-[10px] leading-4">
+    <div class="text-[12.5px] leading-4">
       <template v-if="scheduleText">
         <div class="mono truncate text-foreground/80">{{ scheduleText.time }}</div>
-        <div class="truncate text-[9px] text-muted-foreground">{{ scheduleText.name }}</div>
+        <div class="truncate text-[11.5px] text-muted-foreground">{{ scheduleText.name }}</div>
       </template>
-      <span v-else class="mono text-[9px] text-muted-foreground">— NO SCHEDULE</span>
+      <span v-else class="mono text-[11.5px] text-muted-foreground">— NO SCHEDULE</span>
     </div>
 
     <div class="flex items-center justify-end gap-0.5">
       <button
         v-if="running"
-        class="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:border-coral/40 hover:text-coral"
+        class="rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-coral/40 hover:text-coral"
         @click="emit('stop')"
       >停止</button>
       <button
         v-else
-        class="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+        class="rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
         @click="emit('start')"
       >启动</button>
       <button
-        class="rounded px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        class="rounded px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         @click="emit('open')"
       >详情</button>
     </div>

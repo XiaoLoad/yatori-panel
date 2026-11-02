@@ -210,7 +210,7 @@ function fieldModel(key: string) {
             :disabled="editing"
             @update:model-value="onPlatformChange"
           />
-          <p v-if="fieldErrors.platform" class="text-[11px] text-red-500">{{ fieldErrors.platform }}</p>
+          <p v-if="fieldErrors.platform" class="text-[13.5px] text-red-500">{{ fieldErrors.platform }}</p>
         </div>
 
         <div v-for="field in currentPlatform?.loginFields ?? []" :key="field.key" class="grid gap-1.5">
@@ -221,8 +221,8 @@ function fieldModel(key: string) {
             :placeholder="field.placeholder"
             autocomplete="off"
           />
-          <p v-if="fieldErrors[field.key]" class="text-[11px] text-red-500">{{ fieldErrors[field.key] }}</p>
-          <p v-else-if="field.key === 'url'" class="text-[10px] text-muted-foreground">
+          <p v-if="fieldErrors[field.key]" class="text-[13.5px] text-red-500">{{ fieldErrors[field.key] }}</p>
+          <p v-else-if="field.key === 'url'" class="text-[12.5px] text-muted-foreground">
             可粘贴带 <code class="mono rounded bg-muted px-1">/user</code> 的登录页完整地址，保存时会自动归一化为平台根地址
           </p>
         </div>
@@ -260,7 +260,7 @@ function fieldModel(key: string) {
             class="cursor-pointer file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1 file:text-xs"
             @change="onFile"
           />
-          <p class="text-[10.5px] text-muted-foreground">
+          <p class="text-[13px] text-muted-foreground">
             {{ importFileName || "兼容 yatori-go-console 的 users 配置，密码加密入库" }}
           </p>
         </div>
@@ -283,7 +283,7 @@ function fieldModel(key: string) {
           导入 <span class="font-semibold text-emerald-500">{{ importResult.imported }}</span> 个
           · 跳过 {{ importResult.skipped }} 个 · 失败
           <span :class="importResult.failed.length ? 'text-red-500' : ''">{{ importResult.failed.length }}</span> 个
-          <p v-for="f in importResult.failed" :key="f.account" class="mt-1 text-[10.5px] text-red-500">
+          <p v-for="f in importResult.failed" :key="f.account" class="mt-1 text-[13px] text-red-500">
             {{ f.account }}：{{ f.error }}
           </p>
         </div>

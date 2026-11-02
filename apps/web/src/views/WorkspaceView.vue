@@ -291,16 +291,16 @@ onMounted(() => {
     <header class="reveal flex flex-wrap items-end gap-3">
       <div>
         <div class="eyebrow">Multi-account / Live telemetry</div>
-        <h1 class="display-title mt-1.5 text-[26px] leading-none">观测台</h1>
-        <p class="mt-2 text-[11.5px] text-muted-foreground">
+        <h1 class="display-title mt-1.5 text-[28px] leading-none">观测台</h1>
+        <p class="mt-2 text-[14px] text-muted-foreground">
           多账号同步刷课 · 阶段、进度与定时规则在一屏内可见
         </p>
       </div>
       <div class="ml-auto flex items-center gap-2">
-        <Button variant="outline" size="sm" class="h-8 gap-1.5 text-[11px]" @click="openSchedule()">
+        <Button variant="outline" size="sm" class="h-8 gap-1.5 text-[13.5px]" @click="openSchedule()">
           <AlarmClock class="size-3.5" />定时规则
         </Button>
-        <Button size="sm" class="h-8 gap-1.5 text-[11px]" @click="openAdd()">
+        <Button size="sm" class="h-8 gap-1.5 text-[13.5px]" @click="openAdd()">
           <Plus class="size-3.5" />接入账号
         </Button>
       </div>
@@ -311,10 +311,10 @@ onMounted(() => {
       <div class="panel reveal relative overflow-hidden px-4 py-3.5">
         <div class="eyebrow">Running now</div>
         <div class="mt-2 flex items-baseline gap-2">
-          <span class="mono text-[26px] font-semibold leading-none text-primary">{{ counts.running }}</span>
-          <span class="mono text-[10px] text-muted-foreground">/ {{ accountsQuery.data.value?.length ?? 0 }} 账号</span>
+          <span class="mono text-[28px] font-semibold leading-none text-primary">{{ counts.running }}</span>
+          <span class="mono text-[12.5px] text-muted-foreground">/ {{ accountsQuery.data.value?.length ?? 0 }} 账号</span>
         </div>
-        <div class="mt-2 flex items-center gap-1.5 text-[9.5px] text-muted-foreground">
+        <div class="mt-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
           <span class="size-1.5 animate-breathe rounded-full bg-primary" />
           在线 {{ counts.online }} · 异常 {{ counts.error }}
         </div>
@@ -323,11 +323,11 @@ onMounted(() => {
       <div class="panel reveal px-4 py-3.5">
         <div class="flex items-start justify-between">
           <div class="eyebrow">Videos today</div>
-          <span class="mono text-[9px] text-muted-foreground">{{ videoDelta ?? "—" }}</span>
+          <span class="mono text-[11.5px] text-muted-foreground">{{ videoDelta ?? "—" }}</span>
         </div>
         <div class="mt-2 flex items-baseline gap-1.5">
-          <span class="mono text-[26px] font-semibold leading-none">{{ today?.videos ?? 0 }}</span>
-          <span class="mono text-[10px] text-muted-foreground">段</span>
+          <span class="mono text-[28px] font-semibold leading-none">{{ today?.videos ?? 0 }}</span>
+          <span class="mono text-[12.5px] text-muted-foreground">段</span>
         </div>
         <Sparkline :values="videoSpark" color="var(--mint)" :height="24" class="mt-2" />
       </div>
@@ -335,13 +335,13 @@ onMounted(() => {
       <div class="panel reveal px-4 py-3.5">
         <div class="flex items-start justify-between">
           <div class="eyebrow">Jobs today</div>
-          <span class="mono text-[9px]" :class="(today?.errors ?? 0) > 0 ? 'text-coral' : 'text-muted-foreground'">
+          <span class="mono text-[11.5px]" :class="(today?.errors ?? 0) > 0 ? 'text-coral' : 'text-muted-foreground'">
             错误 {{ today?.errors ?? 0 }}
           </span>
         </div>
         <div class="mt-2 flex items-baseline gap-1.5">
-          <span class="mono text-[26px] font-semibold leading-none">{{ today?.jobs ?? 0 }}</span>
-          <span class="mono text-[10px] text-muted-foreground">任务</span>
+          <span class="mono text-[28px] font-semibold leading-none">{{ today?.jobs ?? 0 }}</span>
+          <span class="mono text-[12.5px] text-muted-foreground">任务</span>
         </div>
         <Sparkline :values="jobSpark" color="var(--amber)" :height="24" class="mt-2" />
       </div>
@@ -349,10 +349,10 @@ onMounted(() => {
       <div class="panel reveal px-4 py-3.5">
         <div class="eyebrow">Schedules</div>
         <div class="mt-2 flex items-baseline gap-1.5">
-          <span class="mono text-[26px] font-semibold leading-none">{{ activeSchedules.length }}</span>
-          <span class="mono text-[10px] text-muted-foreground">条生效</span>
+          <span class="mono text-[28px] font-semibold leading-none">{{ activeSchedules.length }}</span>
+          <span class="mono text-[12.5px] text-muted-foreground">条生效</span>
         </div>
-        <div class="mono mt-2 truncate text-[9.5px] text-muted-foreground">
+        <div class="mono mt-2 truncate text-[12px] text-muted-foreground">
           <template v-if="upcomingSchedules.length">
             下一班次 {{ timeOf(upcomingSchedules[0]!.cron) }}
             <span v-if="upcomingSchedules[0]!.endTime"> → {{ upcomingSchedules[0]!.endTime }}</span>
@@ -370,27 +370,27 @@ onMounted(() => {
           <div class="min-w-0">
             <div class="eyebrow">Account matrix</div>
             <div class="mt-1 flex items-baseline gap-2">
-              <h2 class="text-[14px] font-semibold">账号运行矩阵</h2>
-              <span class="mono text-[9.5px] text-muted-foreground">
+              <h2 class="text-[16px] font-semibold">账号运行矩阵</h2>
+              <span class="mono text-[12px] text-muted-foreground">
                 运行 {{ counts.running }} / 共 {{ accountsQuery.data.value?.length ?? 0 }}
               </span>
             </div>
           </div>
           <div class="relative ml-auto">
             <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input v-model="search" placeholder="搜索账号 / 备注" class="h-8 w-48 pl-8 text-[11px]" />
+            <Input v-model="search" placeholder="搜索账号 / 备注" class="h-8 w-48 pl-8 text-[13.5px]" />
           </div>
         </div>
 
         <div class="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
           <button
-            :class="cn('rounded-full border px-2.5 py-1 text-[10.5px] transition-colors', platformFilter === 'all' ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
+            :class="cn('rounded-full border px-2.5 py-1 text-[13px] transition-colors', platformFilter === 'all' ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
             @click="platformFilter = 'all'"
           >全部 {{ accountsQuery.data.value?.length ?? 0 }}</button>
           <button
             v-for="p in platformsQuery.data.value ?? []"
             :key="p.key"
-            :class="cn('rounded-full border px-2.5 py-1 text-[10.5px] transition-colors', platformFilter === p.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
+            :class="cn('rounded-full border px-2.5 py-1 text-[13px] transition-colors', platformFilter === p.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
             @click="platformFilter = p.key"
           >{{ p.name }} {{ platformCounts[p.key] ?? 0 }}</button>
           <span class="mx-1 h-3.5 w-px bg-border" />
@@ -402,7 +402,7 @@ onMounted(() => {
             ] as const"
             :key="s.key"
             :class="cn(
-              'rounded-full border px-2.5 py-1 text-[10.5px] transition-colors',
+              'rounded-full border px-2.5 py-1 text-[13px] transition-colors',
               statusFilter === s.key
                 ? s.tone === 'coral'
                   ? 'border-coral/40 bg-coral/10 text-coral'
@@ -413,7 +413,7 @@ onMounted(() => {
           >{{ s.label }} {{ counts[s.key] }}</button>
           <button
             v-if="statusFilter !== 'all'"
-            class="rounded-full border border-border px-2 py-1 text-[10.5px] text-muted-foreground"
+            class="rounded-full border border-border px-2 py-1 text-[13px] text-muted-foreground"
             @click="statusFilter = 'all'"
           ><X class="inline size-3" /></button>
         </div>
@@ -425,27 +425,27 @@ onMounted(() => {
           <div class="mx-auto grid size-12 place-items-center rounded-2xl border border-border bg-panel-2 text-primary">
             <Users class="size-5" />
           </div>
-          <h2 class="mt-4 text-[14px] font-semibold">还没有账号</h2>
-          <p class="mt-1 text-[11.5px] text-muted-foreground">添加平台账号后可批量发起任务，也能导入 config.yaml</p>
+          <h2 class="mt-4 text-[16px] font-semibold">还没有账号</h2>
+          <p class="mt-1 text-[14px] text-muted-foreground">添加平台账号后可批量发起任务，也能导入 config.yaml</p>
           <Button class="mt-4" @click="openAdd()"><Plus class="size-4" />接入账号</Button>
         </div>
         <div v-else class="overflow-x-auto">
           <div class="hidden min-w-[980px] grid-cols-[20px_minmax(168px,1.05fr)_82px_minmax(0,1.65fr)_132px_116px_92px] items-center gap-3 border-b border-border bg-panel-2/60 px-4 py-1.5 md:grid">
             <span />
-            <span class="eyebrow !text-[8px]">账号 / 平台</span>
-            <span class="eyebrow !text-[8px]">状态</span>
-            <span class="eyebrow !text-[8px]">当前任务</span>
-            <span class="eyebrow !text-[8px]">进度</span>
-            <span class="eyebrow !text-[8px]">定时</span>
-            <span class="eyebrow !text-right !text-[8px]">操作</span>
+            <span class="eyebrow !text-[10.5px]">账号 / 平台</span>
+            <span class="eyebrow !text-[10.5px]">状态</span>
+            <span class="eyebrow !text-[10.5px]">当前任务</span>
+            <span class="eyebrow !text-[10.5px]">进度</span>
+            <span class="eyebrow !text-[10.5px]">定时</span>
+            <span class="eyebrow !text-right !text-[10.5px]">操作</span>
           </div>
 
           <template v-for="group in groups" :key="group.key">
             <div class="flex min-w-[980px] items-center gap-2 border-b border-border bg-panel-2/30 px-4 py-1.5">
-              <span class="mono text-[9.5px] font-medium uppercase tracking-wider text-foreground/80">{{ group.name }}</span>
-              <span class="mono text-[9px] text-muted-foreground">{{ group.items.length }}</span>
+              <span class="mono text-[12px] font-medium uppercase tracking-wider text-foreground/80">{{ group.name }}</span>
+              <span class="mono text-[11.5px] text-muted-foreground">{{ group.items.length }}</span>
               <span class="h-px flex-1 bg-border" />
-              <button class="mono text-[9px] text-muted-foreground hover:text-foreground" @click="toggleGroup(group.items)">
+              <button class="mono text-[11.5px] text-muted-foreground hover:text-foreground" @click="toggleGroup(group.items)">
                 {{ group.items.every((a) => selectedUids.includes(a.uid)) ? "取消全选" : "全选" }}
               </button>
             </div>
@@ -465,7 +465,7 @@ onMounted(() => {
             />
           </template>
 
-          <div v-if="!groups.length" class="px-4 py-10 text-center text-[11px] text-muted-foreground">
+          <div v-if="!groups.length" class="px-4 py-10 text-center text-[13.5px] text-muted-foreground">
             没有符合筛选条件的账号
           </div>
         </div>
@@ -477,13 +477,13 @@ onMounted(() => {
           <div class="flex items-baseline justify-between">
             <div>
               <div class="eyebrow">14-day throughput</div>
-              <div class="mt-1 text-[12px] font-medium">运行趋势</div>
+              <div class="mt-1 text-[14.5px] font-medium">运行趋势</div>
             </div>
             <div class="text-right">
-              <div class="mono text-[15px] font-semibold leading-none text-primary">
+              <div class="mono text-[17px] font-semibold leading-none text-primary">
                 {{ stats.reduce((s, d) => s + d.videos, 0) }}
               </div>
-              <div class="mono text-[8.5px] text-muted-foreground">VIDEOS</div>
+              <div class="mono text-[11px] text-muted-foreground">VIDEOS</div>
             </div>
           </div>
           <div class="mt-1 h-[168px]">
@@ -494,10 +494,10 @@ onMounted(() => {
 
         <div class="panel reveal px-3.5 py-3">
           <div class="eyebrow">Account health</div>
-          <div class="mt-1 text-[12px] font-medium">账号状态分布</div>
+          <div class="mt-1 text-[14.5px] font-medium">账号状态分布</div>
           <div class="mt-1 h-[146px]">
             <StatusDonut v-if="accountsQuery.data.value?.length" :counts="counts" />
-            <div v-else class="grid h-full place-items-center text-[10px] text-muted-foreground">暂无账号</div>
+            <div v-else class="grid h-full place-items-center text-[12.5px] text-muted-foreground">暂无账号</div>
           </div>
         </div>
 
@@ -505,9 +505,9 @@ onMounted(() => {
           <div class="flex items-baseline justify-between">
             <div>
               <div class="eyebrow">Today's schedule</div>
-              <div class="mt-1 text-[12px] font-medium">今日定时</div>
+              <div class="mt-1 text-[14.5px] font-medium">今日定时</div>
             </div>
-            <RouterLink to="/schedules" class="mono text-[9px] text-muted-foreground hover:text-primary">全部 →</RouterLink>
+            <RouterLink to="/schedules" class="mono text-[11.5px] text-muted-foreground hover:text-primary">全部 →</RouterLink>
           </div>
           <div v-if="upcomingSchedules.length" class="mt-2.5 space-y-2">
             <div
@@ -516,17 +516,17 @@ onMounted(() => {
               class="relative flex items-start gap-2.5 border-l border-border pl-2.5"
             >
               <span class="absolute -left-[3px] top-1.5 size-1.5 rounded-full bg-primary" />
-              <div class="mono shrink-0 text-[10.5px] text-foreground">
+              <div class="mono shrink-0 text-[13px] text-foreground">
                 {{ timeOf(s.cron) }}
                 <template v-if="s.endTime"><span class="text-muted-foreground"> → {{ s.endTime }}</span></template>
               </div>
               <div class="min-w-0">
-                <div class="truncate text-[10.5px]">{{ s.name || "定时规则" }}</div>
-                <div class="mono text-[8.5px] text-muted-foreground">{{ s.accountUids.length }} ACCOUNTS</div>
+                <div class="truncate text-[13px]">{{ s.name || "定时规则" }}</div>
+                <div class="mono text-[11px] text-muted-foreground">{{ s.accountUids.length }} ACCOUNTS</div>
               </div>
             </div>
           </div>
-          <p v-else class="mt-3 text-[10px] text-muted-foreground">尚未配置定时规则</p>
+          <p v-else class="mt-3 text-[12.5px] text-muted-foreground">尚未配置定时规则</p>
         </div>
       </aside>
     </section>
@@ -535,8 +535,8 @@ onMounted(() => {
     <section class="panel reveal overflow-hidden">
       <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <div class="eyebrow">Live stream</div>
-        <h2 class="text-[12px] font-medium">实时活动</h2>
-        <span class="mono ml-auto flex items-center gap-1.5 text-[8.5px] text-primary">
+        <h2 class="text-[14.5px] font-medium">实时活动</h2>
+        <span class="mono ml-auto flex items-center gap-1.5 text-[11px] text-primary">
           <span class="size-1 animate-breathe rounded-full bg-primary" />SSE
         </span>
       </div>
@@ -546,18 +546,18 @@ onMounted(() => {
           :key="i"
           class="flex items-baseline gap-2.5 border-b border-border/40 py-1.5 last:border-b-0"
         >
-          <span class="mono shrink-0 text-[9px] text-muted-foreground/70">{{ clockOf(l.ts) }}</span>
+          <span class="mono shrink-0 text-[11.5px] text-muted-foreground/70">{{ clockOf(l.ts) }}</span>
           <span
             :class="cn(
-              'mono w-9 shrink-0 text-[8.5px] uppercase',
+              'mono w-9 shrink-0 text-[11px] uppercase',
               l.level === 'error' ? 'text-coral' : l.level === 'warn' ? 'text-amber' : 'text-primary/80',
             )"
           >{{ l.level ?? "info" }}</span>
-          <span class="mono shrink-0 text-[9px] text-muted-foreground">{{ accountLabel(l.accountId) }}</span>
-          <span class="min-w-0 flex-1 truncate text-[10.5px] text-foreground/80">{{ l.message }}</span>
+          <span class="mono shrink-0 text-[11.5px] text-muted-foreground">{{ accountLabel(l.accountId) }}</span>
+          <span class="min-w-0 flex-1 truncate text-[13px] text-foreground/80">{{ l.message }}</span>
         </div>
       </div>
-      <p v-else class="px-4 py-6 text-center text-[10.5px] text-muted-foreground">
+      <p v-else class="px-4 py-6 text-center text-[13px] text-muted-foreground">
         发起任务后，日志会实时出现在这里
       </p>
     </section>
@@ -567,15 +567,15 @@ onMounted(() => {
       v-if="selectedUids.length"
       class="sticky bottom-4 z-30 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-background/90 px-4 py-2.5 shadow-xl backdrop-blur-xl"
     >
-      <span class="mono text-[10.5px] text-primary">SELECTED {{ selectedUids.length }}</span>
-      <span class="text-[10.5px] text-muted-foreground">
+      <span class="mono text-[13px] text-primary">SELECTED {{ selectedUids.length }}</span>
+      <span class="text-[13px] text-muted-foreground">
         {{ selectedRunning.length ? `${selectedRunning.length} 个运行中` : "各账号独立并发" }}
       </span>
       <div class="ml-auto flex items-center gap-1.5">
-        <Button size="sm" class="h-7 text-[11px]" @click="openStart(selectedPayload)">发起任务</Button>
-        <Button variant="outline" size="sm" class="h-7 text-[11px]" @click="openSchedule(selectedUids)">设定定时</Button>
-        <Button variant="outline" size="sm" class="h-7 text-[11px]" @click="stopSelected">停止</Button>
-        <Button variant="ghost" size="sm" class="h-7 text-[11px]" @click="selectedUids = []">取消</Button>
+        <Button size="sm" class="h-7 text-[13.5px]" @click="openStart(selectedPayload)">发起任务</Button>
+        <Button variant="outline" size="sm" class="h-7 text-[13.5px]" @click="openSchedule(selectedUids)">设定定时</Button>
+        <Button variant="outline" size="sm" class="h-7 text-[13.5px]" @click="stopSelected">停止</Button>
+        <Button variant="ghost" size="sm" class="h-7 text-[13.5px]" @click="selectedUids = []">取消</Button>
       </div>
     </div>
 

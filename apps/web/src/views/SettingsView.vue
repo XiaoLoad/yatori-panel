@@ -220,11 +220,11 @@ const disableMutation = useMutation({
     <header class="flex flex-wrap items-end gap-3">
       <div>
         <div class="eyebrow">Calibration / Global</div>
-        <h1 class="display-title mt-1.5 text-[26px] leading-none">设置</h1>
-        <p class="mt-2 text-[11.5px] text-muted-foreground">修改先暂存，确认后一键保存；密钥仅存本机</p>
+        <h1 class="display-title mt-1.5 text-[28px] leading-none">设置</h1>
+        <p class="mt-2 text-[14px] text-muted-foreground">修改先暂存，确认后一键保存；密钥仅存本机</p>
       </div>
       <div class="ml-auto flex items-center gap-2">
-        <span class="mono rounded-full border border-border px-2.5 py-1 text-[9px] text-muted-foreground">
+        <span class="mono rounded-full border border-border px-2.5 py-1 text-[11.5px] text-muted-foreground">
           {{ isDirty ? `${dirtyKeys.length} PENDING` : "IN SYNC" }}
         </span>
       </div>
@@ -235,19 +235,19 @@ const disableMutation = useMutation({
       class="sticky top-[60px] z-30 flex flex-wrap items-center gap-3 rounded-xl border border-amber/40 bg-amber/10 px-4 py-2.5"
     >
       <Badge variant="warning">已修改 {{ dirtyKeys.length }} 项</Badge>
-      <button class="text-[11px] text-muted-foreground underline-offset-2 hover:underline" @click="showDiff = !showDiff">
+      <button class="text-[13.5px] text-muted-foreground underline-offset-2 hover:underline" @click="showDiff = !showDiff">
         {{ showDiff ? "收起变更明细" : "查看变更明细" }}
       </button>
       <div class="ml-auto flex items-center gap-2">
-        <Button variant="outline" size="sm" class="h-7 text-[11px]" @click="discardAll"><RotateCcw class="size-3.5" />放弃</Button>
-        <Button size="sm" class="h-7 text-[11px]" :disabled="saveMutation.isPending.value" @click="saveMutation.mutate()">
+        <Button variant="outline" size="sm" class="h-7 text-[13.5px]" @click="discardAll"><RotateCcw class="size-3.5" />放弃</Button>
+        <Button size="sm" class="h-7 text-[13.5px]" :disabled="saveMutation.isPending.value" @click="saveMutation.mutate()">
           <Save class="size-3.5" />{{ saveMutation.isPending.value ? "保存中…" : "保存设置" }}
         </Button>
       </div>
     </div>
 
     <div v-if="isDirty && showDiff" class="panel px-4 py-3">
-      <div v-for="c in changes" :key="c.key" class="flex flex-wrap items-center gap-2 py-0.5 text-[11px]">
+      <div v-for="c in changes" :key="c.key" class="flex flex-wrap items-center gap-2 py-0.5 text-[13.5px]">
         <span class="w-40 shrink-0 text-muted-foreground">{{ c.label }}</span>
         <span class="rounded bg-muted px-1.5 line-through opacity-70">{{ c.old === "" ? "（空）" : c.old }}</span>
         <span class="text-muted-foreground">→</span>
@@ -261,31 +261,31 @@ const disableMutation = useMutation({
         <div class="flex items-center gap-2.5">
           <div class="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><BrainCircuit class="size-4" /></div>
           <div class="min-w-0">
-            <h2 class="text-[13px] font-semibold">AI 答题</h2>
-            <p class="text-[10.5px] text-muted-foreground">任务选择「AI 答题」时使用</p>
+            <h2 class="text-[15.5px] font-semibold">AI 答题</h2>
+            <p class="text-[13px] text-muted-foreground">任务选择「AI 答题」时使用</p>
           </div>
           <Switch v-model="draft.ai.enabled" class="ml-auto" />
         </div>
         <div class="mt-3 grid gap-2.5" :class="draft.ai.enabled ? '' : 'opacity-50'">
           <div class="grid grid-cols-2 gap-2.5">
             <div class="grid gap-1">
-              <Label class="text-[10.5px]">模型类型</Label>
-              <Select v-model="aiTypeModel" :options="AI_TYPES" :disabled="!draft.ai.enabled" class="h-8 text-[11px]" />
+              <Label class="text-[13px]">模型类型</Label>
+              <Select v-model="aiTypeModel" :options="AI_TYPES" :disabled="!draft.ai.enabled" class="h-8 text-[13.5px]" />
             </div>
             <div class="grid gap-1">
-              <Label class="text-[10.5px]">模型名称</Label>
-              <Input v-model="draft.ai.model" placeholder="qwen-plus" :disabled="!draft.ai.enabled" class="h-8 text-[11px]" />
+              <Label class="text-[13px]">模型名称</Label>
+              <Input v-model="draft.ai.model" placeholder="qwen-plus" :disabled="!draft.ai.enabled" class="h-8 text-[13.5px]" />
             </div>
           </div>
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">接口地址</Label>
-            <Input v-model="draft.ai.url" placeholder="https://..." :disabled="!draft.ai.enabled" class="h-8 text-[11px]" />
+            <Label class="text-[13px]">接口地址</Label>
+            <Input v-model="draft.ai.url" placeholder="https://..." :disabled="!draft.ai.enabled" class="h-8 text-[13.5px]" />
           </div>
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">API Key</Label>
-            <Input v-model="draft.ai.apiKey" type="password" placeholder="sk-..." autocomplete="off" :disabled="!draft.ai.enabled" class="h-8 text-[11px]" />
+            <Label class="text-[13px]">API Key</Label>
+            <Input v-model="draft.ai.apiKey" type="password" placeholder="sk-..." autocomplete="off" :disabled="!draft.ai.enabled" class="h-8 text-[13.5px]" />
           </div>
-          <Button variant="outline" size="sm" class="h-7 w-fit text-[11px]" :disabled="aiTestMutation.isPending.value || !draft.ai.apiKey" @click="aiTestMutation.mutate()">
+          <Button variant="outline" size="sm" class="h-7 w-fit text-[13.5px]" :disabled="aiTestMutation.isPending.value || !draft.ai.apiKey" @click="aiTestMutation.mutate()">
             {{ aiTestMutation.isPending.value ? "测试中…" : "测试连接" }}
           </Button>
         </div>
@@ -296,21 +296,21 @@ const disableMutation = useMutation({
         <div class="flex items-center gap-2.5">
           <div class="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><Database class="size-4" /></div>
           <div class="min-w-0">
-            <h2 class="text-[13px] font-semibold">外置题库</h2>
-            <p class="text-[10.5px] text-muted-foreground">对接 yatori-go-quesbank 等题库服务</p>
+            <h2 class="text-[15.5px] font-semibold">外置题库</h2>
+            <p class="text-[13px] text-muted-foreground">对接 yatori-go-quesbank 等题库服务</p>
           </div>
           <Switch v-model="draft.questionBank.enabled" class="ml-auto" />
         </div>
         <div class="mt-3 grid gap-2.5" :class="draft.questionBank.enabled ? '' : 'opacity-50'">
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">服务地址</Label>
-            <Input v-model="draft.questionBank.url" placeholder="http://host:8083/api/external/yatori?token=xxx" :disabled="!draft.questionBank.enabled" class="h-8 text-[11px]" />
+            <Label class="text-[13px]">服务地址</Label>
+            <Input v-model="draft.questionBank.url" placeholder="http://host:8083/api/external/yatori?token=xxx" :disabled="!draft.questionBank.enabled" class="h-8 text-[13.5px]" />
           </div>
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">访问密钥（多随 URL 携带，可留空）</Label>
-            <Input v-model="draft.questionBank.key" type="password" autocomplete="off" placeholder="留空即可" :disabled="!draft.questionBank.enabled" class="h-8 text-[11px]" />
+            <Label class="text-[13px]">访问密钥（多随 URL 携带，可留空）</Label>
+            <Input v-model="draft.questionBank.key" type="password" autocomplete="off" placeholder="留空即可" :disabled="!draft.questionBank.enabled" class="h-8 text-[13.5px]" />
           </div>
-          <Button variant="outline" size="sm" class="h-7 w-fit text-[11px]" :disabled="bankTestMutation.isPending.value || !draft.questionBank.url" @click="bankTestMutation.mutate()">
+          <Button variant="outline" size="sm" class="h-7 w-fit text-[13.5px]" :disabled="bankTestMutation.isPending.value || !draft.questionBank.url" @click="bankTestMutation.mutate()">
             {{ bankTestMutation.isPending.value ? "测试中…" : "测试连接" }}
           </Button>
         </div>
@@ -321,35 +321,35 @@ const disableMutation = useMutation({
         <div class="flex items-center gap-2.5">
           <div class="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><Mail class="size-4" /></div>
           <div class="min-w-0">
-            <h2 class="text-[13px] font-semibold">邮箱通知</h2>
-            <p class="text-[10.5px] text-muted-foreground">任务完成/出错时发送邮件</p>
+            <h2 class="text-[15.5px] font-semibold">邮箱通知</h2>
+            <p class="text-[13px] text-muted-foreground">任务完成/出错时发送邮件</p>
           </div>
           <Switch v-model="draft.email.enabled" class="ml-auto" />
         </div>
         <div class="mt-3 grid gap-2.5" :class="draft.email.enabled ? '' : 'opacity-50'">
           <div class="grid grid-cols-[1fr_88px] gap-2.5">
             <div class="grid gap-1">
-              <Label class="text-[10.5px]">SMTP 服务器</Label>
-              <Input v-model="draft.email.smtpHost" placeholder="smtp.qq.com" :disabled="!draft.email.enabled" class="h-8 text-[11px]" />
+              <Label class="text-[13px]">SMTP 服务器</Label>
+              <Input v-model="draft.email.smtpHost" placeholder="smtp.qq.com" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
             </div>
             <div class="grid gap-1">
-              <Label class="text-[10.5px]">端口</Label>
-              <Input v-model="emailPortModel" type="number" :disabled="!draft.email.enabled" class="h-8 text-[11px]" />
+              <Label class="text-[13px]">端口</Label>
+              <Input v-model="emailPortModel" type="number" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
             </div>
           </div>
           <div class="grid grid-cols-2 gap-2.5">
             <div class="grid gap-1">
-              <Label class="text-[10.5px]">发件账号</Label>
-              <Input v-model="draft.email.user" placeholder="xxx@qq.com" :disabled="!draft.email.enabled" class="h-8 text-[11px]" />
+              <Label class="text-[13px]">发件账号</Label>
+              <Input v-model="draft.email.user" placeholder="xxx@qq.com" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
             </div>
             <div class="grid gap-1">
-              <Label class="text-[10.5px]">密码 / 授权码</Label>
-              <Input v-model="draft.email.pass" type="password" autocomplete="off" :disabled="!draft.email.enabled" class="h-8 text-[11px]" />
+              <Label class="text-[13px]">密码 / 授权码</Label>
+              <Input v-model="draft.email.pass" type="password" autocomplete="off" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
             </div>
           </div>
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">收件人（逗号分隔）</Label>
-            <Input v-model="draft.email.to" placeholder="a@x.com, b@y.com" :disabled="!draft.email.enabled" class="h-8 text-[11px]" />
+            <Label class="text-[13px]">收件人（逗号分隔）</Label>
+            <Input v-model="draft.email.to" placeholder="a@x.com, b@y.com" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
           </div>
         </div>
       </section>
@@ -359,34 +359,34 @@ const disableMutation = useMutation({
         <div class="flex items-center gap-2.5">
           <div class="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><Gauge class="size-4" /></div>
           <div class="min-w-0">
-            <h2 class="text-[13px] font-semibold">调度参数</h2>
-            <p class="text-[10.5px] text-muted-foreground">提交节奏贴近真实播放可降低风控风险</p>
+            <h2 class="text-[15.5px] font-semibold">调度参数</h2>
+            <p class="text-[13px] text-muted-foreground">提交节奏贴近真实播放可降低风控风险</p>
           </div>
         </div>
         <div class="mt-3 grid grid-cols-2 gap-2.5">
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">学时提交间隔（秒）</Label>
-            <Input v-model="tickModel" type="number" min="3" max="30" class="h-8 text-[11px]" />
-            <p class="text-[9.5px] leading-snug text-muted-foreground">
+            <Label class="text-[13px]">学时提交间隔（秒）</Label>
+            <Input v-model="tickModel" type="number" min="3" max="30" class="h-8 text-[13.5px]" />
+            <p class="text-[12px] leading-snug text-muted-foreground">
               每隔几秒向平台提交一次进度。5 秒最接近真实播放，越小越快但更容易触发风控。
             </p>
           </div>
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">最大并发账号数（1—10）</Label>
-            <Input v-model="concurrencyModel" type="number" min="1" max="10" class="h-8 text-[11px]" />
-            <p class="text-[9.5px] leading-snug text-muted-foreground">
+            <Label class="text-[13px]">最大并发账号数（1—10）</Label>
+            <Input v-model="concurrencyModel" type="number" min="1" max="10" class="h-8 text-[13.5px]" />
+            <p class="text-[12px] leading-snug text-muted-foreground">
               同时跑几个账号的任务。超出的账号会排队等待，直到前面的任务结束。
             </p>
           </div>
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">单账号课程并发数（1—5）</Label>
-            <Input v-model="courseConcurrencyModel" type="number" min="1" max="5" class="h-8 text-[11px]" />
-            <p class="text-[9.5px] leading-snug text-muted-foreground">
+            <Label class="text-[13px]">单账号课程并发数（1—5）</Label>
+            <Input v-model="courseConcurrencyModel" type="number" min="1" max="5" class="h-8 text-[13.5px]" />
+            <p class="text-[12px] leading-snug text-muted-foreground">
               同一个账号同时刷几门课。1 = 逐门课串行；3 = 最多 3 门课同时推进。课程内视频的刷法由任务里的「刷课模式」决定。
             </p>
           </div>
         </div>
-        <p class="mt-2 text-[10px] text-muted-foreground">
+        <p class="mt-2 text-[12.5px] text-muted-foreground">
           两个并发是叠加的：账号之间并行由上一项控制，账号内的课程并行由这一项控制，互不影响。
         </p>
       </section>
@@ -396,8 +396,8 @@ const disableMutation = useMutation({
         <div class="flex items-center gap-2.5">
           <div class="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><Lock class="size-4" /></div>
           <div class="min-w-0 flex-1">
-            <h2 class="text-[13px] font-semibold">访问锁</h2>
-            <p class="text-[10.5px] text-muted-foreground">
+            <h2 class="text-[15.5px] font-semibold">访问锁</h2>
+            <p class="text-[13px] text-muted-foreground">
               {{ auth.authRequired ? "已启用：面板与接口需凭密码登录" : "未启用：当前仅本机可访问，部署到服务器前务必设置密码" }}
             </p>
           </div>
@@ -405,10 +405,10 @@ const disableMutation = useMutation({
         </div>
         <form class="mt-3 flex flex-wrap items-end gap-2" @submit.prevent="passwordMutation.mutate()">
           <div class="grid w-64 gap-1">
-            <Label class="text-[10.5px]">{{ auth.authRequired ? "修改访问密码" : "设置访问密码" }}</Label>
-            <Input v-model="newPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" required minlength="6" class="h-8 text-[11px]" />
+            <Label class="text-[13px]">{{ auth.authRequired ? "修改访问密码" : "设置访问密码" }}</Label>
+            <Input v-model="newPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" required minlength="6" class="h-8 text-[13.5px]" />
           </div>
-          <Button type="submit" size="sm" class="h-8 text-[11px]" :disabled="passwordMutation.isPending.value || !newPassword">
+          <Button type="submit" size="sm" class="h-8 text-[13.5px]" :disabled="passwordMutation.isPending.value || !newPassword">
             {{ auth.authRequired ? "修改" : "启用" }}
           </Button>
           <Button
@@ -416,7 +416,7 @@ const disableMutation = useMutation({
             type="button"
             variant="outline"
             size="sm"
-            class="h-8 text-[11px]"
+            class="h-8 text-[13.5px]"
             :disabled="disableMutation.isPending.value"
             @click="disableMutation.mutate()"
           ><Ban class="size-3.5" />关闭访问锁</Button>
