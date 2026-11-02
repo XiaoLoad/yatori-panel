@@ -41,7 +41,7 @@ func buildPlatformMeta() []platformMeta {
 		case yatori.YingHua:
 			meta.Capabilities = []string{"login", "courses", "tree", "study", "works", "exams"}
 			meta.LoginFields = append(meta.LoginFields, fieldSpec{
-				Key: "url", Label: "学校平台地址", Required: true, Placeholder: "学校英华平台首页地址",
+				Key: "url", Label: "学校平台地址", Required: true, Placeholder: "如 https://cqucc.xinghanjjkj.com（粘贴带 /user 的完整地址也可）",
 			})
 			meta.MVP = true
 		case yatori.XueXiTong:

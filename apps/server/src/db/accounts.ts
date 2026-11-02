@@ -1,4 +1,5 @@
 import type { AccountVO } from "../shared.ts";
+import { normalizeBaseUrl } from "../url.ts";
 import { decryptSecret, encryptSecret } from "./crypto.ts";
 import { newId, now, sqlite } from "./index.ts";
 
@@ -33,7 +34,8 @@ function toVO(r: AccountRow): AccountVO & { password: string } {
     uid: r.uid,
     platform: r.platform,
     platformName: PLATFORM_NAMES[r.platform] ?? r.platform,
-    baseUrl: r.base_url,
+    // 存量账号也可能存着带 /user 的地址：读取时统一归一化，网关拿到的始终是根地址
+    baseUrl: normalizeBaseUrl(r.base_url, r.platform),
     proxyUrl: r.proxy_url,
     username: r.username,
     password,
@@ -56,7 +58,7 @@ export function insertAccount(input: {
   const row: AccountRow = {
     uid: newId(),
     platform: input.platform,
-    base_url: input.baseUrl,
+    base_url: normalizeBaseUrl(input.baseUrl, input.platform),
     proxy_url: input.proxyUrl ?? "",
     username: input.username,
     password_enc: encryptSecret(input.password),
@@ -101,7 +103,13 @@ export function updateAccount(
 ): void {
   const sets: string[] = [];
   const params: Record<string, string | number | null> = { uid };
-  if (patch.baseUrl !== undefined) { sets.push("base_url = @baseUrl"); params.baseUrl = patch.baseUrl; }
+  if (patch.baseUrl !== undefined) {
+    const owner = sqlite.prepare(`SELECT platform FROM accounts WHERE uid = ?`).get(uid) as
+      | { platform: string }
+      | undefined;
+    sets.push("base_url = @baseUrl");
+    params.baseUrl = normalizeBaseUrl(patch.baseUrl, owner?.platform ?? "");
+  }
   if (patch.proxyUrl !== undefined) { sets.push("proxy_url = @proxyUrl"); params.proxyUrl = patch.proxyUrl; }
   if (patch.username !== undefined) { sets.push("username = @username"); params.username = patch.username; }
   if (patch.password !== undefined && patch.password !== "") {
@@ -129,6 +137,6 @@ export function countAccountsByPlatform(platform: string, baseUrl: string, usern
     .prepare(
       `SELECT COUNT(*) AS c FROM accounts WHERE platform = ? AND base_url = ? AND username = ?`,
     )
-    .get(platform, baseUrl, username) as { c: number };
+    .get(platform, normalizeBaseUrl(baseUrl, platform), username) as { c: number };
   return row.c;
 }

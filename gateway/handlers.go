@@ -237,6 +237,8 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 兼容用户粘贴带路径的登录页地址（如 https://host/user）
+	req.URL = normalizeAccountURL(platform.String(), req.URL)
 
 	logger := newSessionLogger()
 	opts := yatori.Options{
