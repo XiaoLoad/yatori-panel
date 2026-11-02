@@ -3,6 +3,7 @@ import "@fastify/cookie";
 import type { ZodType, ZodTypeDef } from "zod";
 import {
   CreateAccountBody,
+  CreateScheduleBody,
   StartJobBody,
   UpdateAccountBody,
   UpdateSettingsBody,
@@ -29,6 +30,16 @@ import {
   verifySession,
 } from "./db/auth.ts";
 import { sqlite } from "./db/index.ts";
+import {
+  deleteSchedule,
+  getSchedule,
+  insertSchedule,
+  listSchedules,
+  setScheduleEnabled,
+} from "./db/schedules.ts";
+import { registerSchedule, unregisterSchedule } from "./scheduler.ts";
+import cron from "node-cron";
+import { parse as parseYaml } from "yaml";
 import { getSettings, saveSettings } from "./db/settings.ts";
 import { HttpError } from "./errors.ts";
 import { GatewayError, gateway } from "./gateway.ts";
@@ -179,6 +190,7 @@ export function registerRoutes(app: FastifyInstance): void {
       username: body.username,
       password: body.password,
       remark: body.remark,
+      proxyUrl: body.proxyUrl ?? "",
     });
 
     if (body.verify) {
@@ -242,6 +254,97 @@ export function registerRoutes(app: FastifyInstance): void {
     await dropSession(uid);
     deleteAccount(uid);
     return { ok: true };
+  });
+
+  // ---------- 定时任务 ----------
+  app.get("/api/v1/schedules", async () => {
+    return { ok: true, data: listSchedules() };
+  });
+
+  app.post("/api/v1/schedules", async (req) => {
+    const body = parse<CreateScheduleBody>(req.body, CreateScheduleBody);
+    if (!cron.validate(body.cron)) {
+      throw new HttpError(400, "cron 表达式无效");
+    }
+    const account = getAccount(body.accountUid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const job = insertSchedule(body);
+    registerSchedule(job);
+    return { ok: true, data: job };
+  });
+
+  app.post("/api/v1/schedules/:id/toggle", async (req) => {
+    const schedule = getSchedule((req.params as { id: string }).id);
+    if (!schedule) throw new HttpError(404, "定时任务不存在");
+    const enabled = !schedule.enabled;
+    setScheduleEnabled(schedule.id, enabled);
+    if (enabled) registerSchedule(schedule);
+    else unregisterSchedule(schedule.id);
+    return { ok: true, data: { enabled } };
+  });
+
+  app.delete("/api/v1/schedules/:id", async (req) => {
+    const { id } = req.params as { id: string };
+    unregisterSchedule(id);
+    deleteSchedule(id);
+    return { ok: true };
+  });
+
+  // config.yaml 批量导入（对齐 console 的配置结构）
+  app.post("/api/v1/accounts/import", async (req) => {
+    const body = (req.body ?? {}) as { yaml?: string };
+    if (!body.yaml?.trim()) throw new HttpError(400, "请提供 config.yaml 内容");
+    if (body.yaml.length > 512 * 1024) throw new HttpError(400, "文件过大");
+
+    let parsed: {
+      users?: {
+        accountType?: string;
+        url?: string;
+        account?: string;
+        password?: string;
+        remarkName?: string;
+      }[];
+    };
+    try {
+      parsed = parseYaml(body.yaml);
+    } catch (err) {
+      throw new HttpError(400, `YAML 解析失败：${(err as Error).message}`);
+    }
+    const users = parsed.users ?? [];
+    if (!users.length) throw new HttpError(400, "config.yaml 中没有 users 配置");
+
+    // 平台别名归一（对齐 core 的 platformAliases 子集）
+    const alias: Record<string, string> = {
+      YINGHUA: "YINGHUA", XUEXITONG: "XUEXITONG", XXT: "XUEXITONG", CHAOXING: "XUEXITONG",
+      ICVE: "ICVE", ZJY: "ICVE", CQIE: "CQIE", ENAAE: "ENAAE", WELEARN: "WELEARN",
+      QSXT: "QSXT", QINGSHUXUETANG: "QSXT", TTCDW: "TTCDW", KETANGX: "KETANGX",
+      ZXCPKS: "ZXCPKS", HAIQIKEJI: "ZXCPKS", WEIBAN: "WEIBAN", ZHIHUISHU: "ZHIHUISHU", GONGXUE: "GONGXUE",
+    };
+
+    const result = { imported: 0, skipped: 0, failed: [] as { account: string; error: string }[] };
+    for (const u of users) {
+      const rawType = (u.accountType ?? "").trim();
+      const platform = alias[rawType.toUpperCase()];
+      const username = (u.account ?? "").trim();
+      const password = (u.password ?? "").trim();
+      if (!platform || !username || !password) {
+        result.failed.push({ account: username || "(空)", error: "缺少平台/账号/密码字段" });
+        continue;
+      }
+      try {
+        insertAccount({
+          platform,
+          baseUrl: (u.url ?? "").trim(),
+          username,
+          password,
+          remark: (u.remarkName ?? "").trim(),
+        });
+        result.imported += 1;
+      } catch (err) {
+        result.failed.push({ account: username, error: (err as Error).message });
+      }
+    }
+    return { ok: true, data: result };
   });
 
   // ---------- 课程 ----------
@@ -335,6 +438,32 @@ export function registerRoutes(app: FastifyInstance): void {
     const body = parse<UpdateSettingsBody>(req.body, UpdateSettingsBody);
     saveSettings(body);
     return { ok: true };
+  });
+
+  // ---------- 统计 ----------
+  app.get("/api/v1/stats/daily", async (req) => {
+    const q = req.query as { days?: string };
+    const days = Math.min(60, Math.max(7, Number(q.days) || 14));
+    const rows = sqlite
+      .prepare(
+        `SELECT substr(started_at, 1, 10) AS day,
+                COUNT(*) AS jobs,
+                SUM(CASE WHEN state = 'error' THEN 1 ELSE 0 END) AS errors,
+                COALESCE(SUM(CAST(json_extract(summary_json, '$.videosCompleted') AS INTEGER)), 0) AS videos
+         FROM jobs
+         WHERE started_at >= datetime('now', ?)
+         GROUP BY day ORDER BY day`,
+      )
+      .all(`-${days - 1} days`) as { day: string; jobs: number; errors: number; videos: number }[];
+    // 补齐空缺日期，保证图表时间轴连续
+    const byDay = new Map(rows.map((r) => [r.day, r]));
+    const out: { day: string; jobs: number; errors: number; videos: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+      const hit = byDay.get(d);
+      out.push({ day: d, jobs: hit?.jobs ?? 0, errors: hit?.errors ?? 0, videos: hit?.videos ?? 0 });
+    }
+    return { ok: true, data: out };
   });
 
   // ---------- 仪表盘 ----------

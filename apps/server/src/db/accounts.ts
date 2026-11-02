@@ -10,6 +10,7 @@ interface AccountRow {
   password_enc: string;
   remark: string;
   enabled: number;
+  proxy_url: string;
   last_verify_at: string | null;
   last_verify_ok: number | null;
   created_at: string;
@@ -33,6 +34,7 @@ function toVO(r: AccountRow): AccountVO & { password: string } {
     platform: r.platform,
     platformName: PLATFORM_NAMES[r.platform] ?? r.platform,
     baseUrl: r.base_url,
+    proxyUrl: r.proxy_url,
     username: r.username,
     password,
     remark: r.remark,
@@ -49,11 +51,13 @@ export function insertAccount(input: {
   username: string;
   password: string;
   remark: string;
+  proxyUrl?: string;
 }): AccountVO {
   const row: AccountRow = {
     uid: newId(),
     platform: input.platform,
     base_url: input.baseUrl,
+    proxy_url: input.proxyUrl ?? "",
     username: input.username,
     password_enc: encryptSecret(input.password),
     remark: input.remark,
@@ -64,8 +68,8 @@ export function insertAccount(input: {
   };
   sqlite
     .prepare(
-      `INSERT INTO accounts (uid, platform, base_url, username, password_enc, remark, enabled, last_verify_at, last_verify_ok, created_at)
-       VALUES (@uid, @platform, @base_url, @username, @password_enc, @remark, @enabled, @last_verify_at, @last_verify_ok, @created_at)`,
+      `INSERT INTO accounts (uid, platform, base_url, username, password_enc, remark, proxy_url, enabled, last_verify_at, last_verify_ok, created_at)
+       VALUES (@uid, @platform, @base_url, @username, @password_enc, @remark, @proxy_url, @enabled, @last_verify_at, @last_verify_ok, @created_at)`,
     )
     .run(row);
   const { password, ...vo } = toVO(row);
@@ -93,11 +97,12 @@ export function listAccounts(): AccountVO[] {
 
 export function updateAccount(
   uid: string,
-  patch: { baseUrl?: string; username?: string; password?: string; remark?: string; enabled?: boolean },
+  patch: { baseUrl?: string; username?: string; password?: string; remark?: string; enabled?: boolean; proxyUrl?: string },
 ): void {
   const sets: string[] = [];
   const params: Record<string, string | number | null> = { uid };
   if (patch.baseUrl !== undefined) { sets.push("base_url = @baseUrl"); params.baseUrl = patch.baseUrl; }
+  if (patch.proxyUrl !== undefined) { sets.push("proxy_url = @proxyUrl"); params.proxyUrl = patch.proxyUrl; }
   if (patch.username !== undefined) { sets.push("username = @username"); params.username = patch.username; }
   if (patch.password !== undefined && patch.password !== "") {
     sets.push("password_enc = @passwordEnc");

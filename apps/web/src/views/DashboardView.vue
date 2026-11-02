@@ -2,6 +2,7 @@
 import { useQuery } from "@tanstack/vue-query";
 import { ListChecks, Plus, Users, Video } from "lucide-vue-next";
 import { computed, ref } from "vue";
+import { get } from "@/api/client";
 import { api, type CourseDTO } from "@/api/resources";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import AnimatedNumber from "@/components/viz/AnimatedNumber.vue";
 import CourseBarsChart, { type CourseBar } from "@/components/viz/CourseBarsChart.vue";
+import DailyStatsChart, { type DailyStat } from "@/components/viz/DailyStatsChart.vue";
 import StatRing from "@/components/viz/StatRing.vue";
 import EmptyState from "@/components/EmptyState.vue";
 import { useEventStore } from "@/stores/events";
@@ -39,6 +41,13 @@ const dashQuery = useQuery({
   refetchInterval: 5000,
 });
 const dash = computed(() => dashQuery.data.value);
+
+const dailyStatsQuery = useQuery({
+  queryKey: ["stats-daily"],
+  queryFn: () => get<DailyStat[]>("/stats/daily?days=14"),
+  staleTime: 5 * 60_000,
+});
+const dailyStats = computed<DailyStat[]>(() => dailyStatsQuery.data.value ?? []);
 
 // 聚合进度：只对已有会话的账号拉课程（不隐式登录）
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
@@ -217,6 +226,17 @@ function stateBadge(state: string) {
             {{ s.lastProgress?.totalSeconds || "?" }}s
           </p>
         </div>
+      </CardContent>
+    </Card>
+
+    <!-- 近期统计 -->
+    <Card v-if="dailyStats.length" class="reveal">
+      <CardHeader class="pb-0">
+        <CardTitle class="text-base">近 14 天刷课统计</CardTitle>
+        <CardDescription>每日完成视频数与任务数</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <DailyStatsChart :items="dailyStats" :height="240" />
       </CardContent>
     </Card>
 

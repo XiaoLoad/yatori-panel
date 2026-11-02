@@ -41,6 +41,8 @@ export interface CreateAccountResult extends AccountVO {
 
 import type {
   AccountVO,
+  CreateScheduleBody,
+  ScheduleVO,
   CreateAccountBody,
   JobVO,
   PlatformMeta,
@@ -82,6 +84,15 @@ export const api = {
 
   settings: () => get<Settings>("/settings"),
   saveSettings: (body: Settings) => put<void>("/settings", body),
+  importConfig: (yaml: string) =>
+    post<{ imported: number; skipped: number; failed: { account: string; error: string }[] }>(
+      "/accounts/import",
+      { yaml },
+    ),
+  schedules: () => get<ScheduleVO[]>("/schedules"),
+  createSchedule: (body: CreateScheduleBody) => post<ScheduleVO>("/schedules", body),
+  deleteSchedule: (id: string) => del<void>(`/schedules/${id}`),
+  toggleSchedule: (id: string) => post<{ enabled: boolean }>(`/schedules/${id}/toggle`),
   preflight: (body: {
     source: "ai" | "bank";
     ai?: { type: string; url: string; model: string; apiKey: string };

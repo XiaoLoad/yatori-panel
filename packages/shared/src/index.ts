@@ -25,6 +25,8 @@ export interface AccountVO {
   platform: string;
   platformName?: string;
   baseUrl?: string;
+  /** 可选出站代理，如 http://127.0.0.1:7890 */
+  proxyUrl?: string;
   username: string;
   remark: string;
   enabled: boolean;
@@ -38,6 +40,7 @@ export const CreateAccountBody = z.object({
     .string({ required_error: "请选择平台", invalid_type_error: "请选择平台" })
     .min(1, "请选择平台"),
   baseUrl: z.string().optional().default(""),
+  proxyUrl: z.string().optional().default(""),
   username: z
     .string({ required_error: "账号不能为空", invalid_type_error: "账号不能为空" })
     .min(1, "账号不能为空"),
@@ -51,6 +54,7 @@ export type CreateAccountBody = z.infer<typeof CreateAccountBody>;
 
 export const UpdateAccountBody = z.object({
   baseUrl: z.string().optional(),
+  proxyUrl: z.string().optional(),
   username: z.string().optional(),
   password: z.string().optional(),
   remark: z.string().optional(),
@@ -81,6 +85,33 @@ export const StartJobBody = z.object({
 export type StartJobBody = z.infer<typeof StartJobBody>;
 
 export type JobState = "running" | "stopped" | "done" | "error";
+
+// ---------- 定时任务 ----------
+
+export interface ScheduleVO {
+  id: string;
+  accountUid: string;
+  cron: string;
+  videoMode: 1 | 2 | 3;
+  answerSource: "off" | "ai" | "bank";
+  autoSubmit: boolean;
+  enabled: boolean;
+  lastRunAt?: string | null;
+  createdAt: string;
+}
+
+export const CreateScheduleBody = z.object({
+  accountUid: z
+    .string({ required_error: "请选择账号", invalid_type_error: "请选择账号" })
+    .min(1, "请选择账号"),
+  cron: z
+    .string({ required_error: "请填写 cron 表达式", invalid_type_error: "请填写 cron 表达式" })
+    .min(1, "请填写 cron 表达式"),
+  videoMode: VideoModeEnum.optional().default(1),
+  answerSource: AnswerSourceEnum.optional().default("off"),
+  autoSubmit: z.boolean().optional().default(false),
+});
+export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
 
 export interface JobSummary {
   courses: number;
@@ -149,9 +180,20 @@ export const BankConfigSchema = z.object({
   key: z.string().default(""),
 });
 
+export const EmailConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  smtpHost: z.string().default(""),
+  smtpPort: z.number().int().min(1).max(65535).default(465),
+  user: z.string().default(""),
+  pass: z.string().default(""),
+  /** 收件人，逗号分隔 */
+  to: z.string().default(""),
+});
+
 export const SettingsSchema = z.object({
   ai: AiConfigSchema,
   questionBank: BankConfigSchema,
+  email: EmailConfigSchema,
   tickSeconds: z.number().int().min(3).max(30).default(5),
   maxAccountsConcurrency: z.number().int().min(1).max(10).default(3),
 });

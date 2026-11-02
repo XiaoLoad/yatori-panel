@@ -169,6 +169,7 @@ export const gateway = {
     password: string;
     url?: string;
     cookie?: string;
+    proxyURL?: string;
     loginTimeoutSeconds?: number;
     ai?: { enabled?: boolean; type: string; url: string; model: string; apiKey: string };
     questionBank?: { url: string; key: string };

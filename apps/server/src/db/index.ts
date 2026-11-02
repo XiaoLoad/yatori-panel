@@ -55,10 +55,27 @@ CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,
   value_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schedules (
+  id            TEXT PRIMARY KEY,
+  account_uid   TEXT NOT NULL,
+  cron          TEXT NOT NULL,
+  video_mode    INTEGER NOT NULL DEFAULT 1,
+  answer_source TEXT NOT NULL DEFAULT 'off',
+  auto_submit   INTEGER NOT NULL DEFAULT 0,
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  last_run_at   TEXT,
+  created_at    TEXT NOT NULL
+);
 `);
 
 // 清理已删除账号遗留的进度快照（防止假数据残留影响后续判断）
 sqlite.exec(`DELETE FROM node_cache WHERE account_uid NOT IN (SELECT uid FROM accounts);`);
+
+try {
+  sqlite.exec("ALTER TABLE accounts ADD COLUMN proxy_url TEXT NOT NULL DEFAULT ''");
+} catch {
+  // 列已存在
+}
 
 export function now(): string {
   return new Date().toISOString();
