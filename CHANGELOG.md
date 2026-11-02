@@ -93,6 +93,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **server**：网关状态机——后台 10s 心跳探测（区分未启动/假死/异常三类故障），
+  up/down 变化经 SSE `gateway.status` 事件实时广播
+- **server**：`GET /health` 返回网关故障细节（detail）；新增
+  `POST /health/recheck` 供前端立即重检
+- **web**：网关徽章升级为可点击诊断面板——故障原因、修复指引
+  （start.bat / gateway:build / docker compose）、重新检测按钮；
+  状态改由 SSE 驱动（网关恢复秒级变绿，不再依赖 10s 轮询）
+- **web**：网关离线时统一体验——发起任务/登录检测/添加账号按钮禁用
+  并提示，API 错误 toast 指引到右上角徽章诊断
+
 ### 计划中
 
 - 上游瘦身 PR 落地后，重新锁定依赖（docs/upstream-slim-pr.md 已备实验数据）

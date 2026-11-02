@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useEventStore } from "@/stores/events";
 import { relativeTime } from "@/lib/utils";
+import { toastError } from "@/lib/errors";
 
 const props = defineProps<{
   account: AccountWithSession;
@@ -43,6 +44,8 @@ const emit = defineEmits<{
 const queryClient = useQueryClient();
 const events = useEventStore();
 const expanded = ref(false);
+// 网关离线时禁用发起/检测等触达网关的操作，引导用户先修复网关
+const gatewayOffline = computed(() => events.gatewayStatus !== null && !events.gatewayStatus.up);
 
 // ---------- 课程进度（仅已有会话的账号拉取，不隐式登录） ----------
 const hasSession = computed(() => props.account.hasSession);
@@ -101,7 +104,7 @@ const startMutation = useMutation({
     toast.success("任务已启动");
     queryClient.invalidateQueries({ queryKey: ["jobs"] });
   },
-  onError: (err) => toast.error((err as Error).message),
+  onError: (err) => toastError(err, "任务启动失败"),
 });
 
 function start() {
@@ -113,7 +116,7 @@ const stopMutation = useMutation({
   onSuccess: () => {
     queryClient.invalidateQueries({ queryKey: ["jobs"] });
   },
-  onError: (err) => toast.error((err as Error).message),
+  onError: (err) => toastError(err, "停止任务失败"),
 });
 
 const live = computed(() => (props.runningJob ? events.jobLive[props.runningJob.id] : undefined));
@@ -220,7 +223,12 @@ const modeOptions = [
 
           <div class="flex flex-wrap items-center gap-2">
             <template v-if="!runningJob">
-              <Button size="sm" :disabled="startMutation.isPending.value" @click="start()">
+              <Button
+                size="sm"
+                :disabled="startMutation.isPending.value || gatewayOffline"
+                :title="gatewayOffline ? '网关离线——请先修复网关' : undefined"
+                @click="start()"
+              >
                 <Play />开始刷课
               </Button>
               <Button variant="outline" size="sm" @click="expanded = !expanded">
@@ -238,6 +246,7 @@ const modeOptions = [
                 variant="ghost"
                 size="icon"
                 title="登录检测"
+                :disabled="gatewayOffline"
                 @click="emit('verify', account.uid)"
               >
                 <RefreshCw class="size-4" />

@@ -15,9 +15,12 @@ interface Envelope<T> {
 
 export class ApiError extends Error {
   logs?: GatewayLogEntry[];
-  constructor(message: string, logs?: GatewayLogEntry[]) {
+  /** 网关离线（server 返回 503 网关不可达）——前端据此做统一诊断提示与按钮禁用 */
+  gatewayOffline?: boolean;
+  constructor(message: string, logs?: GatewayLogEntry[], gatewayOffline?: boolean) {
     super(message);
     this.logs = logs;
+    this.gatewayOffline = gatewayOffline;
   }
 }
 
@@ -41,7 +44,9 @@ http.interceptors.response.use(
   (err) => {
     const payload = err.response?.data as Envelope<unknown> | undefined;
     if (err.response?.status === 401) unauthorizedHandler?.();
-    throw new ApiError(payload?.error ?? (err.message as string), payload?.logs);
+    // server 侧 GatewayError 以 503（网关不可达）为主，统一打标供 UI 层分流
+    const offline = err.response?.status === 503 || (payload?.error as string | undefined)?.includes("网关不可达");
+    throw new ApiError(payload?.error ?? (err.message as string), payload?.logs, offline);
   },
 );
 

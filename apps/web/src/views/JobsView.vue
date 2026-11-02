@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import EmptyState from "@/components/EmptyState.vue";
 import { useEventStore } from "@/stores/events";
 import { relativeTime } from "@/lib/utils";
+import { toastError } from "@/lib/errors";
 
 const queryClient = useQueryClient();
 const events = useEventStore();
@@ -88,7 +89,7 @@ const stopMutation = useMutation({
     toast.success(r.stopped ? "已发送停止指令" : r.reason ?? "任务已结束");
     queryClient.invalidateQueries({ queryKey: ["jobs"] });
   },
-  onError: (err) => toast.error((err as Error).message),
+  onError: (err) => toastError(err, "停止任务失败"),
 });
 
 // 定时任务表单的类型收窄辅助
@@ -155,7 +156,7 @@ const createScheduleMutation = useMutation({
     queryClient.invalidateQueries({ queryKey: ["schedules"] });
     scheduleDialogOpen.value = false;
   },
-  onError: (err) => toast.error((err as Error).message),
+  onError: (err) => toastError(err, "创建定时任务失败"),
 });
 
 function submitSchedule() {
@@ -172,7 +173,7 @@ const deleteScheduleMutation = useMutation({
     toast.success("定时任务已删除");
     queryClient.invalidateQueries({ queryKey: ["schedules"] });
   },
-  onError: (err) => toast.error((err as Error).message),
+  onError: (err) => toastError(err, "删除定时任务失败"),
 });
 
 const toggleScheduleMutation = useMutation({
@@ -180,7 +181,7 @@ const toggleScheduleMutation = useMutation({
   onSuccess: () => {
     queryClient.invalidateQueries({ queryKey: ["schedules"] });
   },
-  onError: (err) => toast.error((err as Error).message),
+  onError: (err) => toastError(err, "切换定时任务失败"),
 });
 
 function scheduleAccountLabel(uid: string) {

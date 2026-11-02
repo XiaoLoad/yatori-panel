@@ -11,6 +11,7 @@ import { gateway } from "./gateway.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { registerRoutes } from "./routes.ts";
 import { startScheduler } from "./scheduler.ts";
+import { startGatewayWatch } from "./gateway-status.ts";
 import { dropAllSessions } from "./sessions.ts";
 
 // 无需会话的接口：健康探针与登录流程自身
@@ -40,6 +41,8 @@ async function main(): Promise<void> {
 
   registerRoutes(app);
   startScheduler();
+  // 网关状态机：后台心跳探测，up/down 变化经 SSE 广播（health 接口直接读快照，不再逐次探测）
+  startGatewayWatch();
 
   // 前端构建产物存在时同源托管（生产模式单端口，开发模式走 Vite 代理）
   const indexHtml = path.join(env.webDist, "index.html");
@@ -53,13 +56,6 @@ async function main(): Promise<void> {
     });
   } else {
     app.log.warn(`未找到前端构建产物（${env.webDist}），仅提供 API`);
-  }
-
-  try {
-    await gateway.health();
-    app.log.info(`网关在线：${env.gatewayURL}`);
-  } catch {
-    app.log.warn(`网关不可达（${env.gatewayURL}）——登录/刷课接口将不可用`);
   }
 
   const shutdown = async () => {

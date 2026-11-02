@@ -1,9 +1,18 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import type { JobEvent, JobSummary } from "@yatori/shared";
+import type { GatewayDetail, JobEvent, JobSummary } from "@yatori/shared";
 import { playJobSound } from "@/lib/audio";
 
 const LOG_BUFFER = 800;
+
+/** 网关状态（来自 SSE gateway.status 事件） */
+export interface GatewayState {
+  up: boolean;
+  detail: GatewayDetail;
+  message?: string;
+  /** 本地时间戳，用于展示"何时变化" */
+  at?: number;
+}
 
 export interface JobLiveState {
   state?: string;
@@ -19,9 +28,19 @@ export const useEventStore = defineStore("events", () => {
   const flags = ref<JobEvent[]>([]);
   const jobLive = ref<Record<string, JobLiveState>>({});
   const connected = ref(false);
+  const gatewayStatus = ref<GatewayState | null>(null);
 
   function ingest(e: JobEvent) {
     switch (e.type) {
+      case "gateway.status":
+        // up→down 弹提示；down→up 也在提示音之外给正向反馈
+        gatewayStatus.value = {
+          up: e.up ?? false,
+          detail: e.detail ?? "error",
+          message: e.message,
+          at: Date.now(),
+        };
+        break;
       case "log":
         logs.value.push(e);
         if (logs.value.length > LOG_BUFFER) {
@@ -61,5 +80,5 @@ export const useEventStore = defineStore("events", () => {
     delete jobLive.value[jobId];
   }
 
-  return { logs, flags, jobLive, connected, ingest, resetJob };
+  return { logs, flags, jobLive, connected, gatewayStatus, ingest, resetJob };
 });
