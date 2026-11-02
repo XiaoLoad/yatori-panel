@@ -1,7 +1,6 @@
 name: Release
 
-# 发版自动化：推送 vX.Y.Z tag → 构建 web 产物与网关二进制 → 创建 Release
-# 附 CHANGELOG 对应版本段落。
+# 发版自动化：推送 vX.Y.Z tag → 校验版本段 → 构建 web 产物与网关二进制 → 冒烟 → 创建 Release
 # 仅产出 Linux 网关二进制：gateway 依赖 CGO（ddddocr-go OCR 运行库），
 # Windows 交叉编译需 MinGW 且上游 onnx 运行库兼容性未知——Windows 用户
 # 走 start.bat 本地构建或 Docker Compose（Linux 容器）部署。
@@ -18,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 需要 tag 与 main 的完整历史来校验"tag 已合入 main"
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -27,36 +29,30 @@ jobs:
         with:
           go-version-file: gateway/go.mod
 
+      - uses: actions/setup-node@v4
+        with:
+          # 与 panel.Dockerfile 的运行镜像保持一致（node:sqlite）
+          node-version: 24
+
       - name: 安装依赖
         run: bun install --frozen-lockfile
 
       - name: 类型检查
         run: bun run typecheck:all
 
+      # 发版前置校验：版本号格式、CHANGELOG 版本段非空、tag 已合入 main。
+      # 任一不通过直接中断，不再静默降级为"见提交历史"。
+      - name: 校验版本段与 tag
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/check-release.mjs "${GITHUB_REF_NAME}" --require-main --notes-file RELEASE_NOTES.md
+
       - name: 构建前端产物
         working-directory: apps/web
         run: bun run build
 
-      - name: 提取 CHANGELOG 对应版本段落
-        run: |
-          node -e '
-            const fs = require("fs");
-            const md = fs.readFileSync("CHANGELOG.md", "utf8");
-            const tag = process.env.GITHUB_REF_NAME.slice(1); // 去掉前缀 v
-            const lines = md.split("\n");
-            const start = lines.findIndex((l) => l.startsWith("## [v" + tag + "]"));
-            if (start < 0) {
-              fs.writeFileSync("RELEASE_NOTES.md", "## " + process.env.GITHUB_REF_NAME + "\n\n见提交历史。\n");
-            } else {
-              const body = [];
-              for (let i = start + 1; i < lines.length; i++) {
-                if (lines[i].startsWith("## [")) break;
-                body.push(lines[i]);
-              }
-              while (body.length && !body[body.length - 1].trim()) body.pop();
-              fs.writeFileSync("RELEASE_NOTES.md", body.join("\n") + "\n");
-            }
-          '
+      - name: 产物冒烟（启动后端验证健康接口）
+        run: node scripts/smoke.mjs
 
       - name: 打包产物
         run: |
@@ -66,6 +62,13 @@ jobs:
           cp -r packages/shared/src dist/shared-src
           cp package.json bun.lock compose.yaml panel.Dockerfile README.md CHANGELOG.md dist/
           tar -czf yatori-panel-${GITHUB_REF_NAME}.tar.gz -C dist .
+
+      - name: 校验压缩包内容
+        run: |
+          tar -tzf yatori-panel-${GITHUB_REF_NAME}.tar.gz > /tmp/tree.txt
+          for f in web/index.html server-src/index.ts shared-src/index.ts compose.yaml panel.Dockerfile CHANGELOG.md; do
+            grep -qx "./$f" /tmp/tree.txt || { echo "压缩包缺少 $f"; exit 1; }
+          done
 
       - name: 构建 Linux 网关（CGO，OCR 依赖）
         working-directory: gateway

@@ -9,6 +9,8 @@
     "changelog:preview": "bunx git-cliff --unreleased --strip header",
     "changelog:update": "node scripts/changelog.mjs update",
     "changelog:release": "node scripts/changelog.mjs release",
+    "release:check": "node scripts/check-release.mjs",
+    "smoke": "node scripts/smoke.mjs",
     "gateway:build": "cd gateway && go build -ldflags \"-s -w\" -o bin/gateway.exe .",
     "gateway:start": "cd gateway && ./bin/gateway.exe"
   },
