@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
@@ -51,6 +52,27 @@ type session struct {
 	stopHB    chan struct{}
 	stopOnce  sync.Once
 	startOnce sync.Once
+
+	// coursesWarmed 标记本会话是否已加载过课程缓存（SDK 适配器在
+	// Courses() 时缓存课程原始数据，Tree/Works/Exams 依赖该缓存；
+	// 会话重建后若直接调 Tree 会报 "course raw data is missing"）。
+	coursesWarmed bool
+	coursesMu     sync.Mutex
+}
+
+// ensureCoursesWarmed 首次调用时拉一次课程列表以填充 SDK 内部缓存。
+// 并发安全：多请求同时到达只预热一次。
+func (s *session) ensureCoursesWarmed(ctx context.Context) error {
+	s.coursesMu.Lock()
+	defer s.coursesMu.Unlock()
+	if s.coursesWarmed {
+		return nil
+	}
+	if _, err := s.client.Courses(ctx); err != nil {
+		return err
+	}
+	s.coursesWarmed = true
+	return nil
 }
 
 // setState 更新会话生命周期状态（logging_in / online / error）。

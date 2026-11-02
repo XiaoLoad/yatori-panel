@@ -403,6 +403,10 @@ func (g *gateway) handleTree(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
+	if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+		fail(w, mapStatus(err), err.Error())
+		return
+	}
 	tree, err := se.client.Tree(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
@@ -421,7 +425,12 @@ func (g *gateway) handleWorks(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
-	works, err := se.client.Works(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	works, err := func() ([]yatori.Work, error) {
+		if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+			return nil, err
+		}
+		return se.client.Works(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
 		return
@@ -439,7 +448,12 @@ func (g *gateway) handleExams(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
-	exams, err := se.client.Exams(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	exams, err := func() ([]yatori.Exam, error) {
+		if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+			return nil, err
+		}
+		return se.client.Exams(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
 		return
