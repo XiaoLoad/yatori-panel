@@ -1,8 +1,13 @@
-import type { GatewayCourse, GatewayNode } from "../gateway.ts";
+import type {
+  GatewayCourse,
+  GatewayExam,
+  GatewayNode,
+  GatewayWork,
+} from "../gateway.ts";
 import { gateway } from "../gateway.ts";
 import { bus } from "../bus.ts";
 import { appendJobEvent } from "../db/jobs.ts";
-import { upsertNode } from "../db/nodes.ts";
+import { clearNodeFlag, flaggedNodeIds, upsertNode } from "../db/nodes.ts";
 import { getSettings } from "../db/settings.ts";
 import { getAccount } from "../db/accounts.ts";
 import { rebuildSession } from "../sessions.ts";
@@ -15,6 +20,21 @@ const RED_MESSAGES = ["检测到可能使用并行播放刷课", "检测到并�
 const UNLOCK_RE = /解锁时间【[^】]*】未到/;
 /** 登录超时：需要重建会话后重试 */
 const RELOGIN_RE = /账号登录超时/;
+/** 网关侧会话丢失（重建会话后，其他并发课程可能撞到旧 sid） */
+const SESSION_LOST_RE = /session not found/i;
+
+/** 去红：最多几轮、单节点最多几次、成功/失败后的间隔（对齐 console 的 8s/10s 节奏） */
+const RED_ROUND_LIMIT = 3;
+const RED_ATTEMPT_LIMIT = 5;
+const RED_OK_INTERVAL_MS = 8_000;
+const RED_FAIL_INTERVAL_MS = 10_000;
+
+/** 模式名：日志与界面文案保持同一口径 */
+const MODE_LABELS: Record<number, string> = {
+  1: "普通（课程内视频逐个刷）",
+  2: "暴力（课程内视频并发刷，结束后自动去红）",
+  3: "去红（只清理被平台标记的节点）",
+};
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -28,6 +48,10 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+function isSessionLost(err: unknown): boolean {
+  return SESSION_LOST_RE.test((err as Error)?.message ?? "");
 }
 
 function emptySummary(): JobSummary {
@@ -59,6 +83,10 @@ export async function runJob(
   const settings = getSettings();
   const tickMs = settings.tickSeconds * 1000;
   const summary = emptySummary();
+  // 本次任务中被标记的节点（去红目标），以及已处理过的作业/考试（避免多轮重复提交）
+  const flagSet = new Set<string>();
+  const doneWorks = new Set<string>();
+  const doneExams = new Set<string>();
   // 账号标识（优先备注）：日志前缀，多账号并发时区分日志归属
   const account = getAccount(accountUid);
   const accountLabel = account ? (account.remark || account.username) : accountUid;
@@ -89,6 +117,21 @@ export async function runJob(
   // 到点停止（graceful）只在节点/作业/考试边界生效，避免半截断连丢进度
   const stopRequested = (): boolean => signal.aborted || (shouldStop?.() ?? false);
 
+  /**
+   * 会话失效兜底：重建会话后其他并发课程仍可能短暂使用旧 sid，
+   * 撞到 "session not found" 时重建一次并重试（重建本身按账号单飞）。
+   */
+  async function withSession<T>(fn: (sessionId: string) => Promise<T>): Promise<T> {
+    try {
+      return await fn(sid);
+    } catch (err) {
+      if (!isSessionLost(err)) throw err;
+      emitLog("warn", "网关会话已失效，正在重建会话…");
+      sid = await rebuildSession(accountUid);
+      return fn(sid);
+    }
+  }
+
   // ---------- 单节点刷课循环 ----------
   async function studyVideo(
     course: GatewayCourse,
@@ -107,11 +150,13 @@ export async function runJob(
 
     // start：让适配器从平台记录的续播位置开始
     try {
-      await gateway.study(sid, {
-        courseId: course.id,
-        nodeId: node.id,
-        action: "start",
-      });
+      await withSession((s) =>
+        gateway.study(s, {
+          courseId: course.id,
+          nodeId: node.id,
+          action: "start",
+        }),
+      );
     } catch {
       /* start 失败不致命，progress 会带上 position */
     }
@@ -123,12 +168,14 @@ export async function runJob(
 
       let res;
       try {
-        res = await gateway.study(sid, {
-          courseId: course.id,
-          nodeId: node.id,
-          action: "progress",
-          positionSeconds: position,
-        });
+        res = await withSession((s) =>
+          gateway.study(s, {
+            courseId: course.id,
+            nodeId: node.id,
+            action: "progress",
+            positionSeconds: position,
+          }),
+        );
       } catch (err) {
         retries += 1;
         if (retries >= 3) {
@@ -203,8 +250,9 @@ export async function runJob(
       const redHit = RED_MESSAGES.some((p) => msg.includes(p) || rawText.includes(p));
       if (redHit && !flagged) {
         flagged = true;
+        flagSet.add(node.id);
         summary.flagsFound += 1;
-        emitLog("warn", `标红：${course.name} / ${node.name}（并行播放检测，建议切去红模式重跑）`);
+        emitLog("warn", `标红：${course.name} / ${node.name}（并行播放检测，已记录该节点）`);
         emit({
           type: "task.flag",
           jobId,
@@ -249,7 +297,7 @@ export async function runJob(
     }
   }
 
-  // ---------- 作业 / 考试 ----------
+  // ---------- 作业 / 考试（按节点触发，对齐 console） ----------
 
   /**
    * 智能交卷：先全部保存（submit=false），检查返回的逐题答案有无留空，
@@ -279,136 +327,197 @@ export async function runJob(
     submit: boolean,
   ): Promise<Awaited<ReturnType<typeof gateway.doWork>>> {
     if (kind === "work") {
-      return gateway.doWork(sid, {
+      return withSession((s) =>
+        gateway.doWork(s, {
+          courseId,
+          workId: id,
+          source: options.answerSource,
+          submit,
+        }),
+      );
+    }
+    return withSession((s) =>
+      gateway.doExam(s, {
         courseId,
-        workId: id,
+        examId: id,
         source: options.answerSource,
         submit,
-      });
-    }
-    return gateway.doExam(sid, {
-      courseId,
-      examId: id,
-      source: options.answerSource,
-      submit,
-    });
+      }),
+    );
   }
 
-  async function runWorks(course: GatewayCourse): Promise<void> {
-    if (options.answerSource === "off") return;
-    emit({ type: "task.progress", phase: "work", courseId: course.id, courseName: course.name });
-    let works;
+  interface NodeTasks {
+    works: GatewayWork[];
+    exams: GatewayExam[];
+  }
+
+  /**
+   * 课程内作业/考试按节点归组（nodeId → 任务）。
+   * console 是在「节点循环里」逐个节点触发作业/考试，而不是整门课结束后统一处理；
+   * 这里保持同样的时机，只是把列表一次性拉回来按节点分发。
+   */
+  async function loadNodeTasks(
+    course: GatewayCourse,
+  ): Promise<Map<string, NodeTasks>> {
+    const map = new Map<string, NodeTasks>();
+    if (options.answerSource === "off") return map;
+
+    const entryFor = (nodeId: string): NodeTasks => {
+      let entry = map.get(nodeId);
+      if (!entry) {
+        entry = { works: [], exams: [] };
+        map.set(nodeId, entry);
+      }
+      return entry;
+    };
+
+    let works: GatewayWork[] = [];
     try {
-      works = await gateway.works(sid, course.id);
+      works = await withSession((s) => gateway.works(s, course.id));
     } catch (err) {
       const m = `作业列表拉取失败 ${course.name}: ${(err as Error).message}`;
       summary.errors.push(m);
       emitLog("error", m);
-      return;
     }
-    for (const w of works) {
-      if (stopRequested()) return;
-      try {
-        let submitted: boolean;
-        let r: Awaited<ReturnType<typeof gateway.doWork>>;
-        if (options.submitMode === "smart") {
-          r = await smartSubmit(`作业 ${course.name}/${w.name}`, w.id, "work", course.id);
-          submitted = r.submitted;
-        } else {
-          r = await doAnswer("work", course.id, w.id, options.submitMode === "direct");
-          submitted = r.submitted;
-        }
-        summary.worksDone += 1;
-        if (submitted && r.score > 0) {
-          const s = `${w.name} ${r.score}分`;
-          summary.scores.push(s);
-          emitLog("info", `作业完成：${course.name} / ${w.name}（得分 ${r.score}）`);
-        } else if (submitted) {
-          emitLog(
-            "warn",
-            `作业已提交但未确认得分，请到平台核实：${course.name} / ${w.name}`,
-          );
-        } else {
-          emitLog("info", `作业已答题，未提交：${course.name} / ${w.name}`);
-        }
-      } catch (err) {
-        const m = `作业 ${course.name}/${w.name}: ${(err as Error).message}`;
-        summary.errors.push(m);
-        emitLog("error", m);
-      }
-    }
-  }
-
-  async function runExams(course: GatewayCourse): Promise<void> {
-    if (options.answerSource === "off") return;
-    emit({ type: "task.progress", phase: "exam", courseId: course.id, courseName: course.name });
-    let exams;
+    let exams: GatewayExam[] = [];
     try {
-      exams = await gateway.exams(sid, course.id);
+      exams = await withSession((s) => gateway.exams(s, course.id));
     } catch (err) {
       const m = `考试列表拉取失败 ${course.name}: ${(err as Error).message}`;
       summary.errors.push(m);
       emitLog("error", m);
-      return;
+    }
+
+    for (const w of works) {
+      const nodeId = w.extra?.["nodeId"];
+      if (nodeId) entryFor(nodeId).works.push(w);
     }
     for (const x of exams) {
-      if (stopRequested()) return;
-      try {
-        let submitted: boolean;
-        let r: Awaited<ReturnType<typeof gateway.doExam>>;
-        if (options.submitMode === "smart") {
-          r = await smartSubmit(`考试 ${course.name}/${x.name}`, x.id, "exam", course.id);
-          submitted = r.submitted;
-        } else {
-          r = await doAnswer("exam", course.id, x.id, options.submitMode === "direct");
-          submitted = r.submitted;
-        }
-        summary.examsDone += 1;
-        if (submitted && r.score > 0) {
-          const s = `${x.name} ${r.score}分`;
-          summary.scores.push(s);
-          emitLog("info", `考试完成：${course.name} / ${x.name}（得分 ${r.score}）`);
-        } else if (submitted) {
-          emitLog(
-            "warn",
-            `考试已提交但未确认得分，请到平台核实：${course.name} / ${x.name}`,
-          );
-        } else {
-          emitLog("info", `考试已答题，未提交：${course.name} / ${x.name}`);
-        }
-      } catch (err) {
-        const m = `考试 ${course.name}/${x.name}: ${(err as Error).message}`;
-        summary.errors.push(m);
-        emitLog("error", m);
+      const nodeId = x.extra?.["nodeId"];
+      if (nodeId) entryFor(nodeId).exams.push(x);
+    }
+    return map;
+  }
+
+  async function answerWork(course: GatewayCourse, w: GatewayWork): Promise<void> {
+    try {
+      let submitted: boolean;
+      let r: Awaited<ReturnType<typeof gateway.doWork>>;
+      if (options.submitMode === "smart") {
+        r = await smartSubmit(`作业 ${course.name}/${w.name}`, w.id, "work", course.id);
+        submitted = r.submitted;
+      } else {
+        r = await doAnswer("work", course.id, w.id, options.submitMode === "direct");
+        submitted = r.submitted;
       }
+      summary.worksDone += 1;
+      if (submitted && r.score > 0) {
+        const s = `${w.name} ${r.score}分`;
+        summary.scores.push(s);
+        emitLog("info", `作业完成：${course.name} / ${w.name}（得分 ${r.score}）`);
+      } else if (submitted) {
+        emitLog("warn", `作业已提交但未确认得分，请到平台核实：${course.name} / ${w.name}`);
+      } else {
+        emitLog("info", `作业已答题，未提交：${course.name} / ${w.name}`);
+      }
+    } catch (err) {
+      const m = `作业 ${course.name}/${w.name}: ${(err as Error).message}`;
+      summary.errors.push(m);
+      emitLog("error", m);
+    } finally {
+      doneWorks.add(w.id);
     }
   }
 
-  // ---------- 课程级调度 ----------
-  function collectVideoLeaves(tree: GatewayNode[]): GatewayNode[] {
+  async function answerExam(course: GatewayCourse, x: GatewayExam): Promise<void> {
+    try {
+      let submitted: boolean;
+      let r: Awaited<ReturnType<typeof gateway.doExam>>;
+      if (options.submitMode === "smart") {
+        r = await smartSubmit(`考试 ${course.name}/${x.name}`, x.id, "exam", course.id);
+        submitted = r.submitted;
+      } else {
+        r = await doAnswer("exam", course.id, x.id, options.submitMode === "direct");
+        submitted = r.submitted;
+      }
+      summary.examsDone += 1;
+      if (submitted && r.score > 0) {
+        const s = `${x.name} ${r.score}分`;
+        summary.scores.push(s);
+        emitLog("info", `考试完成：${course.name} / ${x.name}（得分 ${r.score}）`);
+      } else if (submitted) {
+        emitLog("warn", `考试已提交但未确认得分，请到平台核实：${course.name} / ${x.name}`);
+      } else {
+        emitLog("info", `考试已答题，未提交：${course.name} / ${x.name}`);
+      }
+    } catch (err) {
+      const m = `考试 ${course.name}/${x.name}: ${(err as Error).message}`;
+      summary.errors.push(m);
+      emitLog("error", m);
+    } finally {
+      doneExams.add(x.id);
+    }
+  }
+
+  /** 处理某个节点上的作业/考试（同一次任务内同一份作业/考试只处理一次） */
+  async function runNodeTasks(
+    course: GatewayCourse,
+    node: GatewayNode,
+    tasks: Map<string, NodeTasks>,
+  ): Promise<void> {
+    const entry = tasks.get(node.id);
+    if (!entry) return;
+    if (entry.works.length > 0) {
+      emit({ type: "task.progress", phase: "work", courseId: course.id, courseName: course.name });
+      emitLog("info", `节点 ${node.name}：发现 ${entry.works.length} 份作业，开始答题`);
+    }
+    for (const w of entry.works) {
+      if (stopRequested()) return;
+      if (doneWorks.has(w.id)) continue;
+      await answerWork(course, w);
+    }
+    if (entry.exams.length > 0) {
+      emit({ type: "task.progress", phase: "exam", courseId: course.id, courseName: course.name });
+      emitLog("info", `节点 ${node.name}：发现 ${entry.exams.length} 场考试，开始答题`);
+    }
+    for (const x of entry.exams) {
+      if (stopRequested()) return;
+      if (doneExams.has(x.id)) continue;
+      await answerExam(course, x);
+    }
+  }
+
+  // ---------- 节点 / 课程调度 ----------
+  /** 拍平章节树：作业/考试挂在任意节点上，按 console 的做法逐节点处理 */
+  function flattenNodes(tree: GatewayNode[]): GatewayNode[] {
     const out: GatewayNode[] = [];
     const walk = (ns: GatewayNode[]) => {
       for (const n of ns) {
+        out.push(n);
         if (n.children && n.children.length > 0) walk(n.children);
-        else if ((n.extra?.["tabVideo"] ?? "false") === "true" || n.kind === "video")
-          out.push(n);
       }
     };
     walk(tree);
     return out;
   }
 
-  async function runPool(
-    items: GatewayNode[],
+  function isVideoNode(n: GatewayNode): boolean {
+    const tabVideo = (n.extra?.["tabVideo"] ?? "false") === "true";
+    return !n.completed && (tabVideo || n.kind === "video");
+  }
+
+  /** 通用并发池：课程并发与节点并发共用，按 stopRequested 在任务间收尾 */
+  async function runPool<T>(
+    items: T[],
     limit: number,
-    fn: (n: GatewayNode) => Promise<void>,
+    fn: (item: T) => Promise<void>,
   ): Promise<void> {
     let idx = 0;
     const workers = Array.from(
       { length: Math.min(Math.max(1, limit), items.length) },
       async () => {
         for (;;) {
-          if (signal.aborted || idx >= items.length) return;
+          if (stopRequested() || idx >= items.length) return;
           const item = items[idx++];
           await fn(item);
         }
@@ -417,29 +526,171 @@ export async function runJob(
     await Promise.all(workers);
   }
 
-  async function runCourse(course: GatewayCourse): Promise<void> {
-    emitLog("info", `开始课程：${course.name}`);
+  /**
+   * 去红单节点（对齐 console videoBadRedAction）：
+   * 用节点当前已看时长原样提交（不递增），成功一次即可；
+   * 成功间隔 8 秒，失败间隔 10 秒；最多 RED_ATTEMPT_LIMIT 次。
+   */
+  async function cleanRedNode(course: GatewayCourse, node: GatewayNode): Promise<boolean> {
+    const position = Number(node.extra?.["viewedSeconds"] ?? 0);
+    for (let attempt = 1; attempt <= RED_ATTEMPT_LIMIT; attempt++) {
+      if (stopRequested()) return false;
+      try {
+        const res = await withSession((s) =>
+          gateway.study(s, {
+            courseId: course.id,
+            nodeId: node.id,
+            action: "progress",
+            positionSeconds: position,
+          }),
+        );
+        const msg = res.message ?? "";
+        const rawText =
+          typeof res.raw === "string" ? res.raw : JSON.stringify(res.raw ?? "");
+
+        if (RED_MESSAGES.some((p) => msg.includes(p) || rawText.includes(p))) {
+          emitLog(
+            "warn",
+            `去红未通过（第 ${attempt}/${RED_ATTEMPT_LIMIT} 次）：${course.name} / ${node.name}`,
+          );
+          await sleep(RED_OK_INTERVAL_MS, signal);
+          continue;
+        }
+        if (msg.includes("提交学时成功")) {
+          flagSet.delete(node.id);
+          clearNodeFlag(accountUid, course.id, node.id);
+          emitLog(
+            "info",
+            `去红成功：${course.name} / ${node.name}（已看 ${position}s，间隔 ${RED_OK_INTERVAL_MS / 1000}s 后继续）`,
+          );
+          await sleep(RED_OK_INTERVAL_MS, signal);
+          return true;
+        }
+        if (UNLOCK_RE.test(msg)) {
+          emitLog("warn", `去红跳过（未到解锁时间）：${course.name} / ${node.name}`);
+          return true;
+        }
+        if (RELOGIN_RE.test(msg) || rawText.includes("账号登录超时")) {
+          emitLog("warn", "去红遇到登录超时，正在重建会话后重试…");
+          sid = await rebuildSession(accountUid);
+          continue;
+        }
+        emitLog(
+          "warn",
+          `去红未确认（${(msg || "无文案").slice(0, 40)}），10 秒后重试：${course.name} / ${node.name}`,
+        );
+        await sleep(RED_FAIL_INTERVAL_MS, signal);
+      } catch (err) {
+        emitLog(
+          "warn",
+          `去红请求失败：${(err as Error).message}，10 秒后重试：${course.name} / ${node.name}`,
+        );
+        await sleep(RED_FAIL_INTERVAL_MS, signal);
+      }
+    }
+    emitLog("warn", `去红未收敛：${course.name} / ${node.name}（可稍后再跑一次去红模式）`);
+    return false;
+  }
+
+  /**
+   * 课程级去红：目标是本次运行中检测到的标红节点 + 数据库里的历史标红节点。
+   * 每轮只重跑仍未通过的节点，最多 RED_ROUND_LIMIT 轮（console 是无限递归，这里加上限防挂死）。
+   */
+  async function cleanRedCourse(course: GatewayCourse, nodes: GatewayNode[]): Promise<void> {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const targets = new Set<string>();
+    for (const id of flaggedNodeIds(accountUid, course.id)) {
+      if (byId.has(id)) targets.add(id);
+    }
+    for (const id of flagSet) {
+      if (byId.has(id)) targets.add(id);
+    }
+    if (targets.size === 0) {
+      emitLog("info", `去红：${course.name} 没有标红节点，跳过`);
+      return;
+    }
+    let remaining = [...targets];
+    for (let round = 1; round <= RED_ROUND_LIMIT && remaining.length > 0; round++) {
+      if (stopRequested()) return;
+      emitLog(
+        "info",
+        `去红第 ${round}/${RED_ROUND_LIMIT} 轮：${course.name}，待清理 ${remaining.length} 个标红节点`,
+      );
+      const next: string[] = [];
+      for (const id of remaining) {
+        if (stopRequested()) return;
+        const node = byId.get(id);
+        if (!node) continue;
+        const ok = await cleanRedNode(course, node);
+        if (!ok) next.push(id);
+      }
+      remaining = next;
+    }
+    if (remaining.length > 0) {
+      emitLog(
+        "warn",
+        `去红未完全收敛：${course.name} 仍有 ${remaining.length} 个节点标红，建议稍后再跑一次去红模式`,
+      );
+    } else {
+      emitLog("info", `去红完成：${course.name}`);
+    }
+  }
+
+  async function runCourse(
+    course: GatewayCourse,
+    tasks: Map<string, NodeTasks>,
+  ): Promise<void> {
     emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name });
-    const tree = await gateway.tree(sid, course.id);
-    const videos = collectVideoLeaves(tree).filter((v) => !v.completed);
+    const tree = await withSession((s) => gateway.tree(s, course.id));
+    const nodes = flattenNodes(tree);
+    const videoCount = nodes.filter(isVideoNode).length;
+    const mode = options.videoMode;
+
+    // 去红模式：不刷正常视频，只清理被平台标红的节点，然后照常处理这些节点上的作业/考试
+    if (mode === 3) {
+      emitLog("info", `开始课程：${course.name}（去红：只处理标红节点）`);
+      await cleanRedCourse(course, nodes);
+      for (const n of nodes) {
+        if (stopRequested()) return;
+        await runNodeTasks(course, n, tasks);
+      }
+      emitLog("info", `课程结束：${course.name}`);
+      return;
+    }
+
     emitLog(
       "info",
-      `待学习视频 ${videos.length} 个（已完成 ${collectVideoLeaves(tree).length - videos.length} 个已自动跳过）`,
+      `开始课程：${course.name}（待学视频 ${videoCount} 个，模式：${MODE_LABELS[mode]}）`,
     );
 
-    let blocked = false;
-    // 普通模式(1)：节点串行；暴力模式(2)：节点并发；去红模式(3)：未完成节点串行重跑
-    if (options.videoMode === 2) {
-      await runPool(videos, options.perCourseConcurrency, async (n) => {
-        if (blocked) return;
-        const r = await studyVideo(course, n);
-        if (r === "blocked") blocked = true;
+    if (mode === 2) {
+      // 暴力模式：节点并发（同一账号的 SDK 调用会被网关串行，等待节奏仍并行）
+      let blocked = false;
+      await runPool(nodes, options.perCourseConcurrency, async (n) => {
+        if (blocked || stopRequested()) return;
+        if (isVideoNode(n)) {
+          const r = await studyVideo(course, n);
+          if (r === "blocked") blocked = true;
+        }
+        await runNodeTasks(course, n, tasks);
       });
+      // 暴力模式结束后自动去红（对齐 console：暴力刷完容易触发并行播放标记）
+      emitLog("info", `暴力模式已结束，正在自动执行去红：${course.name}`);
+      await cleanRedCourse(course, nodes);
     } else {
-      for (const n of videos) {
+      // 普通模式：节点串行；作业/考试在该节点刷完后立刻处理（对齐 console 的时机）
+      for (const n of nodes) {
         if (stopRequested()) return;
-        const r = await studyVideo(course, n);
-        if (r === "blocked") return; // 前置链被锁，剩余节点无需再试
+        let blocked = false;
+        if (isVideoNode(n)) {
+          const r = await studyVideo(course, n);
+          if (r === "blocked") blocked = true;
+        }
+        await runNodeTasks(course, n, tasks);
+        if (blocked) {
+          emitLog("warn", `课程 ${course.name} 剩余节点被前置锁挡住，跳过`);
+          break;
+        }
       }
     }
     emitLog("info", `课程结束：${course.name}`);
@@ -448,7 +699,7 @@ export async function runJob(
   // ---------- 主流程 ----------
   let courses: GatewayCourse[] = [];
   try {
-    courses = await gateway.courses(sid);
+    courses = await withSession((s) => gateway.courses(s));
   } catch (err) {
     throw new Error(`课程列表拉取失败：${(err as Error).message}`);
   }
@@ -460,25 +711,26 @@ export async function runJob(
   }
   summary.courses = courses.length;
 
+  const courseLimit = Math.min(settings.maxCoursesConcurrency, courses.length);
   emitLog(
     "info",
-    `任务启动：${courses.length} 门课程，${
-      { 1: "普通", 2: "暴力", 3: "去红" }[options.videoMode]
-    }模式，答题来源 ${options.answerSource === "off" ? "关闭" : options.answerSource}`,
+    `任务启动：${courses.length} 门课程，模式 ${MODE_LABELS[options.videoMode]}；` +
+      `同一账号最多 ${courseLimit} 门课同时推进；答题来源 ${
+        options.answerSource === "off" ? "关闭" : options.answerSource
+      }`,
   );
 
-  for (const course of courses) {
-    if (stopRequested()) break;
+  await runPool(courses, courseLimit, async (course) => {
+    if (stopRequested()) return;
     try {
-      await runCourse(course);
-      await runWorks(course);
-      await runExams(course);
+      const tasks = await loadNodeTasks(course);
+      await runCourse(course, tasks);
     } catch (err) {
       const m = `课程 ${course.name}: ${(err as Error).message}`;
       summary.errors.push(m);
       emitLog("error", m);
     }
-  }
+  });
 
   if (stopRequested()) {
     emitLog("info", "任务已停止（当前节点已保存进度）");

@@ -150,14 +150,14 @@ function submit() {
           <Select
             v-model="videoModeModel"
             :options="[
-              { value: '1', label: '普通（节点串行）' },
-              { value: '2', label: '暴力（节点并发）' },
-              { value: '3', label: '去红（重跑未完成）' },
+              { value: '1', label: '普通（课程内逐个刷）' },
+              { value: '2', label: '暴力（课程内并发 + 自动去红）' },
+              { value: '3', label: '去红（只清理标红节点）' },
             ]"
           />
         </div>
         <div class="grid gap-1.5">
-          <Label>课程并发</Label>
+          <Label>单课视频并发（仅暴力模式生效）</Label>
           <Input v-model.number="concurrency" type="number" min="1" max="16" />
         </div>
         <div class="grid gap-1.5">
@@ -182,6 +182,16 @@ function submit() {
             ]"
           />
         </div>
+      </div>
+
+      <div class="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
+        <p><span class="text-foreground">普通</span>：一门课里的视频一个一个刷，最稳，耗时约等于视频总时长。</p>
+        <p><span class="text-foreground">暴力</span>：一门课里的视频同时上报，速度快，但容易触发平台「并行播放」标记；结束时会自动执行一次去红。</p>
+        <p><span class="text-foreground">去红</span>：只处理已经被标记的节点，不刷正常视频，适合事后补救。</p>
+        <p class="mt-1">
+          作业和考试会在各自节点刷完后立刻处理；同一个账号同时刷几门课，请在
+          <span class="text-foreground">设置 → 调度参数 → 单账号课程并发数</span> 里调整。
+        </p>
       </div>
 
       <DialogFooter>

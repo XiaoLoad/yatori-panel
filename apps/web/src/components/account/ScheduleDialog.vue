@@ -194,7 +194,7 @@ function submit() {
           <Label>模式</Label>
           <Select
             v-model="videoModeModel"
-            :options="[{ value: '1', label: '普通' }, { value: '2', label: '暴力' }, { value: '3', label: '去红' }]"
+            :options="[{ value: '1', label: '普通' }, { value: '2', label: '暴力+去红' }, { value: '3', label: '仅去红' }]"
           />
         </div>
         <div class="grid gap-1.5">
@@ -216,6 +216,11 @@ function submit() {
       <div class="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[10.5px] text-muted-foreground">
         {{ preview }} · cron <code class="mono rounded bg-muted px-1">{{ cron }}</code>
       </div>
+
+      <p class="text-[10px] leading-relaxed text-muted-foreground">
+        普通 = 课内视频逐个刷；暴力+去红 = 课内并发刷完后自动清理标红节点；仅去红 = 只做补救不刷课。
+        作业/考试随节点触发；同一账号同时刷几门课由“设置 → 单账号课程并发数”统一控制。
+      </p>
 
       <DialogFooter>
         <Button variant="outline" @click="emit('update:open', false)">取消</Button>

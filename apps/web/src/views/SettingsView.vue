@@ -24,6 +24,7 @@ const draft = reactive<Settings>({
   email: { enabled: false, smtpHost: "", smtpPort: 465, user: "", pass: "", to: "" },
   tickSeconds: 5,
   maxAccountsConcurrency: 3,
+  maxCoursesConcurrency: 3,
 });
 const loaded = ref(false);
 
@@ -35,6 +36,7 @@ function syncFromServer(data: Settings) {
   draft.email = { ...snap.email };
   draft.tickSeconds = snap.tickSeconds;
   draft.maxAccountsConcurrency = snap.maxAccountsConcurrency;
+  draft.maxCoursesConcurrency = snap.maxCoursesConcurrency;
 }
 
 watch(settingsQuery.data, (data) => {
@@ -64,6 +66,7 @@ const LABELS: Record<string, string> = {
   "questionBank.key": "题库密钥",
   tickSeconds: "学时提交间隔（秒）",
   maxAccountsConcurrency: "最大并发账号数",
+  maxCoursesConcurrency: "单账号课程并发数",
   "email.enabled": "邮箱通知开关",
   "email.smtpHost": "SMTP 服务器",
   "email.smtpPort": "SMTP 端口",
@@ -85,6 +88,7 @@ function flatten(s: Settings): Record<string, string | number | boolean> {
     "questionBank.key": s.questionBank.key,
     tickSeconds: s.tickSeconds,
     maxAccountsConcurrency: s.maxAccountsConcurrency,
+    maxCoursesConcurrency: s.maxCoursesConcurrency,
     "email.enabled": s.email.enabled,
     "email.smtpHost": s.email.smtpHost,
     "email.smtpPort": s.email.smtpPort,
@@ -162,6 +166,13 @@ const concurrencyModel = computed({
   set: (v: string) => {
     const n = Number(v);
     draft.maxAccountsConcurrency = Math.min(10, Math.max(1, Number.isFinite(n) ? n : 3));
+  },
+});
+const courseConcurrencyModel = computed({
+  get: () => String(draft.maxCoursesConcurrency),
+  set: (v: string) => {
+    const n = Number(v);
+    draft.maxCoursesConcurrency = Math.min(5, Math.max(1, Number.isFinite(n) ? n : 3));
   },
 });
 const emailPortModel = computed({
@@ -356,13 +367,28 @@ const disableMutation = useMutation({
           <div class="grid gap-1">
             <Label class="text-[10.5px]">学时提交间隔（秒）</Label>
             <Input v-model="tickModel" type="number" min="3" max="30" class="h-8 text-[11px]" />
+            <p class="text-[9.5px] leading-snug text-muted-foreground">
+              每隔几秒向平台提交一次进度。5 秒最接近真实播放，越小越快但更容易触发风控。
+            </p>
           </div>
           <div class="grid gap-1">
-            <Label class="text-[10.5px]">最大并发账号数</Label>
+            <Label class="text-[10.5px]">最大并发账号数（1—10）</Label>
             <Input v-model="concurrencyModel" type="number" min="1" max="10" class="h-8 text-[11px]" />
+            <p class="text-[9.5px] leading-snug text-muted-foreground">
+              同时跑几个账号的任务。超出的账号会排队等待，直到前面的任务结束。
+            </p>
+          </div>
+          <div class="grid gap-1">
+            <Label class="text-[10.5px]">单账号课程并发数（1—5）</Label>
+            <Input v-model="courseConcurrencyModel" type="number" min="1" max="5" class="h-8 text-[11px]" />
+            <p class="text-[9.5px] leading-snug text-muted-foreground">
+              同一个账号同时刷几门课。1 = 逐门课串行；3 = 最多 3 门课同时推进。课程内视频的刷法由任务里的「刷课模式」决定。
+            </p>
           </div>
         </div>
-        <p class="mt-2 text-[10px] text-muted-foreground">批量发起时会按账号顺序逐个建立会话，避免网关瞬时压力过大。</p>
+        <p class="mt-2 text-[10px] text-muted-foreground">
+          两个并发是叠加的：账号之间并行由上一项控制，账号内的课程并行由这一项控制，互不影响。
+        </p>
       </section>
 
       <!-- 访问锁 -->
