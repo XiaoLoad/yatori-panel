@@ -31,6 +31,8 @@ interface RunningJob {
   accountUid: string;
   /** 到点停止：置位后在节点边界收尾，不中断当前视频 */
   graceful: boolean;
+  /** 暂停：置位后运行器在 tick 边界等待，不提交进度也不结束任务 */
+  paused: boolean;
 }
 
 /**
@@ -56,7 +58,7 @@ class JobManager {
 
     const job = insertJob(options);
     const ctrl = new AbortController();
-    const runningJob: RunningJob = { ctrl, accountUid: account.uid, graceful: false };
+    const runningJob: RunningJob = { ctrl, accountUid: account.uid, graceful: false, paused: false };
     this.running.set(job.id, runningJob);
 
     bus.publish({
@@ -67,7 +69,7 @@ class JobManager {
       state: "running",
     });
 
-    void runJob(job.id, account.uid, options, ctrl.signal, () => runningJob.graceful)
+    void runJob(job.id, account.uid, options, ctrl.signal, () => runningJob.graceful, () => runningJob.paused)
       .then((summary: JobSummary) => {
         const state = ctrl.signal.aborted || runningJob.graceful ? "stopped" : "done";
         finishJob(job.id, state, summary);
@@ -139,6 +141,25 @@ class JobManager {
     if (graceful) r.graceful = true;
     else r.ctrl.abort();
     return true;
+  }
+
+  /** 暂停：任务保留在运行器中，运行器在 tick 边界等待继续 */
+  pause(jobId: string): boolean {
+    const r = this.running.get(jobId);
+    if (!r) return false;
+    r.paused = true;
+    return true;
+  }
+
+  resume(jobId: string): boolean {
+    const r = this.running.get(jobId);
+    if (!r) return false;
+    r.paused = false;
+    return true;
+  }
+
+  isPaused(jobId: string): boolean {
+    return this.running.get(jobId)?.paused ?? false;
   }
 
   isAccountBusy(accountUid: string): boolean {

@@ -1,155 +1,301 @@
 <script setup lang="ts">
-import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, Plus, Search, Users, X } from "lucide-vue-next";
-import gsap from "gsap";
-import { computed, onMounted, ref } from "vue";
+import { useQuery, useQueryClient } from "@tanstack/vue-query";
+import { AlarmClock, ChevronRight, CircleDashed, FlaskConical, Pause, Play, Plus, Search, StopCircle } from "lucide-vue-next";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import type { JobVO, ScheduleVO } from "@yatori/shared";
+import type { JobEvent, JobState, JobVO } from "@yatori/shared";
 import type { AccountWithSession } from "@/api/resources";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import AccountRow from "@/components/account/AccountRow.vue";
-import AccountDrawer from "@/components/account/AccountDrawer.vue";
 import AddAccountDialog from "@/components/account/AddAccountDialog.vue";
-import StartJobDialog from "@/components/account/StartJobDialog.vue";
-import ScheduleDialog from "@/components/account/ScheduleDialog.vue";
 import DailyTrend from "@/components/charts/DailyTrend.vue";
-import StatusDonut from "@/components/charts/StatusDonut.vue";
 import Sparkline from "@/components/charts/Sparkline.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
+import { DEMO_ACCOUNT_LABELS, DEMO_RUNNING_TASKS } from "@/lib/demo";
+import { formatDuration, formatEta, jobStateLabel, overallPercent, phaseLabel, progressDetail } from "@/lib/account";
 import { cn } from "@/lib/utils";
 
+const router = useRouter();
 const queryClient = useQueryClient();
 const events = useEventStore();
-const root = ref<HTMLElement | null>(null);
 
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
-const platformsQuery = useQuery({ queryKey: ["platforms"], queryFn: api.platforms });
 const jobsQuery = useQuery({
   queryKey: ["jobs"],
   queryFn: () => api.jobs({ limit: 80 }),
   refetchInterval: 5_000,
-});
-const schedulesQuery = useQuery({
-  queryKey: ["schedules"],
-  queryFn: api.schedules,
-  refetchInterval: 30_000,
 });
 const statsQuery = useQuery({
   queryKey: ["stats", 14],
   queryFn: () => api.statsDaily(14),
   refetchInterval: 60_000,
 });
-
-// ---------- 索引 ----------
-const runningByAccount = computed<Record<string, JobVO>>(() => {
-  const map: Record<string, JobVO> = {};
-  for (const j of jobsQuery.data.value ?? []) {
-    if (j.state !== "running") continue;
-    const prev = map[j.accountUid];
-    if (!prev || j.startedAt > prev.startedAt) map[j.accountUid] = j;
-  }
-  return map;
+const historyLogsQuery = useQuery({
+  queryKey: ["logs", 300],
+  queryFn: () => api.logEvents(300),
+  refetchInterval: 15_000,
 });
 
-const latestByAccount = computed<Record<string, JobVO>>(() => {
-  const map: Record<string, JobVO> = {};
-  for (const j of jobsQuery.data.value ?? []) {
-    if (!map[j.accountUid]) map[j.accountUid] = j;
-  }
+// ---------- 全站任务 ----------
+const jobs = computed(() => jobsQuery.data.value ?? []);
+
+const runningJobs = computed(() =>
+  jobs.value
+    .filter((j) => j.state === "running")
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+);
+
+const runningAccountCount = computed(
+  () => new Set(runningCards.value.map((c) => c.job.accountUid)).size,
+);
+
+const accountByUid = computed<Record<string, AccountWithSession>>(() => {
+  const map: Record<string, AccountWithSession> = {};
+  for (const a of accountsQuery.data.value ?? []) map[a.uid] = a;
   return map;
 });
+const accountLabel = (uid?: string) => {
+  if (!uid) return "系统";
+  if (DEMO_ACCOUNT_LABELS[uid]) return DEMO_ACCOUNT_LABELS[uid];
+  const a = accountByUid.value[uid];
+  return a ? a.remark || a.username : uid.slice(0, 6);
+};
 
-const scheduleByAccount = computed<Record<string, ScheduleVO>>(() => {
-  const map: Record<string, ScheduleVO> = {};
-  for (const s of schedulesQuery.data.value ?? []) {
-    if (!s.enabled) continue;
-    for (const uid of s.accountUids) map[uid] ??= s;
-  }
-  return map;
-});
-
-const platformName = computed<Record<string, string>>(() => {
-  const map: Record<string, string> = {};
-  for (const p of platformsQuery.data.value ?? []) map[p.key] = p.name;
-  return map;
-});
-
-// ---------- 筛选 ----------
-const platformFilter = ref("all");
-const statusFilter = ref<"all" | "running" | "online" | "error">("all");
-const search = ref("");
-
-function statusOf(a: AccountWithSession): "running" | "online" | "error" | "idle" {
-  if (runningByAccount.value[a.uid]) return "running";
-  if (a.lastVerifyOk === 0 || a.sessionState === "error") return "error";
-  if (a.hasSession) return "online";
-  return "idle";
+function liveProgress(job: JobVO): JobEvent | null {
+  return events.jobLive[job.id]?.lastProgress ?? job.progress ?? null;
 }
 
-const platformCounts = computed(() => {
-  const counts: Record<string, number> = {};
-  for (const a of accountsQuery.data.value ?? []) counts[a.platform] = (counts[a.platform] ?? 0) + 1;
-  return counts;
-});
+/** 当前节点进度（0-100）；没有进度事件时返回 null */
+function nodePercent(progress?: JobEvent | null): number | null {
+  return typeof progress?.progress === "number"
+    ? Math.min(100, Math.max(0, Math.round(progress.progress)))
+    : null;
+}
 
-const counts = computed(() => {
-  const c = { running: 0, online: 0, error: 0, idle: 0 };
-  for (const a of accountsQuery.data.value ?? []) c[statusOf(a)] += 1;
-  return c;
-});
+/** 运行中任务卡片：账号 + 整体进度 + 每门课程的独立进度 */
+const realRunningCards = computed(() =>
+  runningJobs.value.map((job) => {
+    const progress = liveProgress(job);
+    return {
+      job,
+      progress,
+      overall: overallPercent(progress),
+      courses: progress?.coursesProgress ?? [],
+    };
+  }),
+);
 
-const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  return (accountsQuery.data.value ?? []).filter((a) => {
-    if (platformFilter.value !== "all" && a.platform !== platformFilter.value) return false;
-    if (statusFilter.value !== "all" && statusOf(a) !== statusFilter.value) return false;
-    if (!q) return true;
-    return [a.remark, a.username, platformName.value[a.platform]].some((v) =>
-      (v ?? "").toLowerCase().includes(q),
-    );
-  });
+/** 前端视觉验收用模拟任务：不落库、不经接口 */
+const DEMO_KEY = "yatori-observability-demo";
+const demoMode = ref(localStorage.getItem(DEMO_KEY) === "1");
+const demoCards = DEMO_RUNNING_TASKS.map(({ job, progress }) => {
+  const overall = overallPercent(progress);
+  return {
+    job,
+    progress,
+    overall,
+    courses: progress.coursesProgress ?? [],
+  };
 });
+const runningCards = computed(() => (demoMode.value ? demoCards : realRunningCards.value));
 
-const groups = computed(() => {
-  const order = (platformsQuery.data.value ?? []).map((p) => p.key);
-  const byPlatform = new Map<string, AccountWithSession[]>();
-  for (const a of filtered.value) {
-    byPlatform.set(a.platform, [...(byPlatform.get(a.platform) ?? []), a]);
+function toggleDemo() {
+  demoMode.value = !demoMode.value;
+  localStorage.setItem(DEMO_KEY, demoMode.value ? "1" : "0");
+  toast.info(demoMode.value ? "已开启模拟任务（仅前端展示）" : "已关闭模拟任务");
+}
+
+/** 运行中任务数：演示模式下使用模拟任务数量 */
+const runningCount = computed(() => runningCards.value.length);
+
+/** 已发起停止、等待运行器收尾的任务 */
+const stopping = ref<Record<string, boolean>>({});
+/** 批量操作选中的任务 */
+const selectedJobIds = ref<Record<string, boolean>>({});
+const selectedCards = computed(() => runningCards.value.filter((c) => selectedJobIds.value[c.job.id]));
+const selectedCount = computed(() => selectedCards.value.length);
+const allSelected = computed(
+  () => runningCards.value.length > 0 && runningCards.value.every((c) => selectedJobIds.value[c.job.id]),
+);
+function toggleSelect(jobId: string) {
+  selectedJobIds.value = { ...selectedJobIds.value, [jobId]: !selectedJobIds.value[jobId] };
+}
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedJobIds.value = {};
+    return;
   }
-  return [...byPlatform.entries()]
-    .sort((x, y) => {
-      const ix = order.indexOf(x[0]);
-      const iy = order.indexOf(y[0]);
-      return (ix < 0 ? 999 : ix) - (iy < 0 ? 999 : iy);
-    })
-    .map(([key, items]) => ({ key, name: platformName.value[key] ?? key, items }));
-});
+  const next: Record<string, boolean> = {};
+  for (const card of runningCards.value) next[card.job.id] = true;
+  selectedJobIds.value = next;
+}
 
-// ---------- 指标 ----------
+/** 暂停状态：接口成功后先本地生效，轮询拿到后端 paused 后保持一致 */
+const pausedOverride = ref<Record<string, boolean>>({});
+function isJobPaused(job: JobVO): boolean {
+  return pausedOverride.value[job.id] ?? job.paused ?? false;
+}
+async function togglePause(job: JobVO) {
+  if (demoMode.value) {
+    toast.info("演示任务不支持操作");
+    return;
+  }
+  const next = !isJobPaused(job);
+  if (next) {
+    const ok = await confirmAction({
+      title: `暂停「${accountLabel(job.accountUid)}」的任务？`,
+      description: "暂停后不再提交新进度，任务会保留在当前节点，继续后可接着刷。",
+      confirmText: "暂停任务",
+    });
+    if (!ok) return;
+  }
+  try {
+    if (next) await api.pauseJob(job.id);
+    else await api.resumeJob(job.id);
+    pausedOverride.value = { ...pausedOverride.value, [job.id]: next };
+    toast.info(next ? "任务已暂停" : "任务已继续");
+    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  } catch (err) {
+    toastError(err, next ? "暂停任务失败" : "继续任务失败");
+  }
+}
+
+async function pauseSelected() {
+  if (demoMode.value) {
+    toast.info("演示任务不支持操作");
+    return;
+  }
+  const targets = selectedCards.value.filter((c) => !isJobPaused(c.job));
+  if (!targets.length) {
+    toast.info("所选任务均处于暂停状态或已结束");
+    return;
+  }
+  const ok = await confirmAction({
+    title: `暂停所选 ${targets.length} 个任务？`,
+    description: "暂停后不再提交新进度，任务保留在当前节点，可在批量操作条里继续。",
+    confirmText: "暂停所选",
+  });
+  if (!ok) return;
+  const results = await Promise.allSettled(
+    targets.map(async (c) => {
+      await api.pauseJob(c.job.id);
+      pausedOverride.value = { ...pausedOverride.value, [c.job.id]: true };
+    }),
+  );
+  const done = results.filter((r) => r.status === "fulfilled").length;
+  toast.info(done ? `已暂停 ${done} 个任务` : "所选任务均处于暂停状态或已结束");
+  void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+}
+
+async function resumeSelected() {
+  if (demoMode.value) {
+    toast.info("演示任务不支持操作");
+    return;
+  }
+  const targets = selectedCards.value.filter((c) => isJobPaused(c.job));
+  const results = await Promise.allSettled(
+    targets.map(async (c) => {
+      await api.resumeJob(c.job.id);
+      pausedOverride.value = { ...pausedOverride.value, [c.job.id]: false };
+    }),
+  );
+  const ok = results.filter((r) => r.status === "fulfilled").length;
+  toast.info(ok ? `已继续 ${ok} 个任务` : "所选任务均未处于暂停状态");
+  void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+}
+
+async function stopSelected() {
+  if (demoMode.value) {
+    toast.info("演示任务不支持操作");
+    return;
+  }
+  const count = selectedCards.value.length;
+  const ok = await confirmAction({
+    title: `停止所选 ${count} 个任务？`,
+    description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
+    confirmText: "全部停止",
+    tone: "danger",
+  });
+  if (!ok) return;
+  for (const card of selectedCards.value) void stopJob(card.job, true);
+  toast.info(`已请求停止 ${count} 个任务`);
+  selectedJobIds.value = {};
+}
+
+watch(
+  () => jobsQuery.data.value,
+  (list) => {
+    const runningIds = new Set((list ?? []).filter((j) => j.state === "running").map((j) => j.id));
+    let nextStopping: Record<string, boolean> | null = null;
+    for (const id of Object.keys(stopping.value)) {
+      if (!runningIds.has(id)) {
+        nextStopping ??= { ...stopping.value };
+        delete nextStopping[id];
+      }
+    }
+    if (nextStopping) stopping.value = nextStopping;
+
+    let nextSelected: Record<string, boolean> | null = null;
+    for (const id of Object.keys(selectedJobIds.value)) {
+      if (!runningIds.has(id)) {
+        nextSelected ??= { ...selectedJobIds.value };
+        delete nextSelected[id];
+      }
+    }
+    if (nextSelected) selectedJobIds.value = nextSelected;
+  },
+);
+
+async function stopJob(job: JobVO, silent = false) {
+  if (demoMode.value) {
+    if (!silent) toast.info("演示任务不支持操作");
+    return;
+  }
+  if (stopping.value[job.id]) return;
+  if (!silent) {
+    const ok = await confirmAction({
+      title: `停止「${accountLabel(job.accountUid)}」的任务？`,
+      description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
+      confirmText: "停止任务",
+      tone: "danger",
+    });
+    if (!ok) return;
+  }
+  stopping.value = { ...stopping.value, [job.id]: true };
+  // 兜底：长时间未收尾则释放按钮，允许再次请求停止
+  window.setTimeout(() => {
+    if (!stopping.value[job.id]) return;
+    const next = { ...stopping.value };
+    delete next[job.id];
+    stopping.value = next;
+    if (!silent) toast.warning("停止请求已发出但任务仍未结束，可稍后重试");
+  }, 20_000);
+  try {
+    const r = await api.stopJob(job.id);
+    if (!silent) {
+      if (r.stopped) toast.info("已请求停止，任务正在收尾");
+      else toast.warning(r.reason ?? "任务已结束");
+    }
+    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  } catch (err) {
+    if (!silent) toastError(err, "停止任务失败");
+    const next = { ...stopping.value };
+    delete next[job.id];
+    stopping.value = next;
+  }
+}
+
+// ---------- 统计 ----------
 const stats = computed(() => statsQuery.data.value ?? []);
 const today = computed(() => stats.value[stats.value.length - 1]);
 const yesterday = computed(() => stats.value[stats.value.length - 2]);
 const videoSpark = computed(() => stats.value.map((d) => d.videos));
-const jobSpark = computed(() => stats.value.map((d) => d.jobs));
-
-const activeSchedules = computed(() => (schedulesQuery.data.value ?? []).filter((s) => s.enabled));
-
-const upcomingSchedules = computed(() => {
-  const minutes = (s: ScheduleVO) => {
-    const parts = s.cron.trim().split(/\s+/);
-    return (Number(parts[1] ?? 0) * 60 + Number(parts[0] ?? 0)) || 0;
-  };
-  return [...activeSchedules.value].sort((a, b) => minutes(a) - minutes(b)).slice(0, 3);
-});
-
-function timeOf(cron: string): string {
-  const parts = cron.trim().split(/\s+/);
-  return parts.length >= 2 ? `${parts[1]!.padStart(2, "0")}:${parts[0]!.padStart(2, "0")}` : cron;
-}
 
 const videoDelta = computed(() => {
   if (!today.value || !yesterday.value) return null;
@@ -158,452 +304,610 @@ const videoDelta = computed(() => {
   return `${diff >= 0 ? "+" : ""}${Math.round((diff / yesterday.value.videos) * 100)}%`;
 });
 
-// ---------- 批量选择 ----------
-const selectedUids = ref<string[]>([]);
-const selectedAccounts = computed(() =>
-  (accountsQuery.data.value ?? []).filter((a) => selectedUids.value.includes(a.uid)),
-);
-const selectedPayload = computed(() =>
-  selectedAccounts.value.map((a) => ({ uid: a.uid, label: a.remark || a.username })),
-);
-
-function toggle(uid: string) {
-  selectedUids.value = selectedUids.value.includes(uid)
-    ? selectedUids.value.filter((x) => x !== uid)
-    : [...selectedUids.value, uid];
-}
-
-function toggleGroup(items: AccountWithSession[]) {
-  const uids = items.map((a) => a.uid);
-  const allIn = uids.every((u) => selectedUids.value.includes(u));
-  selectedUids.value = allIn
-    ? selectedUids.value.filter((u) => !uids.includes(u))
-    : [...new Set([...selectedUids.value, ...uids])];
-}
-
-const selectedRunning = computed(() =>
-  selectedAccounts.value.map((a) => runningByAccount.value[a.uid]).filter((j): j is JobVO => !!j),
-);
-
-// ---------- 弹窗 ----------
-const addOpen = ref(false);
-const addEditing = ref<AccountWithSession | null>(null);
-const startOpen = ref(false);
-const scheduleOpen = ref(false);
-const schedulePreselect = ref<string[]>([]);
-const startPayload = ref<{ uid: string; label: string }[]>([]);
-
-function openAdd(account: AccountWithSession | null = null) {
-  addEditing.value = account;
-  addOpen.value = true;
-}
-function openStart(accounts: { uid: string; label: string }[]) {
-  startPayload.value = accounts;
-  startOpen.value = true;
-}
-function openSchedule(preselected: string[] = []) {
-  schedulePreselect.value = preselected;
-  scheduleOpen.value = true;
-}
-
-// ---------- 详情抽屉 ----------
-const drawerUid = ref<string | null>(null);
-const drawerAccount = computed(() =>
-  (accountsQuery.data.value ?? []).find((a) => a.uid === drawerUid.value) ?? null,
-);
-const drawerJob = computed(() =>
-  drawerUid.value ? runningByAccount.value[drawerUid.value] ?? null : null,
-);
-const drawerProgress = computed(() =>
-  drawerJob.value ? events.jobLive[drawerJob.value.id]?.lastProgress ?? null : null,
-);
-const drawerSchedule = computed(() =>
-  drawerUid.value ? scheduleByAccount.value[drawerUid.value] ?? null : null,
-);
-
-// ---------- 操作 ----------
-const stopMutation = useMutation({
-  mutationFn: (id: string) => api.stopJob(id),
-  onSuccess: (r) => {
-    toast.success(r.stopped ? "已发送停止指令" : r.reason ?? "任务已结束");
-    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-  },
-  onError: (err) => toastError(err, "停止任务失败"),
+const todayJobs = computed(() => {
+  const day = new Date().toDateString();
+  return jobs.value.filter((j) => new Date(j.startedAt).toDateString() === day);
 });
 
-const verifyMutation = useMutation({
-  mutationFn: (uid: string) => api.verifyAccount(uid),
-  onSuccess: (r) => {
-    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    if (r.ok) toast.success(`登录正常，共 ${r.courseCount} 门课程`);
-    else toast.warning("登录异常，请检查账号信息");
-  },
-  onError: (err) => toastError(err, "登录检测失败"),
+const todayResult = computed(() => {
+  const c: Record<JobState, number> = { running: 0, done: 0, stopped: 0, error: 0 };
+  for (const j of todayJobs.value) c[j.state] += 1;
+  return c;
 });
 
-const removeMutation = useMutation({
-  mutationFn: (uid: string) => api.deleteAccount(uid),
-  onSuccess: () => {
-    drawerUid.value = null;
-    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    toast.success("账号已删除");
-  },
-  onError: (err) => toastError(err, "删除账号失败"),
+const finishedToday = computed(() => todayResult.value.done + todayResult.value.error);
+const successRate = computed(() => {
+  if (!finishedToday.value) return null;
+  return Math.round((todayResult.value.done / finishedToday.value) * 100);
 });
 
-function stopSelected() {
-  for (const job of selectedRunning.value) stopMutation.mutate(job.id);
-  if (!selectedRunning.value.length) toast.info("所选账号没有运行中的任务");
-}
+const resultSegments = computed(() => {
+  const items = [
+    { key: "done", label: "已完成", value: todayResult.value.done, color: "bg-mint" },
+    { key: "running", label: "运行中", value: todayResult.value.running, color: "bg-primary" },
+    { key: "error", label: "出错", value: todayResult.value.error, color: "bg-coral" },
+    { key: "stopped", label: "已停止", value: todayResult.value.stopped, color: "bg-muted-foreground/40" },
+  ];
+  const total = items.reduce((s, i) => s + i.value, 0);
+  return { items, total };
+});
 
-function askRemove(account: AccountWithSession) {
-  if (!window.confirm(`删除账号「${account.remark || account.username}」？该操作不可撤销。`)) return;
-  removeMutation.mutate(account.uid);
-}
+// ---------- 任务记录筛选 ----------
+const recordFilter = ref<"all" | JobState>("all");
+const recordSearch = ref("");
+const filteredJobs = computed(() => {
+  const q = recordSearch.value.trim().toLowerCase();
+  return jobs.value.filter((j) => {
+    if (recordFilter.value !== "all" && j.state !== recordFilter.value) return false;
+    if (!q) return true;
+    const label = accountLabel(j.accountUid);
+    return `${label} ${j.accountName ?? ""} ${j.accountUid}`.toLowerCase().includes(q);
+  });
+});
 
-// ---------- 实时活动 ----------
-const liveLogs = computed(() => events.logs.slice(-10).reverse());
-const accountLabel = (uid?: string) => {
-  if (!uid) return "";
-  const a = (accountsQuery.data.value ?? []).find((x) => x.uid === uid);
-  return a ? a.remark || a.username : uid.slice(0, 6);
-};
+// ---------- 时长 ----------
+const now = ref(Date.now());
+let clock: number | undefined;
+onMounted(() => {
+  clock = window.setInterval(() => {
+    now.value = Date.now();
+  }, 1_000);
+});
+onBeforeUnmount(() => window.clearInterval(clock));
+
+function elapsedOf(job: JobVO): string {
+  const start = new Date(job.startedAt).getTime();
+  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : now.value;
+  if (!Number.isFinite(start)) return "—";
+  return formatDuration(Math.max(0, (end - start) / 1000));
+}
 function clockOf(ts: number) {
   return new Date(ts).toLocaleTimeString("zh-CN", { hour12: false });
 }
+function timeOf(iso: string) {
+  return new Date(iso).toLocaleString("zh-CN", { hour12: false });
+}
 
-onMounted(() => {
-  if (!root.value || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  gsap.from(root.value.querySelectorAll(".reveal"), {
-    y: 14,
-    opacity: 0,
-    duration: 0.55,
-    stagger: 0.05,
-    ease: "power2.out",
-  });
+// ---------- 弹窗与操作 ----------
+const addOpen = ref(false);
+
+// ---------- 实时日志 ----------
+const logLevel = ref<"all" | "info" | "warn" | "error">("all");
+const logSearch = ref("");
+/** 持久化历史日志 + SSE 实时日志，按时间合并去重 */
+const mergedLogs = computed<JobEvent[]>(() => {
+  const map = new Map<string, JobEvent>();
+  for (const l of [...(historyLogsQuery.data.value ?? []), ...events.logs]) {
+    map.set(`${l.ts}|${l.accountId ?? ""}|${l.message ?? ""}`, l);
+  }
+  return [...map.values()].sort((a, b) => a.ts - b.ts);
 });
+const levelCounts = computed(() => {
+  const c = { info: 0, warn: 0, error: 0 };
+  for (const l of mergedLogs.value) {
+    if (l.level === "warn") c.warn += 1;
+    else if (l.level === "error") c.error += 1;
+    else c.info += 1;
+  }
+  return c;
+});
+const liveLogs = computed(() => {
+  const q = logSearch.value.trim().toLowerCase();
+  return mergedLogs.value
+    .filter((l) => (logLevel.value === "all" || l.level === logLevel.value) && (!q || (l.message ?? "").toLowerCase().includes(q)))
+    .slice(-200)
+    .reverse();
+});
+function levelCount(key: "all" | "info" | "warn" | "error"): number {
+  return key === "all" ? mergedLogs.value.length : levelCounts.value[key];
+}
+
+// ---------- 异常与标记 ----------
+const recentFlags = computed(() => events.flags.slice(0, 6));
+/** 右侧实时事件流：保留最近 14 条实时日志 */
+const recentEvents = computed(() => events.logs.slice(-14).reverse());
 </script>
 
 <template>
-  <div ref="root" class="space-y-4">
-    <!-- 标题 -->
-    <header class="reveal flex flex-wrap items-end gap-3">
+  <div class="space-y-4">
+    <header class="flex flex-wrap items-end gap-3">
       <div>
-        <div class="eyebrow">Multi-account / Live telemetry</div>
-        <h1 class="display-title mt-1.5 text-[28px] leading-none">观测台</h1>
+        <h1 class="display-title text-[26px] leading-none">观测台</h1>
         <p class="mt-2 text-[14px] text-muted-foreground">
-          多账号同步刷课 · 阶段、进度与定时规则在一屏内可见
+          全站任务、日志与吞吐实时汇总
         </p>
       </div>
       <div class="ml-auto flex items-center gap-2">
-        <Button variant="outline" size="sm" class="h-8 gap-1.5 text-[13.5px]" @click="openSchedule()">
+        <Button
+          :variant="demoMode ? 'default' : 'outline'"
+          size="sm"
+          class="h-8 gap-1.5 text-[13.5px]"
+          @click="toggleDemo"
+        >
+          <FlaskConical class="size-3.5" />{{ demoMode ? "退出演示" : "演示数据" }}
+        </Button>
+        <Button variant="outline" size="sm" class="h-8 gap-1.5 text-[13.5px]" @click="router.push('/schedules')">
           <AlarmClock class="size-3.5" />定时规则
         </Button>
-        <Button size="sm" class="h-8 gap-1.5 text-[13.5px]" @click="openAdd()">
+        <Button size="sm" class="h-8 gap-1.5 text-[13.5px]" @click="addOpen = true">
           <Plus class="size-3.5" />接入账号
         </Button>
       </div>
     </header>
 
-    <!-- 指标 -->
+    <!-- 全站指标 -->
     <section class="grid grid-cols-2 gap-3 xl:grid-cols-4">
-      <div class="panel reveal relative overflow-hidden px-4 py-3.5">
-        <div class="eyebrow">Running now</div>
-        <div class="mt-2 flex items-baseline gap-2">
-          <span class="mono text-[28px] font-semibold leading-none text-primary">{{ counts.running }}</span>
-          <span class="mono text-[12.5px] text-muted-foreground">/ {{ accountsQuery.data.value?.length ?? 0 }} 账号</span>
+      <div class="panel px-4 py-3.5">
+        <div class="text-[12px] text-muted-foreground">运行中任务</div>
+        <div class="mt-1.5 flex items-baseline gap-2">
+          <span class="mono text-[26px] font-semibold leading-none text-primary">{{ runningCount }}</span>
+          <span class="text-[13px] text-muted-foreground">覆盖 {{ runningAccountCount }} 个账号</span>
         </div>
-        <div class="mt-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
-          <span class="size-1.5 animate-breathe rounded-full bg-primary" />
-          在线 {{ counts.online }} · 异常 {{ counts.error }}
+        <div class="mt-2.5 flex items-center gap-3 text-[12.5px] text-muted-foreground">
+          <span class="inline-flex items-center gap-1.5"><span class="size-1.5 animate-breathe rounded-full bg-primary" />实时推进</span>
+          <span>全站 {{ accountsQuery.data.value?.length ?? 0 }} 个账号</span>
         </div>
       </div>
 
-      <div class="panel reveal px-4 py-3.5">
+      <div class="panel px-4 py-3.5">
         <div class="flex items-start justify-between">
-          <div class="eyebrow">Videos today</div>
-          <span class="mono text-[11.5px] text-muted-foreground">{{ videoDelta ?? "—" }}</span>
-        </div>
-        <div class="mt-2 flex items-baseline gap-1.5">
-          <span class="mono text-[28px] font-semibold leading-none">{{ today?.videos ?? 0 }}</span>
-          <span class="mono text-[12.5px] text-muted-foreground">段</span>
-        </div>
-        <Sparkline :values="videoSpark" color="var(--mint)" :height="24" class="mt-2" />
-      </div>
-
-      <div class="panel reveal px-4 py-3.5">
-        <div class="flex items-start justify-between">
-          <div class="eyebrow">Jobs today</div>
-          <span class="mono text-[11.5px]" :class="(today?.errors ?? 0) > 0 ? 'text-coral' : 'text-muted-foreground'">
-            错误 {{ today?.errors ?? 0 }}
+          <span class="text-[12px] text-muted-foreground">今日任务</span>
+          <span class="mono text-[12px]" :class="(today?.errors ?? 0) > 0 ? 'text-coral' : 'text-muted-foreground'">
+            出错 {{ today?.errors ?? 0 }}
           </span>
         </div>
-        <div class="mt-2 flex items-baseline gap-1.5">
-          <span class="mono text-[28px] font-semibold leading-none">{{ today?.jobs ?? 0 }}</span>
-          <span class="mono text-[12.5px] text-muted-foreground">任务</span>
+        <div class="mt-1.5 flex items-baseline gap-1.5">
+          <span class="mono text-[26px] font-semibold leading-none">{{ today?.jobs ?? 0 }}</span>
+          <span class="text-[13px] text-muted-foreground">个</span>
         </div>
-        <Sparkline :values="jobSpark" color="var(--amber)" :height="24" class="mt-2" />
+        <div class="mt-2.5 flex items-center gap-3 text-[12.5px] text-muted-foreground">
+          <span>完成 {{ todayResult.done }}</span>
+          <span>运行 {{ todayResult.running }}</span>
+          <span>停止 {{ todayResult.stopped }}</span>
+        </div>
       </div>
 
-      <div class="panel reveal px-4 py-3.5">
-        <div class="eyebrow">Schedules</div>
-        <div class="mt-2 flex items-baseline gap-1.5">
-          <span class="mono text-[28px] font-semibold leading-none">{{ activeSchedules.length }}</span>
-          <span class="mono text-[12.5px] text-muted-foreground">条生效</span>
+      <div class="panel px-4 py-3.5">
+        <div class="flex items-start justify-between">
+          <span class="text-[12px] text-muted-foreground">今日完成视频</span>
+          <span class="mono text-[12px] text-muted-foreground">{{ videoDelta ?? "—" }}</span>
         </div>
-        <div class="mono mt-2 truncate text-[12px] text-muted-foreground">
-          <template v-if="upcomingSchedules.length">
-            下一班次 {{ timeOf(upcomingSchedules[0]!.cron) }}
-            <span v-if="upcomingSchedules[0]!.endTime"> → {{ upcomingSchedules[0]!.endTime }}</span>
-          </template>
-          <template v-else>未配置定时规则</template>
+        <div class="mt-1.5 flex items-baseline gap-1.5">
+          <span class="mono text-[26px] font-semibold leading-none">{{ today?.videos ?? 0 }}</span>
+          <span class="text-[13px] text-muted-foreground">段</span>
+        </div>
+        <Sparkline :values="videoSpark" color="var(--primary)" :height="24" class="mt-2" />
+      </div>
+
+      <div class="panel px-4 py-3.5">
+        <div class="text-[12px] text-muted-foreground">近期任务成功率</div>
+        <div class="mt-1.5 flex items-baseline gap-1.5">
+          <span class="mono text-[26px] font-semibold leading-none">{{ successRate === null ? "—" : successRate }}</span>
+          <span v-if="successRate !== null" class="text-[13px] text-muted-foreground">%</span>
+        </div>
+        <div class="mt-2.5 flex items-center gap-3 text-[12.5px] text-muted-foreground">
+          <span>完成 {{ todayResult.done }}</span>
+          <span :class="todayResult.error > 0 ? 'text-coral' : ''">出错 {{ todayResult.error }}</span>
         </div>
       </div>
     </section>
 
-    <!-- 主区 -->
-    <section class="grid gap-3 xl:grid-cols-[minmax(0,1.62fr)_360px]">
-      <!-- 账号矩阵 -->
-      <div class="panel reveal min-w-0 overflow-hidden">
-        <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <div class="min-w-0">
-            <div class="eyebrow">Account matrix</div>
-            <div class="mt-1 flex items-baseline gap-2">
-              <h2 class="text-[16px] font-semibold">账号运行矩阵</h2>
-              <span class="mono text-[12px] text-muted-foreground">
-                运行 {{ counts.running }} / 共 {{ accountsQuery.data.value?.length ?? 0 }}
-              </span>
+    <!-- 任务与站点数据 -->
+    <section class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_352px]">
+      <div class="flex min-w-0 flex-col gap-3">
+      <!-- 运行中任务 -->
+        <div :class="cn('panel overflow-hidden', !runningCards.length && 'xl:flex xl:flex-1 xl:flex-col')">
+          <div class="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
+            <span @click.stop>
+              <Checkbox :model-value="allSelected" @update:model-value="toggleSelectAll" />
+            </span>
+            <h2 class="text-[15px] font-semibold">运行中任务</h2>
+            <span class="mono rounded-full bg-primary/10 px-2 py-0.5 text-[12px] text-primary">{{ runningCount }}</span>
+            <span class="text-[12px] text-muted-foreground">进度每 5 秒采样 · 多任务时列表内滚动</span>
+            <span v-if="demoMode" class="rounded bg-amber/10 px-1.5 py-0.5 text-[12px] text-amber">模拟任务，仅前端展示</span>
+            <span class="mono ml-auto flex items-center gap-1.5 text-[12px] text-muted-foreground">
+              <span class="size-1.5 animate-breathe rounded-full bg-primary" />实时刷新
+            </span>
+          </div>
+
+          <!-- 批量操作条 -->
+          <div v-if="selectedCount" class="flex flex-wrap items-center gap-2 border-b border-border bg-primary/5 px-4 py-2">
+            <span class="mono text-[12.5px] text-primary">已选 {{ selectedCount }} 个任务</span>
+            <span class="text-[12px] text-muted-foreground">暂停会保留任务，继续后从当前节点接着刷</span>
+            <div class="ml-auto flex flex-wrap items-center gap-1.5">
+              <button
+                class="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-amber/40 hover:text-amber"
+                @click="pauseSelected"
+              ><Pause class="size-3" />暂停所选</button>
+              <button
+                class="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                @click="resumeSelected"
+              ><Play class="size-3" />继续所选</button>
+              <button
+                class="inline-flex items-center gap-1 rounded border border-border bg-card px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-coral/40 hover:text-coral"
+                @click="stopSelected"
+              ><StopCircle class="size-3" />停止所选</button>
+              <button class="rounded px-2 py-1 text-[12.5px] text-muted-foreground hover:text-foreground" @click="selectedJobIds = {}">取消</button>
             </div>
           </div>
-          <div class="relative ml-auto">
-            <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input v-model="search" placeholder="搜索账号 / 备注" class="h-8 w-48 pl-8 text-[13.5px]" />
-          </div>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
-          <button
-            :class="cn('rounded-full border px-2.5 py-1 text-[13px] transition-colors', platformFilter === 'all' ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
-            @click="platformFilter = 'all'"
-          >全部 {{ accountsQuery.data.value?.length ?? 0 }}</button>
-          <button
-            v-for="p in platformsQuery.data.value ?? []"
-            :key="p.key"
-            :class="cn('rounded-full border px-2.5 py-1 text-[13px] transition-colors', platformFilter === p.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
-            @click="platformFilter = p.key"
-          >{{ p.name }} {{ platformCounts[p.key] ?? 0 }}</button>
-          <span class="mx-1 h-3.5 w-px bg-border" />
-          <button
-            v-for="s in [
-              { key: 'running', label: '运行中', tone: 'mint' },
-              { key: 'online', label: '在线', tone: 'ice' },
-              { key: 'error', label: '异常', tone: 'coral' },
-            ] as const"
-            :key="s.key"
+          <div
+            v-if="runningCards.length"
             :class="cn(
-              'rounded-full border px-2.5 py-1 text-[13px] transition-colors',
-              statusFilter === s.key
-                ? s.tone === 'coral'
-                  ? 'border-coral/40 bg-coral/10 text-coral'
-                  : 'border-primary/40 bg-primary/10 text-primary'
-                : 'border-border text-muted-foreground hover:text-foreground',
+              'p-3',
+              runningCards.length > 2 && 'max-h-[min(68vh,640px)] overflow-y-auto overscroll-contain',
             )"
-            @click="statusFilter = s.key"
-          >{{ s.label }} {{ counts[s.key] }}</button>
-          <button
-            v-if="statusFilter !== 'all'"
-            class="rounded-full border border-border px-2 py-1 text-[13px] text-muted-foreground"
-            @click="statusFilter = 'all'"
-          ><X class="inline size-3" /></button>
-        </div>
+          >
+            <div class="columns-1 gap-3 lg:columns-2">
+              <div
+                v-for="card in runningCards"
+                :key="card.job.id"
+                :class="cn(
+                  'mb-3 break-inside-avoid cursor-pointer rounded-lg border p-3 transition-colors last:mb-0',
+                  selectedJobIds[card.job.id] ? 'border-primary/50 bg-primary/5' : 'border-border bg-panel-2 hover:border-primary/40',
+                )"
+                @click="router.push(`/accounts/${card.job.accountUid}?from=workspace`)"
+              >
+                <!-- 头部：身份 + 阶段 -->
+                <div class="flex items-start gap-2.5">
+                  <span class="mt-0.5" @click.stop>
+                    <Checkbox
+                      :model-value="!!selectedJobIds[card.job.id]"
+                      @update:model-value="toggleSelect(card.job.id)"
+                    />
+                  </span>
+                  <div class="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-card text-[13px] font-semibold text-primary">
+                    {{ accountLabel(card.job.accountUid).slice(0, 1) }}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="min-w-0 flex-1 truncate text-[14.5px] font-medium">{{ accountLabel(card.job.accountUid) }}</span>
+                      <span v-if="demoMode" class="shrink-0 rounded bg-amber/10 px-1 text-[11px] text-amber">模拟</span>
+                      <span v-if="isJobPaused(card.job)" class="shrink-0 rounded bg-amber/10 px-1 text-[11px] text-amber">已暂停</span>
+                      <span class="stage-chip shrink-0 border-primary/30 bg-primary/10 text-primary">{{ phaseLabel(card.progress, true) }}</span>
+                    </div>
+                    <div class="mono mt-0.5 truncate text-[11.5px] text-muted-foreground">
+                      {{ progressDetail(card.progress) || "正在建立会话" }}
+                    </div>
+                  </div>
+                </div>
 
-        <div v-if="accountsQuery.isLoading.value" class="space-y-2 p-4">
-          <Skeleton v-for="i in 5" :key="i" class="h-14 w-full" />
-        </div>
-        <div v-else-if="!(accountsQuery.data.value ?? []).length" class="px-6 py-16 text-center">
-          <div class="mx-auto grid size-12 place-items-center rounded-2xl border border-border bg-panel-2 text-primary">
-            <Users class="size-5" />
-          </div>
-          <h2 class="mt-4 text-[16px] font-semibold">还没有账号</h2>
-          <p class="mt-1 text-[14px] text-muted-foreground">添加平台账号后可批量发起任务，也能导入 config.yaml</p>
-          <Button class="mt-4" @click="openAdd()"><Plus class="size-4" />接入账号</Button>
-        </div>
-        <div v-else class="overflow-x-auto">
-          <div class="hidden min-w-[980px] grid-cols-[20px_minmax(168px,1.05fr)_82px_minmax(0,1.65fr)_132px_116px_92px] items-center gap-3 border-b border-border bg-panel-2/60 px-4 py-1.5 md:grid">
-            <span />
-            <span class="eyebrow !text-[10.5px]">账号 / 平台</span>
-            <span class="eyebrow !text-[10.5px]">状态</span>
-            <span class="eyebrow !text-[10.5px]">当前任务</span>
-            <span class="eyebrow !text-[10.5px]">进度</span>
-            <span class="eyebrow !text-[10.5px]">定时</span>
-            <span class="eyebrow !text-right !text-[10.5px]">操作</span>
-          </div>
+                <!-- 指标带 -->
+                <div class="mt-2.5 grid grid-cols-3 gap-2">
+                  <div class="rounded-md border border-border bg-card px-2 py-1.5">
+                    <div class="mono text-[15px] font-semibold leading-none">{{ card.overall === null ? "—" : `${card.overall}%` }}</div>
+                    <div class="mt-1 text-[11px] text-muted-foreground">整体进度</div>
+                  </div>
+                  <div class="rounded-md border border-border bg-card px-2 py-1.5">
+                    <div class="truncate text-[13px] leading-none">{{ formatEta(card.progress?.etaSeconds) }}</div>
+                    <div class="mt-1 text-[11px] text-muted-foreground">预计剩余</div>
+                  </div>
+                  <div class="rounded-md border border-border bg-card px-2 py-1.5">
+                    <div class="mono truncate text-[13px] leading-none">{{ card.progress?.courseCount ?? card.courses.length }} 门</div>
+                    <div class="mt-1 text-[11px] text-muted-foreground">剩 {{ card.progress?.coursesRemaining ?? 0 }} 门</div>
+                  </div>
+                </div>
 
-          <template v-for="group in groups" :key="group.key">
-            <div class="flex min-w-[980px] items-center gap-2 border-b border-border bg-panel-2/30 px-4 py-1.5">
-              <span class="mono text-[12px] font-medium uppercase tracking-wider text-foreground/80">{{ group.name }}</span>
-              <span class="mono text-[11.5px] text-muted-foreground">{{ group.items.length }}</span>
-              <span class="h-px flex-1 bg-border" />
-              <button class="mono text-[11.5px] text-muted-foreground hover:text-foreground" @click="toggleGroup(group.items)">
-                {{ group.items.every((a) => selectedUids.includes(a.uid)) ? "取消全选" : "全选" }}
-              </button>
+                <!-- 整体进度条 -->
+                <div
+                  class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"
+                  :title="card.progress?.courseTotalSeconds !== undefined
+                    ? `总视频 ${formatDuration(card.progress.courseTotalSeconds)} · 已学 ${formatDuration(card.progress.courseTotalSeconds - (card.progress.courseRemainingSeconds ?? 0))}`
+                    : ''"
+                >
+                  <div
+                    class="h-full rounded-full bg-primary transition-[width] duration-500"
+                    :style="{ width: `${card.overall ?? 0}%` }"
+                  />
+                </div>
+
+                <!-- 当前节点进度 -->
+                <div class="mt-2 flex items-center gap-2">
+                  <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">当前节点</span>
+                  <div class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      class="h-full rounded-full bg-primary/80 transition-[width] duration-500"
+                      :style="{ width: `${nodePercent(card.progress) ?? 0}%` }"
+                    />
+                  </div>
+                  <span class="mono shrink-0 text-[11.5px]" :class="nodePercent(card.progress) === null ? 'text-muted-foreground' : 'text-foreground/80'">
+                    {{ nodePercent(card.progress) === null ? "—" : `${nodePercent(card.progress)}%` }}
+                  </span>
+                </div>
+
+                <!-- 课程列表 -->
+                <div v-if="card.courses.length" class="mt-2 overflow-hidden rounded-md border border-border bg-card">
+                  <div class="max-h-[132px] divide-y divide-border/60 overflow-y-auto">
+                    <div
+                      v-for="c in card.courses"
+                      :key="c.courseId"
+                      class="flex items-center gap-2 px-2 py-1.5"
+                      :title="c.completed
+                        ? `${c.courseName} · 已完成`
+                        : c.loaded
+                          ? `${c.courseName} · ${c.currentNodeName ?? '进行中'} · 剩 ${formatDuration(c.remainingSeconds)}`
+                          : `${c.courseName} · 等待加载章节`"
+                    >
+                      <span
+                        class="size-1.5 shrink-0 rounded-full"
+                        :class="c.completed ? 'bg-mint' : c.loaded ? 'bg-primary' : 'bg-muted-foreground/40'"
+                      />
+                      <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ c.courseName }}</span>
+                      <div class="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-muted">
+                        <div
+                          class="h-full rounded-full transition-[width] duration-500"
+                          :class="c.completed ? 'bg-mint' : 'bg-primary'"
+                          :style="{ width: `${c.progress}%` }"
+                        />
+                      </div>
+                      <span class="mono w-9 shrink-0 text-right text-[11.5px]" :class="c.completed ? 'text-mint' : 'text-muted-foreground'">{{ c.progress }}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 底栏：运行时长 + 操作 -->
+                <div class="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
+                  <span class="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground">
+                    <span
+                      class="size-1 rounded-full"
+                      :class="isJobPaused(card.job) ? 'bg-amber' : 'animate-breathe bg-primary'"
+                    />
+                    {{ isJobPaused(card.job) ? "已暂停" : "已运行" }} {{ elapsedOf(card.job) }}
+                  </span>
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      class="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[12px] text-muted-foreground transition-colors hover:border-amber/40 hover:text-amber"
+                      @click.stop="togglePause(card.job)"
+                    >
+                      <Play v-if="isJobPaused(card.job)" class="size-3" />
+                      <Pause v-else class="size-3" />
+                      {{ isJobPaused(card.job) ? "继续" : "暂停" }}
+                    </button>
+                    <button
+                      :disabled="stopping[card.job.id]"
+                      :class="cn(
+                        'inline-flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-[12px] transition-colors',
+                        stopping[card.job.id]
+                          ? 'cursor-not-allowed border-border text-muted-foreground opacity-60'
+                          : 'border-border text-muted-foreground hover:border-coral/40 hover:text-coral',
+                      )"
+                      @click.stop="stopJob(card.job)"
+                    ><StopCircle class="size-3" />{{ stopping[card.job.id] ? "停止中…" : "停止" }}</button>
+                  </div>
+                </div>
+              </div>
             </div>
-            <AccountRow
-              v-for="account in group.items"
-              :key="account.uid"
-              :account="account"
-              :platform-name="group.name"
-              :job="latestByAccount[account.uid] ?? null"
-              :progress="runningByAccount[account.uid] ? events.jobLive[runningByAccount[account.uid]!.id]?.lastProgress ?? null : null"
-              :schedule="scheduleByAccount[account.uid] ?? null"
-              :selected="selectedUids.includes(account.uid)"
-              @toggle="toggle(account.uid)"
-              @open="drawerUid = account.uid"
-              @start="openStart([{ uid: account.uid, label: account.remark || account.username }])"
-              @stop="stopMutation.mutate(runningByAccount[account.uid]!.id)"
-            />
-          </template>
+          </div>
+          <div
+            v-else
+            class="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center xl:min-h-[220px] xl:flex-1"
+          >
+            <span class="grid size-10 place-items-center rounded-full border border-border bg-panel-2 text-muted-foreground">
+              <CircleDashed class="size-5" />
+            </span>
+            <p class="text-[14px] text-muted-foreground">当前没有运行中的任务</p>
+            <p class="text-[12.5px] text-muted-foreground/80">发起任务后，这里会按账号展示课程与实时进度；全站任务记录见下方</p>
+          </div>
+        </div>
 
-          <div v-if="!groups.length" class="px-4 py-10 text-center text-[13.5px] text-muted-foreground">
-            没有符合筛选条件的账号
+        <!-- 全站任务记录 -->
+        <div class="panel overflow-hidden">
+          <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
+            <h2 class="text-[15px] font-semibold">全站任务记录</h2>
+            <span class="mono text-[12px] text-muted-foreground">最近 {{ jobs.length }} 条</span>
+            <div class="relative ml-auto">
+              <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input v-model="recordSearch" placeholder="搜索账号" class="h-8 w-40 pl-8 text-[13px]" />
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
+            <button
+              v-for="s in [
+                { key: 'all', label: '全部' },
+                { key: 'running', label: '运行中' },
+                { key: 'done', label: '已完成' },
+                { key: 'stopped', label: '已停止' },
+                { key: 'error', label: '出错' },
+              ] as const"
+              :key="s.key"
+              :class="cn('rounded-md border px-2.5 py-1 text-[13px] transition-colors', recordFilter === s.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
+              @click="recordFilter = s.key"
+            >{{ s.label }}</button>
+            <span class="mono ml-auto text-[12px] text-muted-foreground">{{ filteredJobs.length }} 条</span>
+          </div>
+
+          <div v-if="jobsQuery.isLoading.value" class="space-y-2 p-4">
+            <Skeleton v-for="i in 6" :key="i" class="h-10 w-full" />
+          </div>
+          <div v-else-if="!filteredJobs.length" class="px-4 py-10 text-center text-[13px] text-muted-foreground">
+            没有符合条件的任务记录
+          </div>
+          <div v-else class="max-h-[min(45vh,440px)] overflow-y-auto overflow-x-auto overscroll-contain">
+            <div class="sticky top-0 z-10 hidden min-w-[940px] grid-cols-[150px_minmax(0,1.2fr)_86px_88px_minmax(0,1.3fr)_68px_28px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
+              <span>开始时间</span>
+              <span>账号</span>
+              <span>状态</span>
+              <span>耗时</span>
+              <span>产出</span>
+              <span>错误</span>
+              <span />
+            </div>
+            <div
+              v-for="job in filteredJobs.slice(0, 40)"
+              :key="job.id"
+              class="grid min-w-[940px] cursor-pointer grid-cols-[150px_minmax(0,1.2fr)_86px_88px_minmax(0,1.3fr)_68px_28px] items-center gap-3 border-b border-border/60 px-4 py-2 text-[13px] transition-colors last:border-b-0 hover:bg-accent/60"
+              @click="router.push(`/accounts/${job.accountUid}?from=workspace`)"
+            >
+              <span class="mono text-[12px] text-muted-foreground">{{ timeOf(job.startedAt) }}</span>
+              <span class="min-w-0 truncate">{{ accountLabel(job.accountUid) }}</span>
+              <span
+                :class="cn(
+                  'w-fit rounded px-1.5 py-0.5 text-[12px]',
+                  job.state === 'running'
+                    ? 'bg-primary/10 text-primary'
+                    : job.state === 'error'
+                      ? 'bg-coral/10 text-coral'
+                      : job.state === 'done'
+                        ? 'bg-mint/10 text-mint'
+                        : 'bg-muted text-muted-foreground',
+                )"
+              >{{ jobStateLabel(job.state) }}</span>
+              <span class="mono text-[12px] text-muted-foreground">{{ elapsedOf(job) }}</span>
+              <span class="mono min-w-0 truncate text-[12px] text-muted-foreground">
+                <template v-if="job.summary">视频 {{ job.summary.videosCompleted }} · 作业 {{ job.summary.worksDone }} · 考试 {{ job.summary.examsDone }}</template>
+                <template v-else>—</template>
+              </span>
+              <span class="mono text-[12px]" :class="(job.summary?.errors.length ?? 0) > 0 ? 'text-coral' : 'text-muted-foreground'">
+                {{ job.summary?.errors.length ?? 0 }}
+              </span>
+              <ChevronRight class="size-3.5 text-muted-foreground" />
+            </div>
+          </div>
+          <div v-if="filteredJobs.length > 40" class="border-t border-border px-4 py-2 text-center text-[12.5px] text-muted-foreground">
+            仅显示最近 40 条，共 {{ filteredJobs.length }} 条
           </div>
         </div>
       </div>
 
-      <!-- 右侧遥测 -->
-      <aside class="space-y-3">
-        <div class="panel reveal px-3.5 py-3">
+      <!-- 站点遥测 -->
+      <aside class="flex flex-col gap-3 xl:h-full">
+        <div class="panel flex h-[240px] flex-col px-3.5 py-3">
           <div class="flex items-baseline justify-between">
             <div>
-              <div class="eyebrow">14-day throughput</div>
-              <div class="mt-1 text-[14.5px] font-medium">运行趋势</div>
+              <div class="text-[13px] font-medium">14 天运行趋势</div>
+              <div class="text-[12px] text-muted-foreground">全站完成视频与任务数</div>
             </div>
             <div class="text-right">
-              <div class="mono text-[17px] font-semibold leading-none text-primary">
-                {{ stats.reduce((s, d) => s + d.videos, 0) }}
-              </div>
-              <div class="mono text-[11px] text-muted-foreground">VIDEOS</div>
+              <div class="mono text-[17px] font-semibold leading-none">{{ stats.reduce((s, d) => s + d.videos, 0) }}</div>
+              <div class="text-[12px] text-muted-foreground">段视频</div>
             </div>
           </div>
-          <div class="mt-1 h-[168px]">
+          <div class="mt-2 min-h-0 flex-1">
             <DailyTrend v-if="stats.length" :data="stats" />
             <Skeleton v-else class="h-full w-full" />
           </div>
         </div>
 
-        <div class="panel reveal px-3.5 py-3">
-          <div class="eyebrow">Account health</div>
-          <div class="mt-1 text-[14.5px] font-medium">账号状态分布</div>
-          <div class="mt-1 h-[146px]">
-            <StatusDonut v-if="accountsQuery.data.value?.length" :counts="counts" />
-            <div v-else class="grid h-full place-items-center text-[12.5px] text-muted-foreground">暂无账号</div>
+        <!-- 实时事件流：填满右栏剩余高度 -->
+        <div class="panel flex h-[240px] flex-col overflow-hidden xl:h-auto xl:min-h-[160px] xl:flex-1">
+          <div class="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
+            <span class="text-[13px] font-medium">实时事件流</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ events.logs.length }}</span>
+            <span class="mono ml-auto flex items-center gap-1 text-[11.5px] text-primary">
+              <span class="size-1 animate-breathe rounded-full bg-primary" />LIVE
+            </span>
           </div>
+          <div v-if="recentEvents.length" class="min-h-0 flex-1 overflow-y-auto px-3.5 py-1">
+            <div
+              v-for="(e, i) in recentEvents"
+              :key="i"
+              class="flex items-start gap-2 border-b border-border/60 py-1.5 last:border-b-0"
+            >
+              <span
+                class="mt-1.5 size-1.5 shrink-0 rounded-full"
+                :class="e.level === 'error' ? 'bg-coral' : e.level === 'warn' ? 'bg-amber' : 'bg-primary'"
+              />
+              <span class="mono shrink-0 text-[11.5px] text-muted-foreground">{{ clockOf(e.ts) }}</span>
+              <span class="min-w-0 flex-1 truncate text-[12px] text-foreground/85" :title="e.message">{{ e.message }}</span>
+            </div>
+          </div>
+          <p v-else class="px-3.5 py-8 text-center text-[12px] text-muted-foreground">暂无实时事件</p>
         </div>
 
-        <div class="panel reveal px-3.5 py-3">
-          <div class="flex items-baseline justify-between">
-            <div>
-              <div class="eyebrow">Today's schedule</div>
-              <div class="mt-1 text-[14.5px] font-medium">今日定时</div>
+        <div class="panel flex h-[240px] flex-col overflow-hidden">
+          <div class="px-3.5 py-2.5">
+            <div class="flex items-baseline justify-between">
+              <span class="text-[13px] font-medium">今日任务结果</span>
+              <span class="mono text-[12px] text-muted-foreground">{{ resultSegments.total }} 个</span>
             </div>
-            <RouterLink to="/schedules" class="mono text-[11.5px] text-muted-foreground hover:text-primary">全部 →</RouterLink>
-          </div>
-          <div v-if="upcomingSchedules.length" class="mt-2.5 space-y-2">
-            <div
-              v-for="s in upcomingSchedules"
-              :key="s.id"
-              class="relative flex items-start gap-2.5 border-l border-border pl-2.5"
-            >
-              <span class="absolute -left-[3px] top-1.5 size-1.5 rounded-full bg-primary" />
-              <div class="mono shrink-0 text-[13px] text-foreground">
-                {{ timeOf(s.cron) }}
-                <template v-if="s.endTime"><span class="text-muted-foreground"> → {{ s.endTime }}</span></template>
-              </div>
-              <div class="min-w-0">
-                <div class="truncate text-[13px]">{{ s.name || "定时规则" }}</div>
-                <div class="mono text-[11px] text-muted-foreground">{{ s.accountUids.length }} ACCOUNTS</div>
+            <div v-if="resultSegments.total" class="mt-2 flex h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                v-for="seg in resultSegments.items"
+                :key="seg.key"
+                :class="seg.color"
+                :style="{ width: `${(seg.value / resultSegments.total) * 100}%` }"
+              />
+            </div>
+            <div v-if="resultSegments.total" class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+              <div v-for="seg in resultSegments.items" :key="seg.key" class="flex items-center gap-1.5 text-[12px]">
+                <span class="size-1.5 rounded-full" :class="seg.color" />
+                <span class="text-muted-foreground">{{ seg.label }}</span>
+                <span class="mono ml-auto">{{ seg.value }}</span>
               </div>
             </div>
+            <p v-else class="mt-2 text-[12px] text-muted-foreground">今日还没有任务记录</p>
           </div>
-          <p v-else class="mt-3 text-[12.5px] text-muted-foreground">尚未配置定时规则</p>
+
+          <div class="flex min-h-0 flex-1 flex-col border-t border-border px-3.5 py-2">
+            <div class="flex items-baseline justify-between">
+              <span class="text-[12px] font-medium">异常与标记</span>
+              <span class="mono text-[11.5px] text-muted-foreground">{{ events.flags.length }} 条</span>
+            </div>
+            <div v-if="recentFlags.length" class="mt-1 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
+              <div v-for="(f, i) in recentFlags" :key="i" class="border-b border-border/60 pb-1 last:border-b-0 last:pb-0">
+                <div class="flex items-baseline gap-2">
+                  <span class="mono shrink-0 text-[11.5px] text-muted-foreground">{{ clockOf(f.ts) }}</span>
+                  <span class="min-w-0 flex-1 truncate text-[12px]">{{ f.message || f.reason || "节点被标记" }}</span>
+                </div>
+                <div class="mono mt-0.5 truncate text-[11.5px] text-muted-foreground">{{ accountLabel(f.accountId) }}</div>
+              </div>
+            </div>
+            <p v-else class="mt-1 text-[12px] text-muted-foreground">暂无异常或标记记录</p>
+          </div>
         </div>
       </aside>
     </section>
 
-    <!-- 实时活动 -->
-    <section class="panel reveal overflow-hidden">
-      <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
-        <div class="eyebrow">Live stream</div>
-        <h2 class="text-[14.5px] font-medium">实时活动</h2>
-        <span class="mono ml-auto flex items-center gap-1.5 text-[11px] text-primary">
-          <span class="size-1 animate-breathe rounded-full bg-primary" />SSE
+    <!-- 全站实时日志 -->
+    <section class="panel overflow-hidden">
+      <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
+        <h2 class="text-[15px] font-semibold">全站实时日志</h2>
+        <span class="mono flex items-center gap-1.5 text-[12px] text-primary">
+          <span class="size-1.5 animate-breathe rounded-full bg-primary" />SSE
         </span>
+        <span class="mono text-[12px] text-muted-foreground">全站 {{ mergedLogs.length }} 条 · 含历史</span>
+        <div class="ml-auto flex flex-wrap items-center gap-1">
+          <button
+            v-for="l in [
+              { key: 'all', label: '全部' },
+              { key: 'info', label: '信息' },
+              { key: 'warn', label: '警告' },
+              { key: 'error', label: '错误' },
+            ] as const"
+            :key="l.key"
+            :class="cn('rounded border px-2 py-1 text-[12.5px] transition-colors', logLevel === l.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
+            @click="logLevel = l.key"
+          >
+            {{ l.label }}
+            <span class="mono ml-1 opacity-70">{{ levelCount(l.key) }}</span>
+          </button>
+          <div class="relative ml-1">
+            <Search class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input v-model="logSearch" placeholder="搜索日志" class="h-7 w-44 pl-7 text-[12.5px]" />
+          </div>
+        </div>
       </div>
-      <div v-if="liveLogs.length" class="max-h-[168px] overflow-y-auto px-4 py-2">
+      <div v-if="liveLogs.length" class="max-h-[360px] overflow-y-auto px-4 py-1">
         <div
           v-for="(l, i) in liveLogs"
           :key="i"
-          class="flex items-baseline gap-2.5 border-b border-border/40 py-1.5 last:border-b-0"
+          class="flex items-baseline gap-2.5 border-b border-border/60 py-1.5 last:border-b-0"
         >
-          <span class="mono shrink-0 text-[11.5px] text-muted-foreground/70">{{ clockOf(l.ts) }}</span>
+          <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ clockOf(l.ts) }}</span>
           <span
             :class="cn(
-              'mono w-9 shrink-0 text-[11px] uppercase',
+              'mono w-10 shrink-0 text-[12px] uppercase',
               l.level === 'error' ? 'text-coral' : l.level === 'warn' ? 'text-amber' : 'text-primary/80',
             )"
           >{{ l.level ?? "info" }}</span>
-          <span class="mono shrink-0 text-[11.5px] text-muted-foreground">{{ accountLabel(l.accountId) }}</span>
-          <span class="min-w-0 flex-1 truncate text-[13px] text-foreground/80">{{ l.message }}</span>
+          <span class="shrink-0 text-[12px] text-muted-foreground">{{ accountLabel(l.accountId) }}</span>
+          <span class="min-w-0 flex-1 text-[13px] text-foreground/85">{{ l.message }}</span>
         </div>
       </div>
-      <p v-else class="px-4 py-6 text-center text-[13px] text-muted-foreground">
-        发起任务后，日志会实时出现在这里
+      <p v-else class="px-4 py-10 text-center text-[13px] text-muted-foreground">
+        暂无可显示的日志，发起任务后会实时汇总到这里
       </p>
     </section>
 
-    <!-- 批量操作条 -->
-    <div
-      v-if="selectedUids.length"
-      class="sticky bottom-4 z-30 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-background/90 px-4 py-2.5 shadow-xl backdrop-blur-xl"
-    >
-      <span class="mono text-[13px] text-primary">SELECTED {{ selectedUids.length }}</span>
-      <span class="text-[13px] text-muted-foreground">
-        {{ selectedRunning.length ? `${selectedRunning.length} 个运行中` : "各账号独立并发" }}
-      </span>
-      <div class="ml-auto flex items-center gap-1.5">
-        <Button size="sm" class="h-7 text-[13.5px]" @click="openStart(selectedPayload)">发起任务</Button>
-        <Button variant="outline" size="sm" class="h-7 text-[13.5px]" @click="openSchedule(selectedUids)">设定定时</Button>
-        <Button variant="outline" size="sm" class="h-7 text-[13.5px]" @click="stopSelected">停止</Button>
-        <Button variant="ghost" size="sm" class="h-7 text-[13.5px]" @click="selectedUids = []">取消</Button>
-      </div>
-    </div>
-
-    <AddAccountDialog
-      v-model:open="addOpen"
-      :account="addEditing"
-      @saved="queryClient.invalidateQueries({ queryKey: ['accounts'] })"
-    />
-    <StartJobDialog v-model:open="startOpen" :accounts="startPayload" @started="selectedUids = []" />
-    <ScheduleDialog
-      v-model:open="scheduleOpen"
-      :accounts="(accountsQuery.data.value ?? []).map((a) => ({ uid: a.uid, label: a.remark || a.username }))"
-      :preselected="schedulePreselect"
-    />
-
-    <AccountDrawer
-      v-if="drawerAccount"
-      :account="drawerAccount"
-      :job="drawerJob"
-      :progress="drawerProgress"
-      :schedule="drawerSchedule"
-      :open="!!drawerUid"
-      @close="drawerUid = null"
-      @stop="drawerJob && stopMutation.mutate(drawerJob.id)"
-      @start="openStart([{ uid: drawerAccount.uid, label: drawerAccount.remark || drawerAccount.username }])"
-      @verify="verifyMutation.mutate(drawerAccount.uid)"
-      @edit="openAdd(drawerAccount)"
-      @remove="askRemove(drawerAccount)"
-    />
+    <AddAccountDialog v-model:open="addOpen" :account="null" @saved="queryClient.invalidateQueries({ queryKey: ['accounts'] })" />
   </div>
 </template>

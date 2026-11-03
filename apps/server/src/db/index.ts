@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS job_events (
   created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, id);
+CREATE TABLE IF NOT EXISTS job_progress (
+  job_id       TEXT PRIMARY KEY,
+  payload_json TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS node_cache (
   account_uid TEXT NOT NULL,
   course_id   TEXT NOT NULL,

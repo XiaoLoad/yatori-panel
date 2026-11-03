@@ -7,7 +7,7 @@ const props = withDefaults(
     value: number;
     size?: number;
     stroke?: number;
-    tone?: "mint" | "amber" | "ice" | "coral" | "muted";
+    tone?: "mint" | "amber" | "ice" | "coral" | "muted" | "primary";
     showLabel?: boolean;
   }>(),
   { size: 42, stroke: 4, tone: "mint", showLabel: true },
@@ -19,6 +19,8 @@ const circumference = computed(() => 2 * Math.PI * radius.value);
 const offset = computed(() => circumference.value * (1 - pct.value / 100));
 const color = computed(() => {
   switch (props.tone) {
+    case "primary":
+      return "var(--primary)";
     case "amber":
       return "var(--amber)";
     case "ice":

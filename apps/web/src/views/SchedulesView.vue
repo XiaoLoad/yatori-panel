@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import ScheduleDialog from "@/components/account/ScheduleDialog.vue";
 import { relativeTime } from "@/lib/utils";
 import { toastError } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
 
 const queryClient = useQueryClient();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
@@ -96,14 +97,40 @@ const deleteMutation = useMutation({
   },
   onError: (err) => toastError(err, "删除规则失败"),
 });
+
+function ruleName(s: ScheduleVO): string {
+  return s.name || "未命名规则";
+}
+
+async function askToggle(s: ScheduleVO) {
+  // 只在关闭（暂停）规则时确认，启用是恢复性操作无需拦截
+  if (s.enabled) {
+    const ok = await confirmAction({
+      title: `暂停定时规则「${ruleName(s)}」？`,
+      description: "暂停后到点不再自动开始任务，已启动的任务不受影响，随时可以重新启用。",
+      confirmText: "暂停规则",
+    });
+    if (!ok) return;
+  }
+  toggleMutation.mutate(s.id);
+}
+
+async function askDelete(s: ScheduleVO) {
+  const ok = await confirmAction({
+    title: `删除定时规则「${ruleName(s)}」？`,
+    description: "删除后规则不再自动开始或停止任务，该操作不可撤销。",
+    confirmText: "删除规则",
+    tone: "danger",
+  });
+  if (ok) deleteMutation.mutate(s.id);
+}
 </script>
 
 <template>
   <div class="space-y-4">
     <header class="flex flex-wrap items-end gap-3">
       <div>
-        <div class="eyebrow">Schedule automation</div>
-        <h1 class="display-title mt-1.5 text-[28px] leading-none">定时</h1>
+        <h1 class="display-title text-[26px] leading-none">定时</h1>
         <p class="mt-2 text-[14px] text-muted-foreground">
           一条规则绑定多个账号，到点自动开始，到点自动停止
         </p>
@@ -130,9 +157,8 @@ const deleteMutation = useMutation({
       <!-- 24 小时排程 -->
       <section class="panel px-4 py-3.5">
         <div class="flex flex-wrap items-baseline gap-2">
-          <div class="eyebrow">24h timeline</div>
           <h2 class="text-[15px] font-medium">今日排程</h2>
-          <span class="mono ml-auto text-[11.5px] text-muted-foreground">{{ activeCount }} ACTIVE / {{ schedulesQuery.data.value?.length ?? 0 }}</span>
+          <span class="mono ml-auto text-[12px] text-muted-foreground">{{ activeCount }} 条生效 / {{ schedulesQuery.data.value?.length ?? 0 }}</span>
         </div>
 
         <div class="mt-3 grid grid-cols-[132px_minmax(0,1fr)] gap-3">
@@ -148,7 +174,7 @@ const deleteMutation = useMutation({
           <template v-for="s in schedulesQuery.data.value" :key="s.id">
             <div class="min-w-0 self-center">
               <div class="truncate text-[13.5px]">{{ s.name || "未命名规则" }}</div>
-              <div class="mono truncate text-[11px] text-muted-foreground">{{ s.accountUids.length }} ACCOUNTS · {{ daysOf(s.cron) }}</div>
+              <div class="mono truncate text-[12px] text-muted-foreground">{{ s.accountUids.length }} 个账号 · {{ daysOf(s.cron) }}</div>
             </div>
             <div class="relative my-1 h-6 rounded-md border border-border/60 bg-panel-2/60">
               <div
@@ -183,7 +209,7 @@ const deleteMutation = useMutation({
                 :class="s.enabled
                   ? 'mono rounded-full border border-mint/30 bg-mint/10 px-1.5 py-0.5 text-[11px] text-mint'
                   : 'mono rounded-full border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground'"
-              >{{ s.enabled ? "ENABLED" : "PAUSED" }}</span>
+              >{{ s.enabled ? "启用" : "暂停" }}</span>
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
               <span class="mono text-foreground/80">{{ summary(s) }}</span>
@@ -197,12 +223,12 @@ const deleteMutation = useMutation({
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <Switch :model-value="s.enabled" @update:model-value="toggleMutation.mutate(s.id)" />
+            <Switch :model-value="s.enabled" @update:model-value="askToggle(s)" />
             <Button
               variant="ghost"
               size="icon"
               class="size-7 text-muted-foreground hover:text-coral"
-              @click="deleteMutation.mutate(s.id)"
+              @click="askDelete(s)"
             ><Trash2 class="size-3.5" /></Button>
           </div>
         </div>

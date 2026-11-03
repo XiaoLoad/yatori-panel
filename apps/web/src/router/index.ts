@@ -15,6 +15,13 @@ export const router = createRouter({
       component: AppShell,
       children: [
         { path: "", name: "workspace", component: () => import("@/views/WorkspaceView.vue") },
+        { path: "accounts", name: "accounts", component: () => import("@/views/AccountsView.vue") },
+        {
+          path: "accounts/:uid",
+          name: "account",
+          component: () => import("@/views/AccountDetailView.vue"),
+          props: true,
+        },
         { path: "history", name: "history", component: () => import("@/views/HistoryView.vue") },
         { path: "schedules", name: "schedules", component: () => import("@/views/SchedulesView.vue") },
         { path: "settings", name: "settings", component: () => import("@/views/SettingsView.vue") },

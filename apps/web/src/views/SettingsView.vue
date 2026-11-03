@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { Ban, BrainCircuit, Database, Gauge, Lock, Mail, RotateCcw, Save } from "lucide-vue-next";
-import { computed, reactive, ref, watch } from "vue";
+import { Ban, BrainCircuit, ChevronDown, ChevronUp, Database, Gauge, Lock, Mail, RotateCcw, Save } from "lucide-vue-next";
+import { computed, markRaw, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { Settings } from "@yatori/shared";
 import { api } from "@/api/resources";
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { confirmAction } from "@/lib/confirm";
 
 const queryClient = useQueryClient();
 const auth = useAuthStore();
@@ -98,8 +99,18 @@ function flatten(s: Settings): Record<string, string | number | boolean> {
   };
 }
 
-function mask(key: string, v: string | number | boolean) {
-  if (SECRET_KEYS.has(key) && typeof v === "string" && v) return "••••••";
+/** 明细面板按配置分组展示，避免一长串平铺 */
+const GROUPS = [
+  { key: "run", label: "运行参数", icon: markRaw(Gauge), match: (k: string) => !k.includes(".") },
+  { key: "ai", label: "AI 答题", icon: markRaw(BrainCircuit), match: (k: string) => k.startsWith("ai.") },
+  { key: "bank", label: "外置题库", icon: markRaw(Database), match: (k: string) => k.startsWith("questionBank.") },
+  { key: "email", label: "邮箱通知", icon: markRaw(Mail), match: (k: string) => k.startsWith("email.") },
+] as const;
+
+function displayValue(key: string, v: string | number | boolean): string {
+  if (SECRET_KEYS.has(key)) return typeof v === "string" && v ? "已设置" : "（空）";
+  if (typeof v === "boolean") return v ? "开启" : "关闭";
+  if (v === "") return "（空）";
   return String(v);
 }
 
@@ -108,14 +119,23 @@ const draftFlat = computed(() => flatten(draft));
 const dirtyKeys = computed(() => Object.keys(LABELS).filter((k) => serverFlat.value[k] !== draftFlat.value[k]));
 const isDirty = computed(() => dirtyKeys.value.length > 0);
 const changes = computed(() =>
-  dirtyKeys.value.map((k) => ({
-    key: k,
-    label: LABELS[k],
-    old: mask(k, serverFlat.value[k]!),
-    new: mask(k, draftFlat.value[k]!),
-  })),
+  dirtyKeys.value.map((k) => {
+    const secret = SECRET_KEYS.has(k);
+    return {
+      key: k,
+      label: LABELS[k],
+      old: secret ? (serverFlat.value[k] ? "已设置" : "（空）") : displayValue(k, serverFlat.value[k]!),
+      new: secret ? (draftFlat.value[k] ? "已填写（隐藏）" : "（空）") : displayValue(k, draftFlat.value[k]!),
+    };
+  }),
+);
+const groupedChanges = computed(() =>
+  GROUPS.map((g) => ({ ...g, items: changes.value.filter((c) => g.match(c.key)) })).filter((g) => g.items.length),
 );
 const showDiff = ref(false);
+watch(isDirty, (dirty) => {
+  if (!dirty) showDiff.value = false;
+});
 
 const saveMutation = useMutation({
   mutationFn: () => api.saveSettings(JSON.parse(JSON.stringify(draft)) as Settings),
@@ -213,47 +233,31 @@ const disableMutation = useMutation({
   },
   onError: (err) => toast.error((err as Error).message),
 });
+
+async function askDisable() {
+  const ok = await confirmAction({
+    title: "关闭访问锁？",
+    description: "关闭后本机所有已登录会话会立即失效，任何人都能直接打开面板，可随时重新启用。",
+    confirmText: "关闭访问锁",
+    tone: "danger",
+  });
+  if (ok) disableMutation.mutate();
+}
 </script>
 
 <template>
   <div class="space-y-4">
     <header class="flex flex-wrap items-end gap-3">
       <div>
-        <div class="eyebrow">Calibration / Global</div>
-        <h1 class="display-title mt-1.5 text-[28px] leading-none">设置</h1>
+        <h1 class="display-title text-[26px] leading-none">设置</h1>
         <p class="mt-2 text-[14px] text-muted-foreground">修改先暂存，确认后一键保存；密钥仅存本机</p>
       </div>
       <div class="ml-auto flex items-center gap-2">
-        <span class="mono rounded-full border border-border px-2.5 py-1 text-[11.5px] text-muted-foreground">
-          {{ isDirty ? `${dirtyKeys.length} PENDING` : "IN SYNC" }}
+        <span class="mono rounded-full border border-border px-2.5 py-1 text-[12px] text-muted-foreground">
+          {{ isDirty ? `待保存 ${dirtyKeys.length} 项` : "已同步" }}
         </span>
       </div>
     </header>
-
-    <div
-      v-if="isDirty"
-      class="sticky top-[60px] z-30 flex flex-wrap items-center gap-3 rounded-xl border border-amber/40 bg-amber/10 px-4 py-2.5"
-    >
-      <Badge variant="warning">已修改 {{ dirtyKeys.length }} 项</Badge>
-      <button class="text-[13.5px] text-muted-foreground underline-offset-2 hover:underline" @click="showDiff = !showDiff">
-        {{ showDiff ? "收起变更明细" : "查看变更明细" }}
-      </button>
-      <div class="ml-auto flex items-center gap-2">
-        <Button variant="outline" size="sm" class="h-7 text-[13.5px]" @click="discardAll"><RotateCcw class="size-3.5" />放弃</Button>
-        <Button size="sm" class="h-7 text-[13.5px]" :disabled="saveMutation.isPending.value" @click="saveMutation.mutate()">
-          <Save class="size-3.5" />{{ saveMutation.isPending.value ? "保存中…" : "保存设置" }}
-        </Button>
-      </div>
-    </div>
-
-    <div v-if="isDirty && showDiff" class="panel px-4 py-3">
-      <div v-for="c in changes" :key="c.key" class="flex flex-wrap items-center gap-2 py-0.5 text-[13.5px]">
-        <span class="w-40 shrink-0 text-muted-foreground">{{ c.label }}</span>
-        <span class="rounded bg-muted px-1.5 line-through opacity-70">{{ c.old === "" ? "（空）" : c.old }}</span>
-        <span class="text-muted-foreground">→</span>
-        <span class="rounded bg-emerald-500/15 px-1.5 text-emerald-600 dark:text-emerald-400">{{ c.new === "" ? "（空）" : c.new }}</span>
-      </div>
-    </div>
 
     <div class="grid gap-3 lg:grid-cols-2">
       <!-- AI -->
@@ -418,10 +422,71 @@ const disableMutation = useMutation({
             size="sm"
             class="h-8 text-[13.5px]"
             :disabled="disableMutation.isPending.value"
-            @click="disableMutation.mutate()"
+            @click="askDisable"
           ><Ban class="size-3.5" />关闭访问锁</Button>
         </form>
       </section>
     </div>
+
+    <!-- 未保存更改：固定在右下角，明细向上展开，不随页面滚动消失 -->
+    <Teleport to="body">
+      <div v-if="isDirty" class="fixed bottom-5 right-5 z-40 w-[min(440px,calc(100vw-2.5rem))]">
+        <Transition
+          enter-active-class="transition duration-200 ease-out"
+          enter-from-class="opacity-0 translate-y-2"
+          enter-to-class="opacity-100 translate-y-0"
+          leave-active-class="transition duration-150 ease-in"
+          leave-from-class="opacity-100 translate-y-0"
+          leave-to-class="opacity-0 translate-y-2"
+        >
+          <div v-if="showDiff" class="panel mb-2 overflow-hidden shadow-xl">
+            <div class="flex items-center gap-2 border-b border-border px-4 py-2.5">
+              <span class="text-[14px] font-medium">未保存的更改</span>
+              <span class="mono rounded-full bg-amber/10 px-1.5 text-[12px] text-amber">{{ dirtyKeys.length }}</span>
+              <button class="ml-auto text-[12.5px] text-muted-foreground hover:text-foreground" @click="showDiff = false">收起</button>
+            </div>
+            <div class="max-h-[46vh] overflow-y-auto px-4 py-1">
+              <div v-for="g in groupedChanges" :key="g.key" class="border-b border-border/60 py-2 last:border-b-0">
+                <div class="mb-1 flex items-center gap-1.5 text-[12.5px] font-medium">
+                  <component :is="g.icon" class="size-3.5 text-muted-foreground" />
+                  {{ g.label }}
+                  <span class="mono ml-auto text-muted-foreground">{{ g.items.length }}</span>
+                </div>
+                <div v-for="c in g.items" :key="c.key" class="flex items-start gap-2 py-1">
+                  <span class="w-32 shrink-0 truncate text-[12.5px] text-muted-foreground" :title="c.label">{{ c.label }}</span>
+                  <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                    <span class="max-w-full truncate rounded bg-muted px-1.5 text-[12px] line-through opacity-70" :title="c.old">{{ c.old }}</span>
+                    <span class="text-[12px] text-muted-foreground">→</span>
+                    <span class="max-w-full truncate rounded bg-primary/10 px-1.5 text-[12px] text-primary" :title="c.new">{{ c.new }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Transition>
+
+        <div class="panel flex flex-wrap items-center gap-2.5 border-amber/40 px-3 py-2.5 shadow-xl">
+          <span class="size-2 shrink-0 animate-breathe rounded-full bg-amber" />
+          <div class="min-w-0 flex-1">
+            <div class="text-[13.5px] font-medium">未保存更改</div>
+            <div class="text-[12px] text-muted-foreground">{{ dirtyKeys.length }} 项设置待保存</div>
+          </div>
+          <button
+            class="flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+            @click="showDiff = !showDiff"
+          >
+            {{ showDiff ? "收起明细" : "查看明细" }}
+            <ChevronDown v-if="!showDiff" class="size-3.5" />
+            <ChevronUp v-else class="size-3.5" />
+          </button>
+          <Button variant="outline" size="sm" class="h-7 gap-1 text-[13px]" @click="discardAll">
+            <RotateCcw class="size-3.5" />放弃
+          </Button>
+          <Button size="sm" class="h-7 gap-1 text-[13px]" :disabled="saveMutation.isPending.value" @click="saveMutation.mutate()">
+            <Save class="size-3.5" />{{ saveMutation.isPending.value ? "保存中…" : "保存" }}
+          </Button>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
