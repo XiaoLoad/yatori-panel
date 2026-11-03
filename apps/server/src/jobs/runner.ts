@@ -6,7 +6,7 @@ import type {
 } from "../gateway.ts";
 import { gateway } from "../gateway.ts";
 import { bus } from "../bus.ts";
-import { appendJobEvent } from "../db/jobs.ts";
+import { appendJobEvent, saveJobProgress } from "../db/jobs.ts";
 import { clearNodeFlag, flaggedNodeIds, upsertNode } from "../db/nodes.ts";
 import { getSettings } from "../db/settings.ts";
 import { getAccount } from "../db/accounts.ts";
@@ -112,6 +112,12 @@ export async function runJob(
   const settings = getSettings();
   const tickMs = settings.tickSeconds * 1000;
   const summary = emptySummary();
+  // 本次任务覆盖的课程与已加载章节树，用于整体进度与剩余时长估算
+  let courses: GatewayCourse[] = [];
+  const nodesByCourse = new Map<string, GatewayNode[]>();
+  const doneCourses = new Set<string>();
+  /** 每门课最近活跃节点，用于并行课程时区分各自在刷什么 */
+  const currentByCourse = new Map<string, string>();
   // 本次任务中被标记的节点（去红目标），以及已处理过的作业/考试（避免多轮重复提交）
   const flagSet = new Set<string>();
   const doneWorks = new Set<string>();
@@ -127,6 +133,8 @@ export async function runJob(
   const emit = (e: Omit<import("../shared.ts").JobEvent, "ts">) => {
     const full = { ...e, ts: Date.now() } as import("../shared.ts").JobEvent;
     if (e.type === "task.flag" || e.type === "log") appendJobEvent(jobId, full);
+    // 进度快照落库：页面刷新/重连后仍能显示阶段与课程整体进度
+    if (e.type === "task.progress") saveJobProgress(jobId, full);
     bus.publish(full);
   };
 
@@ -145,6 +153,53 @@ export async function runJob(
   const checkAbort = (): boolean => signal.aborted;
   // 到点停止（graceful）只在节点/作业/考试边界生效，避免半截断连丢进度
   const stopRequested = (): boolean => signal.aborted || (shouldStop?.() ?? false);
+
+  /**
+   * 任务整体进度：按已加载章节树的视频时长汇总。
+   * 只统计已获取到树的课程，估算值随课程启动逐步精确；ETA 按课程并发折算。
+   */
+  function jobOverview() {
+    const coursesProgress = courses.map((course) => {
+      const nodes = nodesByCourse.get(course.id);
+      let total = 0;
+      let remaining = 0;
+      if (nodes) {
+        for (const n of nodes) {
+          const duration = n.durationSeconds || Number(n.extra?.["duration"] ?? 0);
+          if (!duration) continue;
+          const pct = n.completed ? 100 : Math.min(100, Math.max(0, Number(n.progress) || 0));
+          total += duration;
+          remaining += duration * (1 - pct / 100);
+        }
+      }
+      const completed = doneCourses.has(course.id);
+      const progress = total > 0 ? Math.round(((total - remaining) / total) * 100) : completed ? 100 : 0;
+      return {
+        courseId: course.id,
+        courseName: course.name,
+        totalSeconds: Math.round(total),
+        remainingSeconds: Math.round(remaining),
+        progress: Math.min(100, Math.max(0, progress)),
+        completed,
+        loaded: !!nodes,
+        currentNodeName: currentByCourse.get(course.id),
+      };
+    });
+
+    const courseTotalSeconds = coursesProgress.reduce((s, c) => s + c.totalSeconds, 0);
+    const courseRemainingSeconds = coursesProgress.reduce((s, c) => s + c.remainingSeconds, 0);
+    const courseCount = coursesProgress.length;
+    const coursesRemaining = coursesProgress.filter((c) => !c.completed).length;
+    const activeCourses = Math.max(1, Math.min(settings.maxCoursesConcurrency, Math.max(1, courseCount)));
+    return {
+      courseTotalSeconds,
+      courseRemainingSeconds,
+      courseCount,
+      coursesRemaining,
+      etaSeconds: Math.round(courseRemainingSeconds / activeCourses),
+      coursesProgress,
+    };
+  }
 
   /**
    * 会话失效兜底：重建会话后其他并发课程仍可能短暂使用旧 sid，
@@ -304,6 +359,10 @@ export async function runJob(
       }
 
       upsertNode(accountUid, course.id, node, res.progress, res.completed, flagged);
+      // 同步内存中的节点状态，供任务整体进度实时汇总
+      node.progress = res.completed ? 100 : res.progress;
+      node.completed = res.completed;
+      currentByCourse.set(course.id, node.name);
 
       // 逐次提交只发 DEBUG 且不落库：日志页切到 DEBUG 级别可观察每次学时提交
       emitLog(
@@ -324,6 +383,7 @@ export async function runJob(
         progress: res.progress,
         watchedSeconds: res.positionSeconds ?? position,
         totalSeconds: total,
+        ...jobOverview(),
       });
 
       // 对齐 console：最后一次提交后也睡一个 tick 再进入下一视频，
@@ -515,8 +575,9 @@ export async function runJob(
   ): Promise<void> {
     const entry = tasks.get(node.id);
     if (!entry) return;
+    currentByCourse.set(course.id, node.name);
     if (entry.works.length > 0) {
-      emit({ type: "task.progress", phase: "work", courseId: course.id, courseName: course.name });
+      emit({ type: "task.progress", phase: "work", courseId: course.id, courseName: course.name, ...jobOverview() });
       emitLog("info", `节点 ${node.name}：发现 ${entry.works.length} 份作业，开始答题`);
     }
     for (const w of entry.works) {
@@ -525,7 +586,7 @@ export async function runJob(
       await answerWork(course, w);
     }
     if (entry.exams.length > 0) {
-      emit({ type: "task.progress", phase: "exam", courseId: course.id, courseName: course.name });
+      emit({ type: "task.progress", phase: "exam", courseId: course.id, courseName: course.name, ...jobOverview() });
       emitLog("info", `节点 ${node.name}：发现 ${entry.exams.length} 场考试，开始答题`);
     }
     for (const x of entry.exams) {
@@ -694,9 +755,11 @@ export async function runJob(
     course: GatewayCourse,
     tasks: Map<string, NodeTasks>,
   ): Promise<void> {
-    emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name });
+    emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name, ...jobOverview() });
     const tree = await withSession((s) => gateway.tree(s, course.id, { signal }));
     const nodes = flattenNodes(tree);
+    nodesByCourse.set(course.id, nodes);
+    emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name, ...jobOverview() });
     const videoCount = nodes.filter(isVideoNode).length;
     const mode = options.videoMode;
 
@@ -709,6 +772,8 @@ export async function runJob(
         await runNodeTasks(course, n, tasks);
       }
       emitLog("info", `课程结束：${course.name}`);
+      doneCourses.add(course.id);
+      emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name, ...jobOverview() });
       return;
     }
 
@@ -747,11 +812,12 @@ export async function runJob(
         }
       }
     }
+    if (!stopRequested() && nodes.every((n) => !isVideoNode(n))) doneCourses.add(course.id);
     emitLog("info", `课程结束：${course.name}`);
+    emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name, ...jobOverview() });
   }
 
   // ---------- 主流程 ----------
-  let courses: GatewayCourse[] = [];
   try {
     courses = await withSession((s) => gateway.courses(s, { signal }));
   } catch (err) {

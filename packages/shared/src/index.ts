@@ -184,6 +184,8 @@ export interface JobVO {
   startedAt: string;
   finishedAt?: string | null;
   summary?: JobSummary | null;
+  /** 最近一次进度快照：页面刷新后仍能显示阶段/课程进度，而非停留在“准备” */
+  progress?: JobEvent | null;
 }
 
 // ---------- 事件流（SSE） ----------
@@ -197,6 +199,22 @@ export type JobEventType =
   | "gateway.status";
 
 export type GatewayDetail = "ok" | "conn-refused" | "timeout" | "error";
+
+export interface JobCourseProgress {
+  courseId: string;
+  courseName: string;
+  /** 该课程视频总时长（秒） */
+  totalSeconds: number;
+  /** 该课程剩余视频时长（秒） */
+  remainingSeconds: number;
+  /** 0-100 */
+  progress: number;
+  completed: boolean;
+  /** 章节树是否已加载，未加载时进度统计尚不可用 */
+  loaded: boolean;
+  /** 最近活跃的节点名，用于并行课程时区分当前在做什么 */
+  currentNodeName?: string;
+}
 
 export interface JobEvent {
   type: JobEventType;
@@ -213,6 +231,14 @@ export interface JobEvent {
   progress?: number;
   watchedSeconds?: number;
   totalSeconds?: number;
+  /** 任务覆盖课程的整体进度统计（按已加载章节树的视频时长汇总） */
+  courseTotalSeconds?: number;
+  courseRemainingSeconds?: number;
+  courseCount?: number;
+  coursesRemaining?: number;
+  etaSeconds?: number;
+  /** 每门课程的独立进度，供并行刷课的可视化展示 */
+  coursesProgress?: JobCourseProgress[];
   reason?: string;
   level?: string;
   message?: string;

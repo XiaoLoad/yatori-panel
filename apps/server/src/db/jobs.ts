@@ -12,7 +12,7 @@ interface JobRow {
   [k: string]: string | number | null;
 }
 
-function toVO(r: JobRow, accountName?: string): JobVO {
+function toVO(r: JobRow & { progress_json?: string | null }, accountName?: string): JobVO {
   return {
     id: r.id,
     accountUid: r.account_uid,
@@ -22,6 +22,7 @@ function toVO(r: JobRow, accountName?: string): JobVO {
     startedAt: r.started_at,
     finishedAt: r.finished_at,
     summary: r.summary_json ? (JSON.parse(r.summary_json) as JobSummary) : null,
+    progress: r.progress_json ? (JSON.parse(r.progress_json) as JobEvent) : null,
   };
 }
 
@@ -75,19 +76,29 @@ export function recoverStaleRunningJobs(): number {
 }
 
 export function getJob(id: string): JobVO | null {
-  const row = sqlite.prepare(`SELECT * FROM jobs WHERE id = ?`).get(id) as unknown as JobRow | undefined;
+  const row = sqlite
+    .prepare(
+      `SELECT j.*, p.payload_json AS progress_json
+       FROM jobs j LEFT JOIN job_progress p ON p.job_id = j.id
+       WHERE j.id = ?`,
+    )
+    .get(id) as unknown as (JobRow & { progress_json: string | null }) | undefined;
   return row ? toVO(row) : null;
 }
 
 export function listJobs(filter: { accountUid?: string; state?: string; limit?: number }): JobVO[] {
   const conds: string[] = [];
   const params: Record<string, string | number | null> = { limit: filter.limit ?? 50 };
-  if (filter.accountUid) { conds.push("account_uid = @accountUid"); params.accountUid = filter.accountUid; }
-  if (filter.state) { conds.push("state = @state"); params.state = filter.state; }
+  if (filter.accountUid) { conds.push("j.account_uid = @accountUid"); params.accountUid = filter.accountUid; }
+  if (filter.state) { conds.push("j.state = @state"); params.state = filter.state; }
   const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
   const rows = sqlite
-    .prepare(`SELECT * FROM jobs ${where} ORDER BY started_at DESC LIMIT @limit`)
-    .all(params) as unknown as JobRow[];
+    .prepare(
+      `SELECT j.*, p.payload_json AS progress_json
+       FROM jobs j LEFT JOIN job_progress p ON p.job_id = j.id
+       ${where} ORDER BY j.started_at DESC LIMIT @limit`,
+    )
+    .all(params) as unknown as (JobRow & { progress_json: string | null })[];
   return rows.map((r) => toVO(r));
 }
 
@@ -112,5 +123,31 @@ export function eventsForJob(jobId: string, limit = 500): JobEvent[] {
       `SELECT payload_json FROM job_events WHERE job_id = ? ORDER BY id DESC LIMIT ?`,
     )
     .all(jobId, limit) as { payload_json: string }[];
+  return rows.map((r) => JSON.parse(r.payload_json) as JobEvent).reverse();
+}
+
+/** 覆盖写最近一次进度快照：合并保留上一次的进度字段，避免阶段事件把进度冲掉 */
+export function saveJobProgress(jobId: string, event: JobEvent): void {
+  const row = sqlite
+    .prepare(`SELECT payload_json FROM job_progress WHERE job_id = ?`)
+    .get(jobId) as { payload_json: string } | undefined;
+  const merged = row
+    ? { ...(JSON.parse(row.payload_json) as JobEvent), ...event }
+    : event;
+  sqlite
+    .prepare(
+      `INSERT INTO job_progress (job_id, payload_json, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(job_id) DO UPDATE SET payload_json = excluded.payload_json, updated_at = excluded.updated_at`,
+    )
+    .run(jobId, JSON.stringify(merged), now());
+}
+
+/** 全站最近日志：观测台刷新后仍能看到历史日志，而不只依赖 SSE 内存缓冲 */
+export function recentLogEvents(limit = 300): JobEvent[] {
+  const rows = sqlite
+    .prepare(
+      `SELECT payload_json FROM job_events WHERE type = 'log' ORDER BY id DESC LIMIT ?`,
+    )
+    .all(limit) as { payload_json: string }[];
   return rows.map((r) => JSON.parse(r.payload_json) as JobEvent).reverse();
 }

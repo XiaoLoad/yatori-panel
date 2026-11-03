@@ -77,6 +77,7 @@ import type {
   CreateScheduleBody,
   ScheduleVO,
   CreateAccountBody,
+  JobEvent,
   JobVO,
   PlatformMeta,
   Settings,
@@ -133,6 +134,8 @@ export const api = {
     ),
   jobs: (params?: { accountUid?: string; state?: string; limit?: number }) =>
     get<JobVO[]>("/jobs", params),
+  /** 全站持久化日志，用于观测台刷新后回填历史 */
+  logEvents: (limit = 300) => get<JobEvent[]>("/logs", { limit }),
 
   settings: () => get<Settings>("/settings"),
   saveSettings: (body: Settings) => put<void>("/settings", body),

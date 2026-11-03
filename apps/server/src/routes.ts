@@ -23,7 +23,7 @@ import {
   markVerify,
   updateAccount,
 } from "./db/accounts.ts";
-import { eventsForJob, getJob, listJobs } from "./db/jobs.ts";
+import { eventsForJob, getJob, listJobs, recentLogEvents } from "./db/jobs.ts";
 import {
   authRequired,
   issueSession,
@@ -593,6 +593,13 @@ export function registerRoutes(app: FastifyInstance): void {
     const job = getJob((req.params as { id: string }).id);
     if (!job) throw new HttpError(404, "任务不存在");
     return { ok: true, data: { ...job, events: eventsForJob(job.id) } };
+  });
+
+  // 全站日志（来自 job_events 持久化），供观测台在刷新后回填历史
+  app.get("/api/v1/logs", async (req) => {
+    const q = req.query as { limit?: string };
+    const limit = Math.min(800, Math.max(50, Number(q.limit) || 300));
+    return { ok: true, data: recentLogEvents(limit) };
   });
 
   // ---------- 设置 ----------
