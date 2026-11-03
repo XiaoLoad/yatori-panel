@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   BookOpen,
   ClipboardList,
+  ExternalLink,
   History,
   Pencil,
   Play,
@@ -69,6 +70,15 @@ const jobsQuery = useQuery({
 const account = computed<AccountWithSession | undefined>(() =>
   (accountsQuery.data.value ?? []).find((a) => a.uid === props.uid),
 );
+
+// 预先取回登录信息：点击时才能同步完成“复制 → 开窗”，避免新窗口抢焦点导致复制失败
+const credentialsQuery = useQuery({
+  queryKey: computed(() => ["credentials", props.uid]),
+  queryFn: () => api.credentials(props.uid),
+  enabled: computed(() => !!account.value),
+  staleTime: 60_000,
+  retry: 1,
+});
 
 const platformName = computed(
   () =>
@@ -180,7 +190,8 @@ const addOpen = ref(false);
 const stopMutation = useMutation({
   mutationFn: (id: string) => api.stopJob(id),
   onSuccess: (r) => {
-    toast.success(r.stopped ? "已发送停止指令" : r.reason ?? "任务已结束");
+    if (r.stopped) toast.info("已请求停止，任务正在收尾");
+    else toast.warning(r.reason ?? "任务已结束");
     void queryClient.invalidateQueries({ queryKey: ["jobs"] });
   },
   onError: (err) => toastError(err, "停止任务失败"),
@@ -212,6 +223,68 @@ function askRemove() {
   const name = account.value.remark || account.value.username;
   if (!window.confirm(`删除账号「${name}」？该操作不可撤销。`)) return;
   removeMutation.mutate();
+}
+
+/**
+ * 同步写剪贴板：必须在点击的同一帧内完成。
+ * 若先开新窗口，焦点会被新窗口抢走，Clipboard API 和 execCommand 都会失败。
+ */
+function copyTextSync(text: string): boolean {
+  const holder = document.createElement("textarea");
+  holder.value = text;
+  holder.setAttribute("readonly", "");
+  holder.style.cssText = "position:fixed;top:-1000px;left:-1000px;opacity:0;";
+  document.body.appendChild(holder);
+  holder.focus({ preventScroll: true });
+  holder.select();
+  holder.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(holder);
+  return ok;
+}
+
+/** 一键打开平台，并把账号密码写入剪贴板 */
+function openPlatform() {
+  if (!account.value) return;
+  const cred = credentialsQuery.data.value;
+  if (!cred) {
+    if (credentialsQuery.isError.value) toastError(credentialsQuery.error.value, "获取平台登录信息失败");
+    else {
+      toast.info("正在获取平台登录信息，请稍后重试");
+      void credentialsQuery.refetch();
+    }
+    return;
+  }
+
+  // 先在当前窗口完成复制，再打开新窗口，避免新窗口抢焦点导致复制失败
+  if (!cred.password) {
+    toast.warning("密码不可用，请编辑账号重新保存后再试");
+  } else {
+    const copied = copyTextSync(`账号：${cred.username}\n密码：${cred.password}`);
+    if (copied) toast.success("已复制账号密码，请在平台完成登录");
+    else toast.error("复制失败，请手动填写账号密码");
+  }
+
+  const entry = cred.entryUrl || account.value.baseUrl || "";
+  if (!entry) {
+    toast.error("该账号没有可用的平台入口地址");
+    return;
+  }
+  const opened = window.open(entry, "_blank");
+  if (!opened) {
+    toast.error("浏览器拦截了新窗口，请允许弹窗后重试");
+    return;
+  }
+  try {
+    opened.opener = null;
+  } catch {
+    // 跨域窗口可能不允许改 opener，忽略即可
+  }
 }
 
 function startedAt(job: JobVO): string {
@@ -270,14 +343,18 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           <Button v-else size="sm" class="h-8 gap-1 text-[13px]" @click="startOpen = true">
             <Play class="size-3.5" />开始任务
           </Button>
+          <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="openPlatform">
+            <ExternalLink class="size-3.5" />打开平台并复制
+          </Button>
           <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="verifyMutation.mutate()">
             <RefreshCw class="size-3.5" />检测登录
           </Button>
-          <Button variant="ghost" size="icon" class="size-8" title="编辑账号" @click="addOpen = true">
-            <Pencil class="size-4" />
+          <span class="mx-1 h-4 w-px bg-border" />
+          <Button variant="ghost" size="sm" class="h-8 gap-1 text-[13px]" @click="addOpen = true">
+            <Pencil class="size-3.5" />编辑
           </Button>
-          <Button variant="ghost" size="icon" class="size-8 text-muted-foreground hover:text-coral" title="删除账号" @click="askRemove">
-            <Trash2 class="size-4" />
+          <Button variant="ghost" size="sm" class="h-8 gap-1 text-[13px] text-muted-foreground hover:text-coral" @click="askRemove">
+            <Trash2 class="size-3.5" />删除
           </Button>
         </div>
       </div>

@@ -66,6 +66,13 @@ export interface VerifyResult {
   remark?: string;
 }
 
+/** 打开平台并复制登录信息时按需获取 */
+export interface AccountCredentials {
+  username: string;
+  password: string;
+  entryUrl: string;
+}
+
 export interface CreateAccountResult extends AccountVO {
   verify?: VerifyResult;
 }
@@ -102,6 +109,8 @@ export const api = {
     post<CreateAccountResult>("/accounts", body),
   verifyAccount: (uid: string) =>
     post<VerifyResult>(`/accounts/${uid}/verify`),
+  credentials: (uid: string) =>
+    get<AccountCredentials>(`/accounts/${uid}/credentials`),
   updateAccount: (uid: string, body: UpdateAccountBody) =>
     put<void>(`/accounts/${uid}`, body),
   deleteAccount: (uid: string) => del<void>(`/accounts/${uid}`),
@@ -132,6 +141,8 @@ export const api = {
       `/jobs/${id}/stop`,
       graceful ? { graceful: true } : undefined,
     ),
+  pauseJob: (id: string) => post<{ paused: boolean }>(`/jobs/${id}/pause`),
+  resumeJob: (id: string) => post<{ paused: boolean }>(`/jobs/${id}/resume`),
   jobs: (params?: { accountUid?: string; state?: string; limit?: number }) =>
     get<JobVO[]>("/jobs", params),
   /** 全站持久化日志，用于观测台刷新后回填历史 */

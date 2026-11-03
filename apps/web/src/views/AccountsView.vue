@@ -174,7 +174,8 @@ function openStart(accounts: { uid: string; label: string }[]) {
 const stopMutation = useMutation({
   mutationFn: (id: string) => api.stopJob(id),
   onSuccess: (r) => {
-    toast.success(r.stopped ? "已发送停止指令" : r.reason ?? "任务已结束");
+    if (r.stopped) toast.info("已请求停止，任务正在收尾");
+    else toast.warning(r.reason ?? "任务已结束");
     void queryClient.invalidateQueries({ queryKey: ["jobs"] });
   },
   onError: (err) => toastError(err, "停止任务失败"),
