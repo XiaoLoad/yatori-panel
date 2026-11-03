@@ -102,6 +102,48 @@ export function listJobs(filter: { accountUid?: string; state?: string; limit?: 
   return rows.map((r) => toVO(r));
 }
 
+/** 台账分页：筛选条件在服务端生效，避免分页后客户端过滤只剩当前页 */
+export interface JobPageFilter {
+  accountUid?: string;
+  state?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+export function pageJobs(filter: JobPageFilter): { items: JobVO[]; total: number } {
+  const conds: string[] = [];
+  const params: Record<string, string | number> = {};
+  if (filter.accountUid) {
+    conds.push("j.account_uid = @accountUid");
+    params.accountUid = filter.accountUid;
+  }
+  if (filter.state) {
+    conds.push("j.state = @state");
+    params.state = filter.state;
+  }
+  if (filter.search) {
+    conds.push("(j.id LIKE @search OR a.username LIKE @search OR a.remark LIKE @search)");
+    params.search = `%${filter.search}%`;
+  }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+  const total = (
+    sqlite
+      .prepare(`SELECT COUNT(*) AS c FROM jobs j LEFT JOIN accounts a ON a.uid = j.account_uid ${where}`)
+      .get(params) as { c: number }
+  ).c;
+  const offset = (filter.page - 1) * filter.pageSize;
+  const rows = sqlite
+    .prepare(
+      `SELECT j.*, p.payload_json AS progress_json
+       FROM jobs j LEFT JOIN job_progress p ON p.job_id = j.id
+       LEFT JOIN accounts a ON a.uid = j.account_uid
+       ${where} ORDER BY j.started_at DESC LIMIT @limit OFFSET @offset`,
+    )
+    .all({ ...params, limit: filter.pageSize, offset }) as unknown as (JobRow & { progress_json: string | null })[];
+  return { items: rows.map((r) => toVO(r)), total };
+}
+
 export function countRunningByAccount(accountUid: string): number {
   const row = sqlite
     .prepare(`SELECT COUNT(*) AS c FROM jobs WHERE account_uid = ? AND state = 'running'`)
@@ -150,4 +192,59 @@ export function recentLogEvents(limit = 300): JobEvent[] {
     )
     .all(limit) as { payload_json: string }[];
   return rows.map((r) => JSON.parse(r.payload_json) as JobEvent).reverse();
+}
+
+export interface LogPageFilter {
+  level?: string;
+  accountUid?: string;
+  jobId?: string;
+  search?: string;
+  page: number;
+  pageSize: number;
+}
+
+/** 日志分页查询：级别/账号/关键字在服务端过滤，按时间倒序返回 */
+export function pageLogEvents(filter: LogPageFilter): { items: JobEvent[]; total: number } {
+  const conds: string[] = ["type = 'log'"];
+  const params: Record<string, string | number> = {};
+  if (filter.level && filter.level !== "all") {
+    if (filter.level === "info") {
+      // debug 归入信息级别，与前端「信息」标签的统计口径保持一致
+      conds.push("COALESCE(json_extract(payload_json, '$.level'), 'info') IN ('info', 'debug')");
+    } else {
+      conds.push("json_extract(payload_json, '$.level') = @level");
+      params.level = filter.level;
+    }
+  }
+  if (filter.accountUid) {
+    conds.push("json_extract(payload_json, '$.accountId') = @accountUid");
+    params.accountUid = filter.accountUid;
+  }
+  if (filter.jobId) {
+    conds.push("json_extract(payload_json, '$.jobId') = @jobId");
+    params.jobId = filter.jobId;
+  }
+  if (filter.search) {
+    conds.push("json_extract(payload_json, '$.message') LIKE @search");
+    params.search = `%${filter.search}%`;
+  }
+  const where = `WHERE ${conds.join(" AND ")}`;
+  const total = (
+    sqlite.prepare(`SELECT COUNT(*) AS c FROM job_events ${where}`).get(params) as { c: number }
+  ).c;
+  const offset = (filter.page - 1) * filter.pageSize;
+  const rows = sqlite
+    .prepare(
+      `SELECT payload_json FROM job_events ${where} ORDER BY id DESC LIMIT @limit OFFSET @offset`,
+    )
+    .all({ ...params, limit: filter.pageSize, offset }) as { payload_json: string }[];
+  return { items: rows.map((r) => JSON.parse(r.payload_json) as JobEvent), total };
+}
+
+/** 按时间段删除日志（[from, to)，时间均为 ISO 字符串）；保护规则由路由层校验 */
+export function deleteLogEvents(from: string, to: string): number {
+  const info = sqlite
+    .prepare(`DELETE FROM job_events WHERE type = 'log' AND created_at >= ? AND created_at < ?`)
+    .run(from, to);
+  return Number(info.changes);
 }

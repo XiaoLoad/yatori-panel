@@ -7,6 +7,7 @@ import {
   BatchStartJobBody,
   CreateAccountBody,
   CreateScheduleBody,
+  DeleteLogsBody,
   StartJobBody,
   SubmitModeEnum,
   UpdateAccountBody,
@@ -23,7 +24,16 @@ import {
   markVerify,
   updateAccount,
 } from "./db/accounts.ts";
-import { eventsForJob, finishJob, getJob, listJobs, recentLogEvents } from "./db/jobs.ts";
+import {
+  deleteLogEvents,
+  eventsForJob,
+  finishJob,
+  getJob,
+  listJobs,
+  pageJobs,
+  pageLogEvents,
+  recentLogEvents,
+} from "./db/jobs.ts";
 import {
   authRequired,
   issueSession,
@@ -630,6 +640,35 @@ export function registerRoutes(app: FastifyInstance): void {
     return { ok: true, data };
   });
 
+  // 台账分页：筛选与分页都在服务端完成，避免前端只过滤当前页
+  app.get("/api/v1/jobs/history", async (req) => {
+    const q = req.query as {
+      accountUid?: string;
+      state?: string;
+      search?: string;
+      page?: string;
+      pageSize?: string;
+    };
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(100, Math.max(10, Number(q.pageSize) || 20));
+    const { items, total } = pageJobs({
+      accountUid: q.accountUid || undefined,
+      state: q.state || undefined,
+      search: q.search?.trim() || undefined,
+      page,
+      pageSize,
+    });
+    return {
+      ok: true,
+      data: {
+        items: items.map((j) => ({ ...j, paused: jobManager.isPaused(j.id) })),
+        total,
+        page,
+        pageSize,
+      },
+    };
+  });
+
   app.get("/api/v1/jobs/:id", async (req) => {
     const job = getJob((req.params as { id: string }).id);
     if (!job) throw new HttpError(404, "任务不存在");
@@ -654,6 +693,50 @@ export function registerRoutes(app: FastifyInstance): void {
     const q = req.query as { limit?: string };
     const limit = Math.min(800, Math.max(50, Number(q.limit) || 300));
     return { ok: true, data: recentLogEvents(limit) };
+  });
+
+  // 日志分页检索：级别、账号、关键字过滤
+  app.get("/api/v1/logs/history", async (req) => {
+    const q = req.query as {
+      level?: string;
+      accountUid?: string;
+      jobId?: string;
+      search?: string;
+      page?: string;
+      pageSize?: string;
+    };
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(200, Math.max(10, Number(q.pageSize) || 50));
+    const { items, total } = pageLogEvents({
+      level: q.level || undefined,
+      accountUid: q.accountUid || undefined,
+      jobId: q.jobId || undefined,
+      search: q.search?.trim() || undefined,
+      page,
+      pageSize,
+    });
+    return { ok: true, data: { items, total, page, pageSize } };
+  });
+
+  // 按时间段删除日志：结束时间必须早于 7 天前，防止误删近期日志
+  const LOG_RETENTION_MS = 7 * 86_400_000;
+  app.delete("/api/v1/logs", async (req) => {
+    const body = parse<DeleteLogsBody>(req.body, DeleteLogsBody);
+    const from = new Date(body.from);
+    const to = new Date(body.to);
+    if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime())) {
+      throw new HttpError(400, "时间格式不正确");
+    }
+    if (from.getTime() >= to.getTime()) throw new HttpError(400, "开始时间必须早于结束时间");
+    const cutoff = Date.now() - LOG_RETENTION_MS;
+    if (to.getTime() > cutoff) {
+      throw new HttpError(400, "近 7 天内的日志不可删除，请把结束时间调整到 7 天以前");
+    }
+    if (to.getTime() - from.getTime() > 366 * 86_400_000) {
+      throw new HttpError(400, "单次最多删除 366 天内的日志");
+    }
+    const deleted = deleteLogEvents(from.toISOString(), to.toISOString());
+    return { ok: true, data: { deleted } };
   });
 
   // ---------- 设置 ----------
