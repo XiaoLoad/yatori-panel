@@ -11,9 +11,10 @@ import { api } from "@/api/resources";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { name: "workspace", to: "/", label: "观测台", index: "01" },
-  { name: "history", to: "/history", label: "台账", index: "02" },
-  { name: "schedules", to: "/schedules", label: "定时", index: "03" },
+  { name: "workspace", to: "/", label: "观测台" },
+  { name: "accounts", to: "/accounts", label: "账号" },
+  { name: "history", to: "/history", label: "台账" },
+  { name: "schedules", to: "/schedules", label: "定时" },
 ];
 
 const route = useRoute();
@@ -21,6 +22,8 @@ const router = useRouter();
 const theme = useThemeStore();
 const auth = useAuthStore();
 const active = computed(() => route.name as string);
+const isActive = (name: string) =>
+  name === "accounts" ? active.value === "accounts" || active.value === "account" : active.value === name;
 
 const clock = ref("");
 let timer: number | undefined;
@@ -53,8 +56,8 @@ async function logout() {
           <span class="mono text-[13.5px] font-semibold tracking-tight text-primary">Y</span>
         </span>
         <span class="leading-none">
-          <span class="display-title block text-[17px]">Yatori</span>
-          <span class="eyebrow mt-1 block !text-[11px]">Course Instrument</span>
+          <span class="display-title block text-[15px]">Yatori</span>
+          <span class="mt-1 block text-[12px] text-muted-foreground">刷课控制台</span>
         </span>
       </RouterLink>
 
@@ -65,13 +68,12 @@ async function logout() {
           :to="item.to"
           :class="cn(
             'relative flex items-center gap-1.5 px-3 text-[14.5px] transition-colors',
-            active === item.name ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+            isActive(item.name) ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
           )"
         >
-          <span class="mono text-[11.5px] opacity-50">{{ item.index }}</span>
           {{ item.label }}
           <span
-            v-if="active === item.name"
+            v-if="isActive(item.name)"
             class="absolute inset-x-2 bottom-0 h-px bg-primary"
           />
         </RouterLink>
