@@ -93,8 +93,12 @@ import type {
 } from "@yatori/shared";
 import { del, get, post, put } from "./client";
 
+/** 面板只开放已重点适配的平台：学习通、英华 */
+const SUPPORTED_PLATFORMS: string[] = ["YINGHUA", "XUEXITONG"];
+
 export const api = {
-  platforms: () => get<PlatformMeta[]>("/platforms"),
+  platforms: async () =>
+    (await get<PlatformMeta[]>("/platforms")).filter((p) => SUPPORTED_PLATFORMS.includes(p.key)),
 
   authStatus: () =>
     get<{ authRequired: boolean; authed: boolean }>("/auth/status"),
