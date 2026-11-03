@@ -48,6 +48,10 @@ type session struct {
 	yhUsername string
 	yhPassword string
 
+	// 英华学时提交需要按节点复用平台分配的 studyId，否则进度不会累计。
+	studyMu  sync.Mutex
+	studyIDs map[string]string
+
 	stateMu     sync.RWMutex
 	state       string
 	lastError   string

@@ -237,6 +237,8 @@ export const gateway = {
       action?: string;
       mode?: string;
       positionSeconds?: number;
+      /** 视频总时长（秒）：网关据此计算进度，英华直连学时接口时需要 */
+      durationSeconds?: number;
     },
   ) => request<GatewayStudyResult>(`/api/v1/sessions/${sid}/study`, "POST", body),
   doWork: (sid: string, body: { courseId: string; workId: string; source: string; submit: boolean }) =>

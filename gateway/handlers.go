@@ -555,6 +555,22 @@ func (g *gateway) handleStudy(w http.ResponseWriter, r *http.Request) {
 		req.Mode = string(yatori.StudyModeNormal)
 	}
 
+	// 英华：SDK 适配器把 studyId 写死为 "0"，平台无法累计学时，改走网关直连，
+	// 由网关按节点续用平台分配的 studyId（对齐 console）。
+	if se.info.Platform == string(yatori.YingHua) && se.baseURL != "" && se.token != "" {
+		if se.currentState() != "online" {
+			fail(w, http.StatusUnauthorized, "session not online")
+			return
+		}
+		result, err := studyYingHua(r.Context(), se, req)
+		if err != nil {
+			fail(w, mapStatus(err), err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": dtoStudyResult(result)})
+		return
+	}
+
 	// 只传 ID：适配器会回查内部缓存（前提：先调过 Tree / Works）。
 	result, err := se.client.Study(r.Context(), yatori.StudyRequest{
 		Course:   yatori.Course{ID: req.CourseID},
