@@ -17,34 +17,33 @@ const total = computed(
 const option = computed(() => {
   const dark = theme.dark;
   const colors = {
-    running: dark ? "#7CF2C0" : "#1E6F52",
-    online: dark ? "#8AD8F0" : "#22708C",
-    error: dark ? "#F07167" : "#B8433B",
-    idle: dark ? "#3B4A43" : "#C9D3CC",
+    running: dark ? "#60A5FA" : "#2563EB",
+    online: dark ? "#34D399" : "#059669",
+    error: dark ? "#F87171" : "#DC2626",
+    idle: dark ? "#3F3F46" : "#D4D4D8",
   };
+  const text = dark ? "#A1A1AA" : "#71717A";
+  const border = dark ? "#2A2B33" : "#E4E4E7";
+  const foreground = dark ? "#F4F4F5" : "#18181B";
   return {
     backgroundColor: "transparent",
-    animationDuration: 520,
+    animationDuration: 180,
     tooltip: {
       trigger: "item",
-      backgroundColor: dark ? "#111815" : "#FFFFFF",
-      borderColor: dark ? "rgba(190,235,215,0.2)" : "rgba(20,60,45,0.16)",
+      backgroundColor: dark ? "#15161B" : "#FFFFFF",
+      borderColor: border,
       borderWidth: 1,
-      textStyle: { color: dark ? "#E4EFE8" : "#16211B", fontSize: 13 },
+      textStyle: { color: foreground, fontSize: 12 },
     },
     legend: {
       orient: "vertical",
       right: 4,
       top: "center",
-      itemWidth: 6,
-      itemHeight: 6,
+      itemWidth: 8,
+      itemHeight: 8,
       itemGap: 9,
       icon: "circle",
-      textStyle: {
-        color: dark ? "#A9BFB4" : "#4C5F55",
-        fontSize: 12.5,
-        fontFamily: "ui-monospace, monospace",
-      },
+      textStyle: { color: text, fontSize: 12 },
       formatter: (name: string) => {
         const map: Record<string, number> = {
           运行中: props.counts.running,
@@ -63,7 +62,7 @@ const option = computed(() => {
         avoidLabelOverlap: false,
         itemStyle: { borderColor: "transparent", borderWidth: 2 },
         label: { show: false },
-        emphasis: { scale: true, scaleSize: 4 },
+        emphasis: { scale: true, scaleSize: 3 },
         data: [
           { name: "运行中", value: props.counts.running, itemStyle: { color: colors.running } },
           { name: "在线待机", value: props.counts.online, itemStyle: { color: colors.online } },
@@ -79,7 +78,7 @@ const option = computed(() => {
         top: "42%",
         style: {
           text: String(total.value),
-          fill: dark ? "#E4EFE8" : "#16211B",
+          fill: foreground,
           font: "600 18px ui-monospace, monospace",
           textAlign: "center",
         },
@@ -87,11 +86,11 @@ const option = computed(() => {
       {
         type: "text",
         left: "27%",
-        top: "56%",
+        top: "57%",
         style: {
-          text: "ACCOUNTS",
-          fill: dark ? "#9CB3A7" : "#4C5F55",
-          font: "11px ui-monospace, monospace",
+          text: "账号",
+          fill: text,
+          font: "12px sans-serif",
           textAlign: "center",
         },
       },

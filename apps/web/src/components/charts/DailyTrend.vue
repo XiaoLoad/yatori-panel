@@ -12,23 +12,22 @@ const theme = useThemeStore();
 
 const option = computed(() => {
   const dark = theme.dark;
-  const mint = dark ? "#7CF2C0" : "#1E6F52";
-  const amber = dark ? "#F2B45C" : "#B27316";
-  const text = dark ? "#9CB3A7" : "#4C5F55";
-  const axis = dark ? "rgba(190,235,215,0.14)" : "rgba(20,60,45,0.14)";
+  const primary = dark ? "#60A5FA" : "#2563EB";
+  const success = dark ? "#34D399" : "#059669";
+  const text = dark ? "#A1A1AA" : "#71717A";
+  const axis = dark ? "#2A2B33" : "#E4E4E7";
   const days = props.data.map((d) => d.day.slice(5));
   return {
     backgroundColor: "transparent",
-    animationDuration: 520,
-    animationEasing: "cubicOut",
+    animationDuration: 180,
     grid: { left: 2, right: 6, top: 16, bottom: 0, containLabel: true },
     tooltip: {
       trigger: "axis",
-      backgroundColor: dark ? "#111815" : "#FFFFFF",
-      borderColor: dark ? "rgba(190,235,215,0.2)" : "rgba(20,60,45,0.16)",
+      backgroundColor: dark ? "#15161B" : "#FFFFFF",
+      borderColor: axis,
       borderWidth: 1,
       padding: [6, 9],
-      textStyle: { color: dark ? "#E4EFE8" : "#16211B", fontSize: 13, fontFamily: "ui-monospace, monospace" },
+      textStyle: { color: dark ? "#F4F4F5" : "#18181B", fontSize: 12, fontFamily: "inherit" },
       axisPointer: { type: "line", lineStyle: { color: axis, width: 1 } },
     },
     xAxis: {
@@ -37,7 +36,7 @@ const option = computed(() => {
       boundaryGap: true,
       axisLine: { lineStyle: { color: axis } },
       axisTick: { show: false },
-      axisLabel: { color: text, fontSize: 11.5, fontFamily: "ui-monospace, monospace", interval: 1 },
+      axisLabel: { color: text, fontSize: 12, interval: 1 },
     },
     yAxis: [
       {
@@ -62,20 +61,7 @@ const option = computed(() => {
         type: "bar",
         data: props.data.map((d) => d.videos),
         barWidth: 7,
-        itemStyle: {
-          borderRadius: [3, 3, 0, 0],
-          color: {
-            type: "linear",
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: mint },
-              { offset: 1, color: dark ? "rgba(124,242,192,0.14)" : "rgba(30,111,82,0.12)" },
-            ],
-          },
-        },
+        itemStyle: { borderRadius: [2, 2, 0, 0], color: primary },
       },
       {
         name: "任务数",
@@ -85,21 +71,8 @@ const option = computed(() => {
         smooth: true,
         symbol: "circle",
         symbolSize: 4,
-        lineStyle: { color: amber, width: 1.4 },
-        itemStyle: { color: amber },
-        areaStyle: {
-          color: {
-            type: "linear",
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: dark ? "rgba(242,180,92,0.22)" : "rgba(178,115,22,0.18)" },
-              { offset: 1, color: "rgba(0,0,0,0)" },
-            ],
-          },
-        },
+        lineStyle: { color: success, width: 1.5 },
+        itemStyle: { color: success },
       },
     ],
   } as EChartsOption;
