@@ -84,8 +84,12 @@ import type {
   CreateScheduleBody,
   ScheduleVO,
   CreateAccountBody,
+  DeleteLogsBody,
+  DeleteLogsResult,
   JobEvent,
   JobVO,
+  LogQuery,
+  PageResult,
   PlatformMeta,
   Settings,
   StartJobBody,
@@ -149,8 +153,27 @@ export const api = {
   resumeJob: (id: string) => post<{ paused: boolean }>(`/jobs/${id}/resume`),
   jobs: (params?: { accountUid?: string; state?: string; limit?: number }) =>
     get<JobVO[]>("/jobs", params),
+  /** 台账分页：筛选与分页由服务端处理 */
+  jobsPage: (params: {
+    accountUid?: string;
+    state?: string;
+    search?: string;
+    page: number;
+    pageSize: number;
+  }) => get<PageResult<JobVO>>("/jobs/history", params),
   /** 全站持久化日志，用于观测台刷新后回填历史 */
   logEvents: (limit = 300) => get<JobEvent[]>("/logs", { limit }),
+  /** 日志分页检索：级别 / 账号 / 关键字 */
+  logsPage: (params: {
+    page?: number;
+    pageSize?: number;
+    level?: LogQuery["level"];
+    accountUid?: string;
+    jobId?: string;
+    search?: string;
+  }) => get<PageResult<JobEvent>>("/logs/history", params),
+  /** 按时间段删除日志（服务端强制保护近 7 天） */
+  deleteLogs: (body: DeleteLogsBody) => del<DeleteLogsResult>("/logs", body),
 
   settings: () => get<Settings>("/settings"),
   saveSettings: (body: Settings) => put<void>("/settings", body),

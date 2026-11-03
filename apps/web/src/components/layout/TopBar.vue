@@ -14,6 +14,7 @@ const NAV = [
   { name: "workspace", to: "/", label: "观测台" },
   { name: "accounts", to: "/accounts", label: "账号" },
   { name: "history", to: "/history", label: "台账" },
+  { name: "logs", to: "/logs", label: "日志" },
   { name: "schedules", to: "/schedules", label: "定时" },
 ];
 

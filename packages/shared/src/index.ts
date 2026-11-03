@@ -190,6 +190,36 @@ export interface JobVO {
   progress?: JobEvent | null;
 }
 
+/** 通用分页结果：服务端分页时统一返回结构 */
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** 历史日志查询：按级别、账号、关键字过滤，服务端分页 */
+export interface LogQuery {
+  page?: number;
+  pageSize?: number;
+  level?: "all" | "info" | "warn" | "error";
+  accountUid?: string;
+  /** 仅查看某个任务的日志（日志页「当前任务」筛选） */
+  jobId?: string;
+  search?: string;
+}
+
+/** 日志删除：只能按时间段删除，且结束时间不得进入近 7 天 */
+export const DeleteLogsBody = z.object({
+  from: z.string({ required_error: "请选择开始时间" }).min(1, "请选择开始时间"),
+  to: z.string({ required_error: "请选择结束时间" }).min(1, "请选择结束时间"),
+});
+export type DeleteLogsBody = z.infer<typeof DeleteLogsBody>;
+
+export interface DeleteLogsResult {
+  deleted: number;
+}
+
 // ---------- 事件流（SSE） ----------
 
 export type JobEventType =

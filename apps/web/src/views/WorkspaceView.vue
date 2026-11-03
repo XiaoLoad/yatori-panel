@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, ChevronRight, CircleDashed, FlaskConical, Pause, Play, Plus, Search, StopCircle } from "lucide-vue-next";
+import { AlarmClock, ChevronRight, CircleDashed, Pause, Play, Plus, Search, StopCircle } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
@@ -17,7 +17,6 @@ import Sparkline from "@/components/charts/Sparkline.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
-import { DEMO_ACCOUNT_LABELS, DEMO_RUNNING_TASKS } from "@/lib/demo";
 import { formatDuration, formatEta, jobStateLabel, overallPercent, phaseLabel, progressDetail } from "@/lib/account";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +61,6 @@ const accountByUid = computed<Record<string, AccountWithSession>>(() => {
 });
 const accountLabel = (uid?: string) => {
   if (!uid) return "系统";
-  if (DEMO_ACCOUNT_LABELS[uid]) return DEMO_ACCOUNT_LABELS[uid];
   const a = accountByUid.value[uid];
   return a ? a.remark || a.username : uid.slice(0, 6);
 };
@@ -91,27 +89,8 @@ const realRunningCards = computed(() =>
   }),
 );
 
-/** 前端视觉验收用模拟任务：不落库、不经接口 */
-const DEMO_KEY = "yatori-observability-demo";
-const demoMode = ref(localStorage.getItem(DEMO_KEY) === "1");
-const demoCards = DEMO_RUNNING_TASKS.map(({ job, progress }) => {
-  const overall = overallPercent(progress);
-  return {
-    job,
-    progress,
-    overall,
-    courses: progress.coursesProgress ?? [],
-  };
-});
-const runningCards = computed(() => (demoMode.value ? demoCards : realRunningCards.value));
-
-function toggleDemo() {
-  demoMode.value = !demoMode.value;
-  localStorage.setItem(DEMO_KEY, demoMode.value ? "1" : "0");
-  toast.info(demoMode.value ? "已开启模拟任务（仅前端展示）" : "已关闭模拟任务");
-}
-
-/** 运行中任务数：演示模式下使用模拟任务数量 */
+/** 运行中任务数 */
+const runningCards = realRunningCards;
 const runningCount = computed(() => runningCards.value.length);
 
 /** 已发起停止、等待运行器收尾的任务 */
@@ -142,10 +121,6 @@ function isJobPaused(job: JobVO): boolean {
   return pausedOverride.value[job.id] ?? job.paused ?? false;
 }
 async function togglePause(job: JobVO) {
-  if (demoMode.value) {
-    toast.info("演示任务不支持操作");
-    return;
-  }
   const next = !isJobPaused(job);
   if (next) {
     const ok = await confirmAction({
@@ -167,10 +142,6 @@ async function togglePause(job: JobVO) {
 }
 
 async function pauseSelected() {
-  if (demoMode.value) {
-    toast.info("演示任务不支持操作");
-    return;
-  }
   const targets = selectedCards.value.filter((c) => !isJobPaused(c.job));
   if (!targets.length) {
     toast.info("所选任务均处于暂停状态或已结束");
@@ -194,10 +165,6 @@ async function pauseSelected() {
 }
 
 async function resumeSelected() {
-  if (demoMode.value) {
-    toast.info("演示任务不支持操作");
-    return;
-  }
   const targets = selectedCards.value.filter((c) => isJobPaused(c.job));
   const results = await Promise.allSettled(
     targets.map(async (c) => {
@@ -211,10 +178,6 @@ async function resumeSelected() {
 }
 
 async function stopSelected() {
-  if (demoMode.value) {
-    toast.info("演示任务不支持操作");
-    return;
-  }
   const count = selectedCards.value.length;
   const ok = await confirmAction({
     title: `停止所选 ${count} 个任务？`,
@@ -253,10 +216,6 @@ watch(
 );
 
 async function stopJob(job: JobVO, silent = false) {
-  if (demoMode.value) {
-    if (!silent) toast.info("演示任务不支持操作");
-    return;
-  }
   if (stopping.value[job.id]) return;
   if (!silent) {
     const ok = await confirmAction({
@@ -374,10 +333,13 @@ const addOpen = ref(false);
 // ---------- 实时日志 ----------
 const logLevel = ref<"all" | "info" | "warn" | "error">("all");
 const logSearch = ref("");
-/** 持久化历史日志 + SSE 实时日志，按时间合并去重 */
+/** 只保留运行中任务的日志，避免已结束任务的上下文污染观测台 */
+const runningJobIds = computed(() => new Set(runningJobs.value.map((j) => j.id)));
+/** 持久化历史日志 + SSE 实时日志，按时间合并去重，仅保留运行中任务 */
 const mergedLogs = computed<JobEvent[]>(() => {
   const map = new Map<string, JobEvent>();
   for (const l of [...(historyLogsQuery.data.value ?? []), ...events.logs]) {
+    if (!l.jobId || !runningJobIds.value.has(l.jobId)) continue;
     map.set(`${l.ts}|${l.accountId ?? ""}|${l.message ?? ""}`, l);
   }
   return [...map.values()].sort((a, b) => a.ts - b.ts);
@@ -404,8 +366,10 @@ function levelCount(key: "all" | "info" | "warn" | "error"): number {
 
 // ---------- 异常与标记 ----------
 const recentFlags = computed(() => events.flags.slice(0, 6));
-/** 右侧实时事件流：保留最近 14 条实时日志 */
-const recentEvents = computed(() => events.logs.slice(-14).reverse());
+/** 右侧实时事件流：只保留运行中任务的最近 14 条实时日志 */
+const recentEvents = computed(() =>
+  events.logs.filter((l) => l.jobId && runningJobIds.value.has(l.jobId)).slice(-14).reverse(),
+);
 </script>
 
 <template>
@@ -418,14 +382,6 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
         </p>
       </div>
       <div class="ml-auto flex items-center gap-2">
-        <Button
-          :variant="demoMode ? 'default' : 'outline'"
-          size="sm"
-          class="h-8 gap-1.5 text-[13.5px]"
-          @click="toggleDemo"
-        >
-          <FlaskConical class="size-3.5" />{{ demoMode ? "退出演示" : "演示数据" }}
-        </Button>
         <Button variant="outline" size="sm" class="h-8 gap-1.5 text-[13.5px]" @click="router.push('/schedules')">
           <AlarmClock class="size-3.5" />定时规则
         </Button>
@@ -504,7 +460,6 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
             <h2 class="text-[15px] font-semibold">运行中任务</h2>
             <span class="mono rounded-full bg-primary/10 px-2 py-0.5 text-[12px] text-primary">{{ runningCount }}</span>
             <span class="text-[12px] text-muted-foreground">进度每 5 秒采样 · 多任务时列表内滚动</span>
-            <span v-if="demoMode" class="rounded bg-amber/10 px-1.5 py-0.5 text-[12px] text-amber">模拟任务，仅前端展示</span>
             <span class="mono ml-auto flex items-center gap-1.5 text-[12px] text-muted-foreground">
               <span class="size-1.5 animate-breathe rounded-full bg-primary" />实时刷新
             </span>
@@ -561,7 +516,6 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
                   <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-1.5">
                       <span class="min-w-0 flex-1 truncate text-[14.5px] font-medium">{{ accountLabel(card.job.accountUid) }}</span>
-                      <span v-if="demoMode" class="shrink-0 rounded bg-amber/10 px-1 text-[11px] text-amber">模拟</span>
                       <span v-if="isJobPaused(card.job)" class="shrink-0 rounded bg-amber/10 px-1 text-[11px] text-amber">已暂停</span>
                       <span class="stage-chip shrink-0 border-primary/30 bg-primary/10 text-primary">{{ phaseLabel(card.progress, true) }}</span>
                     </div>
@@ -790,8 +744,8 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
         <!-- 实时事件流：填满右栏剩余高度 -->
         <div class="panel flex h-[240px] flex-col overflow-hidden xl:h-auto xl:min-h-[160px] xl:flex-1">
           <div class="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-            <span class="text-[13px] font-medium">实时事件流</span>
-            <span class="mono text-[12px] text-muted-foreground">{{ events.logs.length }}</span>
+            <span class="text-[13px] font-medium">运行中日志</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ mergedLogs.length }}</span>
             <span class="mono ml-auto flex items-center gap-1 text-[11.5px] text-primary">
               <span class="size-1 animate-breathe rounded-full bg-primary" />LIVE
             </span>
@@ -810,7 +764,7 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
               <span class="min-w-0 flex-1 truncate text-[12px] text-foreground/85" :title="e.message">{{ e.message }}</span>
             </div>
           </div>
-          <p v-else class="px-3.5 py-8 text-center text-[12px] text-muted-foreground">暂无实时事件</p>
+          <p v-else class="px-3.5 py-8 text-center text-[12px] text-muted-foreground">当前运行任务暂无日志</p>
         </div>
 
         <div class="panel flex h-[240px] flex-col overflow-hidden">
@@ -857,14 +811,14 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
       </aside>
     </section>
 
-    <!-- 全站实时日志 -->
+    <!-- 运行中任务日志 -->
     <section class="panel overflow-hidden">
       <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
-        <h2 class="text-[15px] font-semibold">全站实时日志</h2>
+        <h2 class="text-[15px] font-semibold">运行中任务日志</h2>
         <span class="mono flex items-center gap-1.5 text-[12px] text-primary">
           <span class="size-1.5 animate-breathe rounded-full bg-primary" />SSE
         </span>
-        <span class="mono text-[12px] text-muted-foreground">全站 {{ mergedLogs.length }} 条 · 含历史</span>
+        <span class="mono text-[12px] text-muted-foreground">当前 {{ mergedLogs.length }} 条 · 任务结束后自动清空</span>
         <div class="ml-auto flex flex-wrap items-center gap-1">
           <button
             v-for="l in [
@@ -904,7 +858,7 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
         </div>
       </div>
       <p v-else class="px-4 py-10 text-center text-[13px] text-muted-foreground">
-        暂无可显示的日志，发起任务后会实时汇总到这里
+        当前没有运行中的任务，启动任务后会实时显示其日志
       </p>
     </section>
 

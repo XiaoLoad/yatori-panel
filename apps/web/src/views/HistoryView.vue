@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlertTriangle, ChevronDown, ChevronUp, History, Search, Square, Video } from "lucide-vue-next";
-import { computed, ref } from "vue";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Search, Square, Video } from "lucide-vue-next";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import type { JobVO } from "@yatori/shared";
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 const router = useRouter();
 const queryClient = useQueryClient();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+// 汇总卡片与侧栏仍使用最近一批记录，避免每页数据影响统计口径
 const jobsQuery = useQuery({
   queryKey: ["jobs"],
   queryFn: () => api.jobs({ limit: 80 }),
@@ -34,7 +35,40 @@ const statsQuery = useQuery({
 const accountFilter = ref("all");
 const stateFilter = ref<"all" | "running" | "done" | "stopped" | "error">("all");
 const search = ref("");
+const debouncedSearch = ref("");
+const page = ref(1);
+const pageSize = ref(20);
 const expanded = ref<string | null>(null);
+
+let searchTimer: number | undefined;
+watch(search, (value) => {
+  window.clearTimeout(searchTimer);
+  searchTimer = window.setTimeout(() => {
+    debouncedSearch.value = value.trim();
+  }, 300);
+});
+
+const recordsQuery = useQuery({
+  queryKey: computed(() => [
+    "jobs-page",
+    {
+      accountUid: accountFilter.value,
+      state: stateFilter.value,
+      search: debouncedSearch.value,
+      page: page.value,
+      pageSize: pageSize.value,
+    },
+  ]),
+  queryFn: () =>
+    api.jobsPage({
+      accountUid: accountFilter.value === "all" ? undefined : accountFilter.value,
+      state: stateFilter.value === "all" ? undefined : stateFilter.value,
+      search: debouncedSearch.value || undefined,
+      page: page.value,
+      pageSize: pageSize.value,
+    }),
+  refetchInterval: 10_000,
+});
 
 const accounts = computed(() => accountsQuery.data.value ?? []);
 const accountOptions = computed(() => [
@@ -48,17 +82,20 @@ function label(uid: string): string {
   return a.remark ? `${a.remark} · ${a.username}` : a.username;
 }
 
-const allJobs = computed(() => jobsQuery.data.value ?? []);
-const filteredJobs = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  return allJobs.value.filter((j) => {
-    if (accountFilter.value !== "all" && j.accountUid !== accountFilter.value) return false;
-    if (stateFilter.value !== "all" && j.state !== stateFilter.value) return false;
-    if (!q) return true;
-    return label(j.accountUid).toLowerCase().includes(q) || j.id.toLowerCase().includes(q);
-  });
+const pageJobs = computed(() => recordsQuery.data.value?.items ?? []);
+const total = computed(() => recordsQuery.data.value?.total ?? 0);
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
+watch([accountFilter, stateFilter, debouncedSearch], () => {
+  page.value = 1;
+});
+watch(pageCount, (count) => {
+  if (page.value > count) page.value = count;
+});
+watch(pageSize, () => {
+  page.value = 1;
 });
 
+const allJobs = computed(() => jobsQuery.data.value ?? []);
 const stateCounts = computed(() => {
   const c = { running: 0, done: 0, stopped: 0, error: 0 };
   for (const j of allJobs.value) c[j.state] += 1;
@@ -100,7 +137,7 @@ function dayLabel(key: string): string {
 }
 const groups = computed(() => {
   const map = new Map<string, JobVO[]>();
-  for (const j of filteredJobs.value) {
+  for (const j of pageJobs.value) {
     const key = dayKey(j.startedAt);
     map.set(key, [...(map.get(key) ?? []), j]);
   }
@@ -129,6 +166,7 @@ const stopMutation = useMutation({
   onSuccess: (r) => {
     toast.success(r.stopped ? "已发送停止指令" : r.reason ?? "任务已结束");
     void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    void queryClient.invalidateQueries({ queryKey: ["jobs-page"] });
   },
   onError: (err) => toastError(err, "停止任务失败"),
 });
@@ -234,7 +272,7 @@ function absoluteTime(iso: string): string {
         <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <div>
             <h2 class="text-[16px] font-semibold">任务记录</h2>
-            <span class="mono text-[12px] text-muted-foreground">{{ filteredJobs.length }} 条</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ total }} 条</span>
           </div>
           <div class="relative ml-auto">
             <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -263,10 +301,10 @@ function absoluteTime(iso: string): string {
           </span>
         </div>
 
-        <div v-if="jobsQuery.isLoading.value" class="space-y-2 p-4">
+        <div v-if="recordsQuery.isLoading.value" class="h-[520px] space-y-2 overflow-hidden p-4">
           <Skeleton v-for="i in 6" :key="i" class="h-10 w-full" />
         </div>
-        <div v-else-if="!filteredJobs.length" class="px-6 py-16 text-center">
+        <div v-else-if="!pageJobs.length" class="flex h-[520px] flex-col items-center justify-center px-6 text-center">
           <div class="mx-auto grid size-12 place-items-center rounded-lg border border-border bg-panel-2 text-muted-foreground">
             <History class="size-5" />
           </div>
@@ -274,8 +312,8 @@ function absoluteTime(iso: string): string {
           <p class="mt-1 text-[14px] text-muted-foreground">调整筛选条件，或到观测台发起新任务</p>
         </div>
 
-        <div v-else class="overflow-x-auto">
-          <div class="hidden min-w-[1000px] grid-cols-[84px_minmax(0,1.2fr)_112px_72px_minmax(0,1.05fr)_minmax(0,1.15fr)_28px_72px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
+        <div v-else class="h-[520px] overflow-y-auto overflow-x-auto overscroll-contain">
+          <div class="sticky top-0 z-10 hidden min-w-[1000px] grid-cols-[84px_minmax(0,1.2fr)_112px_72px_minmax(0,1.05fr)_minmax(0,1.15fr)_28px_72px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
             <span>状态</span>
             <span>账号</span>
             <span>开始时间</span>
@@ -397,6 +435,40 @@ function absoluteTime(iso: string): string {
               </div>
             </template>
           </template>
+        </div>
+
+        <!-- 分页 -->
+        <div
+          v-if="!recordsQuery.isLoading.value && total > 0"
+          class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5"
+        >
+          <span class="mono text-[12px] text-muted-foreground">共 {{ total }} 条 · 第 {{ page }}/{{ pageCount }} 页</span>
+          <div class="ml-auto flex items-center gap-1.5">
+            <Select
+              :model-value="String(pageSize)"
+              :options="[
+                { value: '20', label: '每页 20 条' },
+                { value: '50', label: '每页 50 条' },
+                { value: '100', label: '每页 100 条' },
+              ]"
+              class="h-7 w-28 text-[12.5px]"
+              @update:model-value="pageSize = Number($event)"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 gap-1 text-[12.5px]"
+              :disabled="page <= 1"
+              @click="page -= 1"
+            ><ChevronLeft class="size-3.5" />上一页</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 gap-1 text-[12.5px]"
+              :disabled="page >= pageCount"
+              @click="page += 1"
+            >下一页<ChevronRight class="size-3.5" /></Button>
+          </div>
         </div>
       </div>
 
