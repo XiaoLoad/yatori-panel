@@ -184,6 +184,8 @@ export interface JobVO {
   startedAt: string;
   finishedAt?: string | null;
   summary?: JobSummary | null;
+  /** 是否处于暂停状态（运行器仍在内存中，进度循环挂起） */
+  paused?: boolean;
   /** 最近一次进度快照：页面刷新后仍能显示阶段/课程进度，而非停留在“准备” */
   progress?: JobEvent | null;
 }

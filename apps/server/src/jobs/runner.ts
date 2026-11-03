@@ -108,6 +108,8 @@ export async function runJob(
   signal: AbortSignal,
   /** 到点停止：true 时在节点/作业/考试边界收尾，当前节点允许看完 */
   shouldStop?: () => boolean,
+  /** 暂停：true 时在 tick 边界等待继续，不提交进度也不结束任务 */
+  shouldPause?: () => boolean,
 ): Promise<JobSummary> {
   const settings = getSettings();
   const tickMs = settings.tickSeconds * 1000;
@@ -154,6 +156,20 @@ export async function runJob(
   // 到点停止（graceful）只在节点/作业/考试边界生效，避免半截断连丢进度
   const stopRequested = (): boolean => signal.aborted || (shouldStop?.() ?? false);
 
+  /** 暂停闸门：在当前进度提交间隙等待，继续后从原位置接着刷 */
+  async function waitIfPaused(): Promise<void> {
+    if (!shouldPause?.()) return;
+    emitLog("info", "任务已暂停，等待继续", false);
+    while (shouldPause?.() && !signal.aborted) {
+      try {
+        await sleep(500, signal);
+      } catch {
+        return;
+      }
+    }
+    if (!signal.aborted) emitLog("info", "任务已继续", false);
+  }
+
   /**
    * 任务整体进度：按已加载章节树的视频时长汇总。
    * 只统计已获取到树的课程，估算值随课程启动逐步精确；ETA 按课程并发折算。
@@ -165,11 +181,20 @@ export async function runJob(
       let remaining = 0;
       if (nodes) {
         for (const n of nodes) {
+          // 只统计叶子视频节点：章节节点也带 duration，重复累加会把预计时长放大
+          const isVideo = n.kind === "video" || (n.extra?.["tabVideo"] ?? "false") === "true";
+          if (!isVideo || (n.children && n.children.length > 0)) continue;
           const duration = n.durationSeconds || Number(n.extra?.["duration"] ?? 0);
           if (!duration) continue;
-          const pct = n.completed ? 100 : Math.min(100, Math.max(0, Number(n.progress) || 0));
+          const viewed = Number(n.extra?.["viewedSeconds"] ?? 0);
+          const progressPct = n.completed
+            ? 100
+            : Math.max(
+                Math.min(100, Math.max(0, Number(n.progress) || 0)),
+                duration > 0 ? Math.min(100, (viewed / duration) * 100) : 0,
+              );
           total += duration;
-          remaining += duration * (1 - pct / 100);
+          remaining += duration * (1 - progressPct / 100);
         }
       }
       const completed = doneCourses.has(course.id);
@@ -190,7 +215,9 @@ export async function runJob(
     const courseRemainingSeconds = coursesProgress.reduce((s, c) => s + c.remainingSeconds, 0);
     const courseCount = coursesProgress.length;
     const coursesRemaining = coursesProgress.filter((c) => !c.completed).length;
-    const activeCourses = Math.max(1, Math.min(settings.maxCoursesConcurrency, Math.max(1, courseCount)));
+    // 只剩一门课有剩余时按 1 门并发估算，避免多门课已完成后 ETA 被继续摊薄
+    const activeLeft = coursesProgress.filter((c) => !c.completed && c.remainingSeconds > 0).length;
+    const activeCourses = Math.max(1, Math.min(settings.maxCoursesConcurrency, activeLeft || 1));
     return {
       courseTotalSeconds,
       courseRemainingSeconds,
@@ -250,6 +277,8 @@ export async function runJob(
     }
 
     for (;;) {
+      if (checkAbort()) return;
+      await waitIfPaused();
       if (checkAbort()) return;
       position += settings.tickSeconds;
       if (total > 0 && position > total) position = total;
@@ -575,6 +604,7 @@ export async function runJob(
   ): Promise<void> {
     const entry = tasks.get(node.id);
     if (!entry) return;
+    await waitIfPaused();
     currentByCourse.set(course.id, node.name);
     if (entry.works.length > 0) {
       emit({ type: "task.progress", phase: "work", courseId: course.id, courseName: course.name, ...jobOverview() });
@@ -755,6 +785,8 @@ export async function runJob(
     course: GatewayCourse,
     tasks: Map<string, NodeTasks>,
   ): Promise<void> {
+    await waitIfPaused();
+    if (stopRequested()) return;
     emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name, ...jobOverview() });
     const tree = await withSession((s) => gateway.tree(s, course.id, { signal }));
     const nodes = flattenNodes(tree);

@@ -23,7 +23,7 @@ import {
   markVerify,
   updateAccount,
 } from "./db/accounts.ts";
-import { eventsForJob, getJob, listJobs, recentLogEvents } from "./db/jobs.ts";
+import { eventsForJob, finishJob, getJob, listJobs, recentLogEvents } from "./db/jobs.ts";
 import {
   authRequired,
   issueSession,
@@ -52,6 +52,11 @@ import { refreshGatewayStatus, snapshot } from "./gateway-status.ts";
 import { jobManager } from "./jobs/manager.ts";
 import { dropSession, ensureSession, getSessionId, getSessionState } from "./sessions.ts";
 import { isExamRunning, listRunningExams, runSingleExam } from "./single-exam.ts";
+
+/** 部分平台账号未填 baseUrl 时的默认网页入口 */
+const PLATFORM_ENTRY: Record<string, string> = {
+  XUEXITONG: "https://www.chaoxing.com",
+};
 
 /** AI/题库配置的零成本前置校验：缺配置直接拒绝，不发起注定失败的探针请求 */
 function ensureAnswerConfigReady(
@@ -299,6 +304,17 @@ export function registerRoutes(app: FastifyInstance): void {
       await dropSession(account.uid);
       return { ok: false, error: e.message, logs: e.logs, data: { ok: false } };
     }
+  });
+
+  // 账号登录信息：用于“打开平台并复制账号密码”，密码仅在按需请求时返回
+  app.get("/api/v1/accounts/:uid/credentials", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    const entryUrl = account.baseUrl || PLATFORM_ENTRY[account.platform] || "";
+    return {
+      ok: true,
+      data: { username: account.username, password: account.password, entryUrl },
+    };
   });
 
   app.put("/api/v1/accounts/:uid", async (req) => {
@@ -572,6 +588,33 @@ export function registerRoutes(app: FastifyInstance): void {
     if (!jobManager.stop(id, graceful)) {
       const job = getJob(id);
       if (!job) throw new HttpError(404, "任务不存在");
+      // 运行器已不存在但 DB 仍是 running（进程重启/异常残留）：直接收尾，避免前端一直显示运行中
+      if (job.state === "running") {
+        const summary = job.summary ?? {
+          courses: 0,
+          videosCompleted: 0,
+          videosSkipped: 0,
+          flagsFound: 0,
+          worksDone: 0,
+          examsDone: 0,
+          scores: [],
+          errors: [],
+        };
+        const finishedSummary = {
+          ...summary,
+          errors: [...summary.errors, "任务不在运行器中，已自动标记为停止"],
+        };
+        finishJob(id, "stopped", finishedSummary);
+        bus.publish({
+          type: "job.status",
+          ts: Date.now(),
+          jobId: id,
+          accountId: job.accountUid,
+          state: "stopped",
+          summary: finishedSummary,
+        });
+        return { ok: true, data: { stopped: true } };
+      }
       return { ok: true, data: { stopped: false, reason: "任务已结束" } };
     }
     return { ok: true, data: { stopped: true } };
@@ -579,20 +622,31 @@ export function registerRoutes(app: FastifyInstance): void {
 
   app.get("/api/v1/jobs", async (req) => {
     const q = req.query as { accountUid?: string; state?: string; limit?: string };
-    return {
-      ok: true,
-      data: listJobs({
-        accountUid: q.accountUid,
-        state: q.state,
-        limit: q.limit ? Number(q.limit) : undefined,
-      }),
-    };
+    const data = listJobs({
+      accountUid: q.accountUid,
+      state: q.state,
+      limit: q.limit ? Number(q.limit) : undefined,
+    }).map((j) => ({ ...j, paused: jobManager.isPaused(j.id) }));
+    return { ok: true, data };
   });
 
   app.get("/api/v1/jobs/:id", async (req) => {
     const job = getJob((req.params as { id: string }).id);
     if (!job) throw new HttpError(404, "任务不存在");
-    return { ok: true, data: { ...job, events: eventsForJob(job.id) } };
+    return { ok: true, data: { ...job, paused: jobManager.isPaused(job.id), events: eventsForJob(job.id) } };
+  });
+
+  // 暂停/继续：任务保留在运行器中，tick 边界挂起或恢复
+  app.post("/api/v1/jobs/:id/pause", async (req) => {
+    const { id } = req.params as { id: string };
+    if (!jobManager.pause(id)) throw new HttpError(409, "任务不在运行中，无法暂停");
+    return { ok: true, data: { paused: true } };
+  });
+
+  app.post("/api/v1/jobs/:id/resume", async (req) => {
+    const { id } = req.params as { id: string };
+    if (!jobManager.resume(id)) throw new HttpError(409, "任务不在运行中，无法继续");
+    return { ok: true, data: { paused: false } };
   });
 
   // 全站日志（来自 job_events 持久化），供观测台在刷新后回填历史
