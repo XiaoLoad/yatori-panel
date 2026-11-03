@@ -24,15 +24,16 @@ const forwarded = useForwardPropsEmits(props, emit);
       />
       <DialogContent
         :class="cn(
-          'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-card p-6 shadow-[0_0_80px_-20px_rgba(0,0,0,0.85)] max-h-[85vh] overflow-y-auto',
+          'fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border border-border bg-card p-0 shadow-[0_0_80px_-20px_rgba(0,0,0,0.85)]',
           props.class,
         )"
       >
         <slot />
         <DialogClose
-          class="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none"
+          class="absolute right-3.5 top-3.5 z-10 grid size-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X class="size-4" />
+          <span class="sr-only">关闭</span>
         </DialogClose>
       </DialogContent>
     </DialogPortal>

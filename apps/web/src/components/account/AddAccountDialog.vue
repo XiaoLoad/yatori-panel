@@ -8,7 +8,7 @@ import type { AccountWithSession } from "@/api/resources";
 import { ApiError } from "@/api/client";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogBody, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -181,7 +181,7 @@ function fieldModel(key: string) {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <div class="grid gap-4">
+    <DialogHeader class="grid gap-3">
       <div class="grid gap-1">
         <DialogTitle>{{ editing ? "编辑账号" : "添加账号" }}</DialogTitle>
         <DialogDescription>
@@ -199,8 +199,10 @@ function fieldModel(key: string) {
           @click="tab = 'import'"
         ><FileUp class="mr-1 inline size-3.5" />批量导入</button>
       </div>
+    </DialogHeader>
 
-      <form v-if="tab === 'single'" class="grid gap-3.5" @submit.prevent="submit">
+    <DialogBody>
+      <form v-if="tab === 'single'" id="account-single-form" class="grid gap-3.5" @submit.prevent="submit">
         <div class="grid gap-1.5">
           <Label>平台</Label>
           <Select
@@ -242,16 +244,9 @@ function fieldModel(key: string) {
           <Switch v-model="form.verify" />
           <Label class="font-normal text-muted-foreground">保存后立即登录检测</Label>
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" @click="emit('update:open', false)">取消</Button>
-          <Button type="submit" :disabled="saveMutation.isPending.value">
-            {{ saveMutation.isPending.value ? "保存中…" : "保存" }}
-          </Button>
-        </DialogFooter>
       </form>
 
-      <form v-else class="grid gap-3.5" @submit.prevent="importMutation.mutate()">
+      <form v-else id="account-import-form" class="grid gap-3.5" @submit.prevent="importMutation.mutate()">
         <div class="grid gap-1.5">
           <Label>config.yaml 文件</Label>
           <Input
@@ -288,13 +283,27 @@ function fieldModel(key: string) {
           </p>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" @click="emit('update:open', false)">取消</Button>
-          <Button type="submit" :disabled="importMutation.isPending.value || !importText.trim()">
-            {{ importMutation.isPending.value ? "导入中…" : "开始导入" }}
-          </Button>
-        </DialogFooter>
       </form>
-    </div>
+    </DialogBody>
+
+    <DialogFooter>
+      <Button variant="outline" @click="emit('update:open', false)">取消</Button>
+      <Button
+        v-if="tab === 'single'"
+        type="submit"
+        form="account-single-form"
+        :disabled="saveMutation.isPending.value"
+      >
+        {{ saveMutation.isPending.value ? "保存中…" : "保存" }}
+      </Button>
+      <Button
+        v-else
+        type="submit"
+        form="account-import-form"
+        :disabled="importMutation.isPending.value || !importText.trim()"
+      >
+        {{ importMutation.isPending.value ? "导入中…" : "开始导入" }}
+      </Button>
+    </DialogFooter>
   </Dialog>
 </template>

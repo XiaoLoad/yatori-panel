@@ -5,7 +5,7 @@ import { toast } from "vue-sonner";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogBody, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -116,12 +116,12 @@ function submit() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <div class="grid gap-4">
-      <div class="grid gap-1">
-        <DialogTitle>新建定时规则</DialogTitle>
-        <DialogDescription>一条规则可同时作用于多个账号，到点自动开始与停止</DialogDescription>
-      </div>
+    <DialogHeader>
+      <DialogTitle>新建定时规则</DialogTitle>
+      <DialogDescription>一条规则可同时作用于多个账号，到点自动开始与停止</DialogDescription>
+    </DialogHeader>
 
+    <DialogBody class="grid gap-4">
       <div class="grid gap-1.5">
         <Label>规则名称</Label>
         <Input v-model="name" placeholder="如：晚间批量刷课（留空则按时间命名）" />
@@ -221,13 +221,13 @@ function submit() {
         普通 = 课内视频逐个刷；暴力+去红 = 课内并发刷完后自动清理标红节点；仅去红 = 只做补救不刷课。
         作业/考试随节点触发；同一账号同时刷几门课由“设置 → 单账号课程并发数”统一控制。
       </p>
+    </DialogBody>
 
-      <DialogFooter>
-        <Button variant="outline" @click="emit('update:open', false)">取消</Button>
-        <Button :disabled="createMutation.isPending.value" @click="submit">
-          {{ createMutation.isPending.value ? "创建中…" : "创建规则" }}
-        </Button>
-      </DialogFooter>
-    </div>
+    <DialogFooter>
+      <Button variant="outline" @click="emit('update:open', false)">取消</Button>
+      <Button :disabled="createMutation.isPending.value" @click="submit">
+        {{ createMutation.isPending.value ? "创建中…" : "创建规则" }}
+      </Button>
+    </DialogFooter>
   </Dialog>
 </template>

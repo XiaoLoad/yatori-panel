@@ -5,7 +5,7 @@ import { toast } from "vue-sonner";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogBody, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -101,14 +101,14 @@ function submit() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <div class="grid gap-4">
-      <div class="grid gap-1">
-        <DialogTitle>发起任务</DialogTitle>
-        <DialogDescription>
-          {{ single ? accounts[0]?.label : `已选 ${accounts.length} 个账号，将同时启动，各自独立运行` }}
-        </DialogDescription>
-      </div>
+    <DialogHeader>
+      <DialogTitle>发起任务</DialogTitle>
+      <DialogDescription>
+        {{ single ? accounts[0]?.label : `已选 ${accounts.length} 个账号，将同时启动，各自独立运行` }}
+      </DialogDescription>
+    </DialogHeader>
 
+    <DialogBody class="grid gap-4">
       <div class="rounded-lg border border-border bg-muted/30 px-3 py-2 text-[13.5px] text-muted-foreground">
         {{ accounts.map((a) => a.label).join(" · ") }}
       </div>
@@ -193,13 +193,13 @@ function submit() {
           <span class="text-foreground">设置 → 调度参数 → 单账号课程并发数</span> 里调整。
         </p>
       </div>
+    </DialogBody>
 
-      <DialogFooter>
-        <Button variant="outline" @click="emit('update:open', false)">取消</Button>
-        <Button :disabled="startMutation.isPending.value" @click="submit">
-          {{ startMutation.isPending.value ? "启动中…" : `启动 ${accounts.length} 个任务` }}
-        </Button>
-      </DialogFooter>
-    </div>
+    <DialogFooter>
+      <Button variant="outline" @click="emit('update:open', false)">取消</Button>
+      <Button :disabled="startMutation.isPending.value" @click="submit">
+        {{ startMutation.isPending.value ? "启动中…" : `启动 ${accounts.length} 个任务` }}
+      </Button>
+    </DialogFooter>
   </Dialog>
 </template>

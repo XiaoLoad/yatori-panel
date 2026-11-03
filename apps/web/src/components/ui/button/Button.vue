@@ -34,6 +34,7 @@ const props = withDefaults(
     size?: VariantProps<typeof buttonVariants>["size"];
     class?: string;
     type?: "button" | "submit";
+    form?: string;
     disabled?: boolean;
     asChild?: boolean;
   }>(),
@@ -48,6 +49,7 @@ const props = withDefaults(
   <button
     v-else
     :type="props.type"
+    :form="props.form"
     :class="cn(buttonVariants({ variant: props.variant, size: props.size }), props.class)"
     :disabled="props.disabled"
   >
