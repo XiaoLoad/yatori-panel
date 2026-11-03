@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, ChevronRight, FlaskConical, Pause, Play, Plus, Search, StopCircle } from "lucide-vue-next";
+import { AlarmClock, ChevronRight, CircleDashed, FlaskConical, Pause, Play, Plus, Search, StopCircle } from "lucide-vue-next";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
@@ -458,9 +458,9 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
 
     <!-- 任务与站点数据 -->
     <section class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_352px]">
-      <div class="min-w-0 space-y-3">
+      <div class="flex min-w-0 flex-col gap-3">
       <!-- 运行中任务 -->
-        <div class="panel overflow-hidden">
+        <div :class="cn('panel overflow-hidden', !runningCards.length && 'xl:flex xl:flex-1 xl:flex-col')">
           <div class="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
             <span @click.stop>
               <Checkbox :model-value="allSelected" @update:model-value="toggleSelectAll" />
@@ -501,7 +501,7 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
               runningCards.length > 2 && 'max-h-[min(68vh,640px)] overflow-y-auto overscroll-contain',
             )"
           >
-            <div class="columns-1 gap-3 md:columns-2 xl:columns-3">
+            <div class="columns-1 gap-3 lg:columns-2">
               <div
                 v-for="card in runningCards"
                 :key="card.job.id"
@@ -511,9 +511,9 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
                 )"
                 @click="router.push(`/accounts/${card.job.accountUid}?from=workspace`)"
               >
-                <!-- 第一行：身份 + 实时状态 -->
-                <div class="flex items-center gap-2.5">
-                  <span @click.stop>
+                <!-- 头部：身份 + 阶段 -->
+                <div class="flex items-start gap-2.5">
+                  <span class="mt-0.5" @click.stop>
                     <Checkbox
                       :model-value="!!selectedJobIds[card.job.id]"
                       @update:model-value="toggleSelect(card.job.id)"
@@ -523,23 +523,101 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
                     {{ accountLabel(card.job.accountUid).slice(0, 1) }}
                   </div>
                   <div class="min-w-0 flex-1">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      <span class="truncate text-[14px] font-medium">{{ accountLabel(card.job.accountUid) }}</span>
-                      <span v-if="demoMode" class="rounded bg-amber/10 px-1 text-[11px] text-amber">模拟</span>
-                      <span v-if="isJobPaused(card.job)" class="rounded bg-amber/10 px-1 text-[11px] text-amber">已暂停</span>
-                      <span class="stage-chip border-primary/30 bg-primary/10 text-primary">{{ phaseLabel(card.progress, true) }}</span>
-                      <span class="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground">
-                        <span
-                          class="size-1 rounded-full"
-                          :class="isJobPaused(card.job) ? 'bg-amber' : 'animate-breathe bg-primary'"
-                        />{{ elapsedOf(card.job) }}
-                      </span>
+                    <div class="flex items-center gap-1.5">
+                      <span class="min-w-0 flex-1 truncate text-[14.5px] font-medium">{{ accountLabel(card.job.accountUid) }}</span>
+                      <span v-if="demoMode" class="shrink-0 rounded bg-amber/10 px-1 text-[11px] text-amber">模拟</span>
+                      <span v-if="isJobPaused(card.job)" class="shrink-0 rounded bg-amber/10 px-1 text-[11px] text-amber">已暂停</span>
+                      <span class="stage-chip shrink-0 border-primary/30 bg-primary/10 text-primary">{{ phaseLabel(card.progress, true) }}</span>
                     </div>
                     <div class="mono mt-0.5 truncate text-[11.5px] text-muted-foreground">
                       {{ progressDetail(card.progress) || "正在建立会话" }}
                     </div>
                   </div>
-                  <div class="flex shrink-0 items-center gap-1">
+                </div>
+
+                <!-- 指标带 -->
+                <div class="mt-2.5 grid grid-cols-3 gap-2">
+                  <div class="rounded-md border border-border bg-card px-2 py-1.5">
+                    <div class="mono text-[15px] font-semibold leading-none">{{ card.overall === null ? "—" : `${card.overall}%` }}</div>
+                    <div class="mt-1 text-[11px] text-muted-foreground">整体进度</div>
+                  </div>
+                  <div class="rounded-md border border-border bg-card px-2 py-1.5">
+                    <div class="truncate text-[13px] leading-none">{{ formatEta(card.progress?.etaSeconds) }}</div>
+                    <div class="mt-1 text-[11px] text-muted-foreground">预计剩余</div>
+                  </div>
+                  <div class="rounded-md border border-border bg-card px-2 py-1.5">
+                    <div class="mono truncate text-[13px] leading-none">{{ card.progress?.courseCount ?? card.courses.length }} 门</div>
+                    <div class="mt-1 text-[11px] text-muted-foreground">剩 {{ card.progress?.coursesRemaining ?? 0 }} 门</div>
+                  </div>
+                </div>
+
+                <!-- 整体进度条 -->
+                <div
+                  class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"
+                  :title="card.progress?.courseTotalSeconds !== undefined
+                    ? `总视频 ${formatDuration(card.progress.courseTotalSeconds)} · 已学 ${formatDuration(card.progress.courseTotalSeconds - (card.progress.courseRemainingSeconds ?? 0))}`
+                    : ''"
+                >
+                  <div
+                    class="h-full rounded-full bg-primary transition-[width] duration-500"
+                    :style="{ width: `${card.overall ?? 0}%` }"
+                  />
+                </div>
+
+                <!-- 当前节点进度 -->
+                <div class="mt-2 flex items-center gap-2">
+                  <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">当前节点</span>
+                  <div class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      class="h-full rounded-full bg-primary/80 transition-[width] duration-500"
+                      :style="{ width: `${nodePercent(card.progress) ?? 0}%` }"
+                    />
+                  </div>
+                  <span class="mono shrink-0 text-[11.5px]" :class="nodePercent(card.progress) === null ? 'text-muted-foreground' : 'text-foreground/80'">
+                    {{ nodePercent(card.progress) === null ? "—" : `${nodePercent(card.progress)}%` }}
+                  </span>
+                </div>
+
+                <!-- 课程列表 -->
+                <div v-if="card.courses.length" class="mt-2 overflow-hidden rounded-md border border-border bg-card">
+                  <div class="max-h-[132px] divide-y divide-border/60 overflow-y-auto">
+                    <div
+                      v-for="c in card.courses"
+                      :key="c.courseId"
+                      class="flex items-center gap-2 px-2 py-1.5"
+                      :title="c.completed
+                        ? `${c.courseName} · 已完成`
+                        : c.loaded
+                          ? `${c.courseName} · ${c.currentNodeName ?? '进行中'} · 剩 ${formatDuration(c.remainingSeconds)}`
+                          : `${c.courseName} · 等待加载章节`"
+                    >
+                      <span
+                        class="size-1.5 shrink-0 rounded-full"
+                        :class="c.completed ? 'bg-mint' : c.loaded ? 'bg-primary' : 'bg-muted-foreground/40'"
+                      />
+                      <span class="min-w-0 flex-1 truncate text-[12.5px]">{{ c.courseName }}</span>
+                      <div class="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-muted">
+                        <div
+                          class="h-full rounded-full transition-[width] duration-500"
+                          :class="c.completed ? 'bg-mint' : 'bg-primary'"
+                          :style="{ width: `${c.progress}%` }"
+                        />
+                      </div>
+                      <span class="mono w-9 shrink-0 text-right text-[11.5px]" :class="c.completed ? 'text-mint' : 'text-muted-foreground'">{{ c.progress }}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 底栏：运行时长 + 操作 -->
+                <div class="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2">
+                  <span class="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground">
+                    <span
+                      class="size-1 rounded-full"
+                      :class="isJobPaused(card.job) ? 'bg-amber' : 'animate-breathe bg-primary'"
+                    />
+                    {{ isJobPaused(card.job) ? "已暂停" : "已运行" }} {{ elapsedOf(card.job) }}
+                  </span>
+                  <div class="flex items-center gap-1.5">
                     <button
                       class="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[12px] text-muted-foreground transition-colors hover:border-amber/40 hover:text-amber"
                       @click.stop="togglePause(card.job)"
@@ -560,90 +638,19 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
                     ><StopCircle class="size-3" />{{ stopping[card.job.id] ? "停止中…" : "停止" }}</button>
                   </div>
                 </div>
-
-                <!-- 第二行：整体进度 + 预计 / 课程数 -->
-                <div class="mt-2.5 flex items-center gap-3">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-baseline justify-between text-[11.5px] text-muted-foreground">
-                      <span>整体进度</span>
-                      <span class="mono">{{ card.overall === null ? "—" : `${card.overall}%` }}</span>
-                    </div>
-                    <div
-                      class="mt-1 h-1.5 overflow-hidden rounded-full bg-muted"
-                      :title="card.progress?.courseTotalSeconds !== undefined
-                        ? `总视频 ${formatDuration(card.progress.courseTotalSeconds)} · 已学 ${formatDuration(card.progress.courseTotalSeconds - (card.progress.courseRemainingSeconds ?? 0))}`
-                        : ''"
-                    >
-                      <div
-                        class="h-full rounded-full bg-primary transition-[width] duration-500"
-                        :style="{ width: `${card.overall ?? 0}%` }"
-                      />
-                    </div>
-                  </div>
-                  <div class="shrink-0 border-l border-border pl-3 text-right">
-                    <div class="text-[13px]">{{ formatEta(card.progress?.etaSeconds) }}</div>
-                    <div class="text-[11.5px] text-muted-foreground">预计</div>
-                  </div>
-                  <div class="shrink-0 text-right">
-                    <div class="mono text-[13px]">{{ card.progress?.courseCount ?? card.courses.length }} 门</div>
-                    <div class="text-[11.5px] text-muted-foreground">剩 {{ card.progress?.coursesRemaining ?? 0 }} 门</div>
-                  </div>
-                </div>
-
-                <!-- 当前节点进度 -->
-                <div class="mt-2 flex items-center gap-2">
-                  <span class="shrink-0 text-[11.5px] text-muted-foreground">当前节点</span>
-                  <div class="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      class="h-full rounded-full bg-primary/80 transition-[width] duration-500"
-                      :style="{ width: `${nodePercent(card.progress) ?? 0}%` }"
-                    />
-                  </div>
-                  <span class="mono shrink-0 text-[11.5px]" :class="nodePercent(card.progress) === null ? 'text-muted-foreground' : 'text-foreground/80'">
-                    {{ nodePercent(card.progress) === null ? "—" : `${nodePercent(card.progress)}%` }}
-                  </span>
-                </div>
-
-                <!-- 第三行：课程紧凑进度条 -->
-                <div v-if="card.courses.length" class="mt-2 flex flex-wrap gap-1.5">
-                  <div
-                    v-for="c in card.courses"
-                    :key="c.courseId"
-                    :class="cn(
-                      'inline-flex min-w-0 items-center gap-1.5 rounded border px-1.5 py-1',
-                      c.completed
-                        ? 'border-mint/40 bg-mint/5'
-                        : c.loaded
-                          ? 'border-border bg-card'
-                          : 'border-dashed border-border opacity-60',
-                    )"
-                    :title="c.completed
-                      ? `${c.courseName} · 已完成`
-                      : c.loaded
-                        ? `${c.courseName} · ${c.currentNodeName ?? '进行中'} · 剩 ${formatDuration(c.remainingSeconds)}`
-                        : `${c.courseName} · 等待加载章节`"
-                  >
-                    <span
-                      class="size-1.5 shrink-0 rounded-full"
-                      :class="c.completed ? 'bg-mint' : c.loaded ? 'bg-primary' : 'bg-muted-foreground/40'"
-                    />
-                    <span class="max-w-[140px] min-w-0 truncate text-[12px]">{{ c.courseName }}</span>
-                    <div class="h-1 w-9 shrink-0 overflow-hidden rounded-full bg-muted">
-                      <div
-                        class="h-full rounded-full transition-[width] duration-500"
-                        :class="c.completed ? 'bg-mint' : 'bg-primary'"
-                        :style="{ width: `${c.progress}%` }"
-                      />
-                    </div>
-                    <span class="mono shrink-0 text-[11.5px]" :class="c.completed ? 'text-mint' : 'text-muted-foreground'">{{ c.progress }}%</span>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
-          <p v-else class="px-4 py-8 text-center text-[13px] text-muted-foreground">
-            当前没有运行中的任务，全站任务记录见下方
-          </p>
+          <div
+            v-else
+            class="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center xl:min-h-[220px] xl:flex-1"
+          >
+            <span class="grid size-10 place-items-center rounded-full border border-border bg-panel-2 text-muted-foreground">
+              <CircleDashed class="size-5" />
+            </span>
+            <p class="text-[14px] text-muted-foreground">当前没有运行中的任务</p>
+            <p class="text-[12.5px] text-muted-foreground/80">发起任务后，这里会按账号展示课程与实时进度；全站任务记录见下方</p>
+          </div>
         </div>
 
         <!-- 全站任务记录 -->
