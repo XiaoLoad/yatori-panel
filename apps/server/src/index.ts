@@ -5,6 +5,7 @@ import Fastify from "fastify";
 import fs from "node:fs";
 import path from "node:path";
 import { sqlite } from "./db/index.ts";
+import { recoverStaleRunningJobs } from "./db/jobs.ts";
 import { authRequired, SESSION_COOKIE, verifySession } from "./db/auth.ts";
 import { env } from "./env.ts";
 import { gateway } from "./gateway.ts";
@@ -40,6 +41,12 @@ async function main(): Promise<void> {
   });
 
   registerRoutes(app);
+  // 启动恢复：上次进程遗留的 running 任务已不可能再结束，标记为中断，
+  // 否则账号会永久卡在"运行中"且无法启动新任务
+  const interrupted = recoverStaleRunningJobs();
+  if (interrupted > 0) {
+    app.log.warn(`已将 ${interrupted} 个重启前遗留的运行任务标记为中断`);
+  }
   startScheduler();
   // 网关状态机：后台心跳探测，up/down 变化经 SSE 广播（health 接口直接读快照，不再逐次探测）
   startGatewayWatch();
