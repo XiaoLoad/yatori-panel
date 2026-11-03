@@ -16,6 +16,7 @@ import DailyTrend from "@/components/charts/DailyTrend.vue";
 import Sparkline from "@/components/charts/Sparkline.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
 import { DEMO_ACCOUNT_LABELS, DEMO_RUNNING_TASKS } from "@/lib/demo";
 import { formatDuration, formatEta, jobStateLabel, overallPercent, phaseLabel, progressDetail } from "@/lib/account";
 import { cn } from "@/lib/utils";
@@ -146,6 +147,14 @@ async function togglePause(job: JobVO) {
     return;
   }
   const next = !isJobPaused(job);
+  if (next) {
+    const ok = await confirmAction({
+      title: `暂停「${accountLabel(job.accountUid)}」的任务？`,
+      description: "暂停后不再提交新进度，任务会保留在当前节点，继续后可接着刷。",
+      confirmText: "暂停任务",
+    });
+    if (!ok) return;
+  }
   try {
     if (next) await api.pauseJob(job.id);
     else await api.resumeJob(job.id);
@@ -163,14 +172,24 @@ async function pauseSelected() {
     return;
   }
   const targets = selectedCards.value.filter((c) => !isJobPaused(c.job));
+  if (!targets.length) {
+    toast.info("所选任务均处于暂停状态或已结束");
+    return;
+  }
+  const ok = await confirmAction({
+    title: `暂停所选 ${targets.length} 个任务？`,
+    description: "暂停后不再提交新进度，任务保留在当前节点，可在批量操作条里继续。",
+    confirmText: "暂停所选",
+  });
+  if (!ok) return;
   const results = await Promise.allSettled(
     targets.map(async (c) => {
       await api.pauseJob(c.job.id);
       pausedOverride.value = { ...pausedOverride.value, [c.job.id]: true };
     }),
   );
-  const ok = results.filter((r) => r.status === "fulfilled").length;
-  toast.info(ok ? `已暂停 ${ok} 个任务` : "所选任务均处于暂停状态或已结束");
+  const done = results.filter((r) => r.status === "fulfilled").length;
+  toast.info(done ? `已暂停 ${done} 个任务` : "所选任务均处于暂停状态或已结束");
   void queryClient.invalidateQueries({ queryKey: ["jobs"] });
 }
 
@@ -191,13 +210,21 @@ async function resumeSelected() {
   void queryClient.invalidateQueries({ queryKey: ["jobs"] });
 }
 
-function stopSelected() {
+async function stopSelected() {
   if (demoMode.value) {
     toast.info("演示任务不支持操作");
     return;
   }
+  const count = selectedCards.value.length;
+  const ok = await confirmAction({
+    title: `停止所选 ${count} 个任务？`,
+    description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
+    confirmText: "全部停止",
+    tone: "danger",
+  });
+  if (!ok) return;
   for (const card of selectedCards.value) void stopJob(card.job, true);
-  toast.info(`已请求停止 ${selectedCards.value.length} 个任务`);
+  toast.info(`已请求停止 ${count} 个任务`);
   selectedJobIds.value = {};
 }
 
@@ -231,6 +258,15 @@ async function stopJob(job: JobVO, silent = false) {
     return;
   }
   if (stopping.value[job.id]) return;
+  if (!silent) {
+    const ok = await confirmAction({
+      title: `停止「${accountLabel(job.accountUid)}」的任务？`,
+      description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
+      confirmText: "停止任务",
+      tone: "danger",
+    });
+    if (!ok) return;
+  }
   stopping.value = { ...stopping.value, [job.id]: true };
   // 兜底：长时间未收尾则释放按钮，允许再次请求停止
   window.setTimeout(() => {
