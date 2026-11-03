@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { confirmAction } from "@/lib/confirm";
 
 const queryClient = useQueryClient();
 const auth = useAuthStore();
@@ -232,6 +233,16 @@ const disableMutation = useMutation({
   },
   onError: (err) => toast.error((err as Error).message),
 });
+
+async function askDisable() {
+  const ok = await confirmAction({
+    title: "关闭访问锁？",
+    description: "关闭后本机所有已登录会话会立即失效，任何人都能直接打开面板，可随时重新启用。",
+    confirmText: "关闭访问锁",
+    tone: "danger",
+  });
+  if (ok) disableMutation.mutate();
+}
 </script>
 
 <template>
@@ -411,7 +422,7 @@ const disableMutation = useMutation({
             size="sm"
             class="h-8 text-[13.5px]"
             :disabled="disableMutation.isPending.value"
-            @click="disableMutation.mutate()"
+            @click="askDisable"
           ><Ban class="size-3.5" />关闭访问锁</Button>
         </form>
       </section>

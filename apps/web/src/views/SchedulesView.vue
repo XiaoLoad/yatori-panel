@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import ScheduleDialog from "@/components/account/ScheduleDialog.vue";
 import { relativeTime } from "@/lib/utils";
 import { toastError } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
 
 const queryClient = useQueryClient();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
@@ -96,6 +97,33 @@ const deleteMutation = useMutation({
   },
   onError: (err) => toastError(err, "删除规则失败"),
 });
+
+function ruleName(s: ScheduleVO): string {
+  return s.name || "未命名规则";
+}
+
+async function askToggle(s: ScheduleVO) {
+  // 只在关闭（暂停）规则时确认，启用是恢复性操作无需拦截
+  if (s.enabled) {
+    const ok = await confirmAction({
+      title: `暂停定时规则「${ruleName(s)}」？`,
+      description: "暂停后到点不再自动开始任务，已启动的任务不受影响，随时可以重新启用。",
+      confirmText: "暂停规则",
+    });
+    if (!ok) return;
+  }
+  toggleMutation.mutate(s.id);
+}
+
+async function askDelete(s: ScheduleVO) {
+  const ok = await confirmAction({
+    title: `删除定时规则「${ruleName(s)}」？`,
+    description: "删除后规则不再自动开始或停止任务，该操作不可撤销。",
+    confirmText: "删除规则",
+    tone: "danger",
+  });
+  if (ok) deleteMutation.mutate(s.id);
+}
 </script>
 
 <template>
@@ -195,12 +223,12 @@ const deleteMutation = useMutation({
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <Switch :model-value="s.enabled" @update:model-value="toggleMutation.mutate(s.id)" />
+            <Switch :model-value="s.enabled" @update:model-value="askToggle(s)" />
             <Button
               variant="ghost"
               size="icon"
               class="size-7 text-muted-foreground hover:text-coral"
-              @click="deleteMutation.mutate(s.id)"
+              @click="askDelete(s)"
             ><Trash2 class="size-3.5" /></Button>
           </div>
         </div>

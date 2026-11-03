@@ -27,6 +27,7 @@ import StartJobDialog from "@/components/account/StartJobDialog.vue";
 import ProgressRing from "@/components/charts/ProgressRing.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
+import { confirmAction } from "@/lib/confirm";
 import {
   accountStatus,
   formatDuration,
@@ -218,11 +219,27 @@ const removeMutation = useMutation({
   onError: (err) => toastError(err, "删除账号失败"),
 });
 
-function askRemove() {
+async function askStop() {
+  if (!runningJob.value) return;
+  const ok = await confirmAction({
+    title: "停止当前任务？",
+    description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
+    confirmText: "停止任务",
+    tone: "danger",
+  });
+  if (ok) stopMutation.mutate(runningJob.value.id);
+}
+
+async function askRemove() {
   if (!account.value) return;
   const name = account.value.remark || account.value.username;
-  if (!window.confirm(`删除账号「${name}」？该操作不可撤销。`)) return;
-  removeMutation.mutate();
+  const ok = await confirmAction({
+    title: `删除账号「${name}」？`,
+    description: "账号信息、登录会话与定时关联都会被清除，历史任务记录仍保留，该操作不可撤销。",
+    confirmText: "删除账号",
+    tone: "danger",
+  });
+  if (ok) removeMutation.mutate();
 }
 
 /**
@@ -337,7 +354,7 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
-          <Button v-if="runningJob" variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="stopMutation.mutate(runningJob.id)">
+          <Button v-if="runningJob" variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="askStop">
             <Square class="size-3.5" />停止任务
           </Button>
           <Button v-else size="sm" class="h-8 gap-1 text-[13px]" @click="startOpen = true">
