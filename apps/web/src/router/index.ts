@@ -23,6 +23,7 @@ export const router = createRouter({
           props: true,
         },
         { path: "history", name: "history", component: () => import("@/views/HistoryView.vue") },
+        { path: "logs", name: "logs", component: () => import("@/views/LogsView.vue") },
         { path: "schedules", name: "schedules", component: () => import("@/views/SchedulesView.vue") },
         { path: "settings", name: "settings", component: () => import("@/views/SettingsView.vue") },
       ],
