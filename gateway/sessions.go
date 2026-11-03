@@ -57,6 +57,9 @@ type session struct {
 	lastError   string
 	loginCancel func()
 
+	// keepFailStreak 心跳连续失败计数（仅在心跳协程内读写，无需加锁）
+	keepFailStreak int
+
 	stopHB    chan struct{}
 	stopOnce  sync.Once
 	startOnce sync.Once
@@ -101,8 +104,12 @@ func (s *session) currentState() string {
 
 const heartbeatInterval = 5 * time.Minute
 
+// keepFailLimit 是心跳连续失败多少次后判定会话失效（3 次 = 15 分钟）。
+const keepFailLimit = 3
+
 // startHeartbeat 每 5 分钟向上游发一次在线心跳，对齐 console 的
-// keepAliveLogin 协程。失败静默：真正的会话失效由面板层超时重登兜底。
+// keepAliveLogin 协程；失败按 console 节奏重试，连续失败标记会话失效，
+// 真正的会话重建由面板层超时重登兜底。
 func (s *session) startHeartbeat() {
 	if s.baseURL == "" || s.token == "" {
 		return
@@ -120,8 +127,17 @@ func (s *session) startHeartbeat() {
 					return
 				case <-ticker.C:
 					if ok := s.sendKeepAlive(client); !ok {
-						s.logs.logf("warn", "keepalive heartbeat failed")
+						s.keepFailStreak++
+						if s.keepFailStreak >= keepFailLimit {
+							// 连续失败：会话大概率已被上游失效，标记 error 让面板侧
+							// 复用检查/学时 401 触发重建，而不是静默等任务自己撞死。
+							s.setState("error", "登录心跳保活连续失败，会话已失效")
+							s.logs.logf("error", "keepalive 连续失败 %d 次，会话已标记失效", s.keepFailStreak)
+							return
+						}
+						s.logs.logf("warn", "keepalive heartbeat failed（连续 %d 次）", s.keepFailStreak)
 					} else {
+						s.keepFailStreak = 0
 						s.logs.logf("debug", "keepalive heartbeat ok")
 					}
 				}
@@ -130,19 +146,46 @@ func (s *session) startHeartbeat() {
 	})
 }
 
-// sendKeepAlive 复刻 core KeepAliveApi 的请求形态。
+// sendKeepAlive 复刻 core KeepAliveApi 的请求形态，并对齐其容错策略：
+// 传输错误、HTTP 网关错误（502/504）与业务失败码（_code:500）都算失败，
+// 最多重试 8 次、间隔 150ms；全部失败返回 false。
 func (s *session) sendKeepAlive(client *http.Client) bool {
+	for attempt := 0; attempt < 8; attempt++ {
+		if attempt > 0 {
+			time.Sleep(150 * time.Millisecond)
+		}
+		body, err := s.sendKeepAliveOnce(client)
+		if err != nil {
+			continue
+		}
+		if isBadKeepAliveBody(body) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// isBadKeepAliveBody 对齐 core KeepAliveApi 的坏响应判定。
+func isBadKeepAliveBody(body string) bool {
+	return strings.Contains(body, "502 Bad Gateway") ||
+		strings.Contains(body, "504 Gateway Time-out") ||
+		strings.Contains(body, `"status":false,"_code":500`)
+}
+
+// sendKeepAliveOnce 发一次心跳请求，返回响应体。
+func (s *session) sendKeepAliveOnce(client *http.Client) (string, error) {
 	payload := &bytes.Buffer{}
 	writer := multipart.NewWriter(payload)
 	_ = writer.WriteField("platform", "Android")
 	_ = writer.WriteField("version", "1.4.8")
 	_ = writer.WriteField("token", s.token)
 	if writer.Close() != nil {
-		return false
+		return "", fmt.Errorf("构造心跳报文失败")
 	}
 	req, err := http.NewRequest("POST", strings.TrimRight(s.baseURL, "/")+"/api/online.json", payload)
 	if err != nil {
-		return false
+		return "", err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("User-Agent", "Mozilla/5.0")
@@ -151,11 +194,17 @@ func (s *session) sendKeepAlive(client *http.Client) bool {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false
+		return "", err
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(io.LimitReader(resp.Body, 4096))
-	return resp.StatusCode == http.StatusOK
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return string(body), fmt.Errorf("心跳接口返回 HTTP %d", resp.StatusCode)
+	}
+	return string(body), nil
 }
 
 func (s *session) stop() {

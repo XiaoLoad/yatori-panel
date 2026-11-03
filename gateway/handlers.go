@@ -392,7 +392,11 @@ func (g *gateway) handleCourses(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
-	courses, err := se.client.Courses(r.Context())
+	courses, err := func() ([]yatori.Course, error) {
+		ctx, cancel := sdkCtx(r, sdkTimeout)
+		defer cancel()
+		return se.client.Courses(ctx)
+	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
 		return
@@ -410,11 +414,14 @@ func (g *gateway) handleTree(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
-	if err := se.ensureCoursesWarmed(r.Context()); err != nil {
-		fail(w, mapStatus(err), err.Error())
-		return
-	}
-	tree, err := se.client.Tree(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+	tree, err := func() ([]yatori.Node, error) {
+		ctx, cancel := sdkCtx(r, sdkTimeout)
+		defer cancel()
+		if err := se.ensureCoursesWarmed(ctx); err != nil {
+			return nil, err
+		}
+		return se.client.Tree(ctx, yatori.Course{ID: r.PathValue("courseId")})
+	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
 		return
@@ -433,10 +440,12 @@ func (g *gateway) handleWorks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	works, err := func() ([]yatori.Work, error) {
-		if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+		ctx, cancel := sdkCtx(r, sdkTimeout)
+		defer cancel()
+		if err := se.ensureCoursesWarmed(ctx); err != nil {
 			return nil, err
 		}
-		return se.client.Works(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+		return se.client.Works(ctx, yatori.Course{ID: r.PathValue("courseId")})
 	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
@@ -456,10 +465,12 @@ func (g *gateway) handleExams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exams, err := func() ([]yatori.Exam, error) {
-		if err := se.ensureCoursesWarmed(r.Context()); err != nil {
+		ctx, cancel := sdkCtx(r, sdkTimeout)
+		defer cancel()
+		if err := se.ensureCoursesWarmed(ctx); err != nil {
 			return nil, err
 		}
-		return se.client.Exams(r.Context(), yatori.Course{ID: r.PathValue("courseId")})
+		return se.client.Exams(ctx, yatori.Course{ID: r.PathValue("courseId")})
 	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
@@ -527,6 +538,19 @@ var nameRe = regexp.MustCompile(`(?i)<div class="name">\s*([^<]+?)\s*<`)
 
 // ---------- 学习 / 答题 ----------
 
+// sdkTimeout 是单次 SDK 调用的兜底超时：HTTP 请求 context 只有在客户端断开时
+// 才取消，而面板侧的 fetch 若无超时则永不断开——上游一旦挂起，handler 会被
+// 无限拖住。对齐 console 各 API 的 30s client timeout。
+const sdkTimeout = 30 * time.Second
+
+// answerTimeout 是作业/考试作答的超时：AI/题库逐题作答耗时较长，单独放宽。
+const answerTimeout = 10 * time.Minute
+
+// sdkCtx 为 SDK 调用包一层超时，防止上游挂起把 handler 无限拖住。
+func sdkCtx(r *http.Request, d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(r.Context(), d)
+}
+
 type studyRequest struct {
 	CourseID        string         `json:"courseId"`
 	NodeID          string         `json:"nodeId"`
@@ -572,7 +596,9 @@ func (g *gateway) handleStudy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 只传 ID：适配器会回查内部缓存（前提：先调过 Tree / Works）。
-	result, err := se.client.Study(r.Context(), yatori.StudyRequest{
+	ctx, cancel := sdkCtx(r, sdkTimeout)
+	defer cancel()
+	result, err := se.client.Study(ctx, yatori.StudyRequest{
 		Course:   yatori.Course{ID: req.CourseID},
 		Node:     yatori.Node{ID: req.NodeID},
 		Action:   yatori.StudyAction(req.Action),
@@ -606,7 +632,9 @@ func (g *gateway) handleDoWork(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	result, err := se.client.DoWork(r.Context(), yatori.WorkRequest{
+	ctx, cancel := sdkCtx(r, answerTimeout)
+	defer cancel()
+	result, err := se.client.DoWork(ctx, yatori.WorkRequest{
 		Course: yatori.Course{ID: req.CourseID},
 		Work:   yatori.Work{ID: req.WorkID},
 		Source: yatori.AnswerSource(req.Source),
@@ -636,7 +664,9 @@ func (g *gateway) handleDoExam(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	result, err := se.client.DoExam(r.Context(), yatori.ExamRequest{
+	ctx, cancel := sdkCtx(r, answerTimeout)
+	defer cancel()
+	result, err := se.client.DoExam(ctx, yatori.ExamRequest{
 		Course: yatori.Course{ID: req.CourseID},
 		Exam:   yatori.Exam{ID: req.ExamID},
 		Source: yatori.AnswerSource(req.Source),

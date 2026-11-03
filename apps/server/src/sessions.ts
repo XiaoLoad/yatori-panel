@@ -19,7 +19,7 @@ const live = new Map<string, LiveSession>();
 const inflight = new Map<string, Promise<string>>();
 /** accountUid → 进行中的会话重建（单飞），避免多课程并发时同时重登互相覆盖 */
 const rebuilding = new Map<string, Promise<string>>();
-/** accountUid → 网关侧会话状态（logging_in / online / error） */
+/** accountUid → 网关侧会话状态（logging_in / online / error），供账号列表展示 */
 const sessionStates = new Map<string, string>();
 
 /**
@@ -89,12 +89,16 @@ async function attachLogForwarder(
 }
 
 /** 轮询网关会话直到登录完成或失败（登录已异步化） */
-async function waitForOnline(sessionId: string, timeoutMs: number): Promise<void> {
+async function waitForOnline(
+  sessionId: string,
+  accountUid: string,
+  timeoutMs: number,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const info = await gateway.sessionInfo(sessionId);
     const state = info.info.state;
-    sessionStates.set(sessionId, state);
+    sessionStates.set(accountUid, state);
     if (state === "online") return;
     if (state === "error") {
       const logs = await gateway.recentLogs(sessionId).catch(() => []);
@@ -176,7 +180,7 @@ async function doEnsureSession(
       } else {
         const stopLogs = await attachLogForwarder(account.uid, match.sessionId);
         live.set(account.uid, { sessionId: match.sessionId, stopLogs });
-        sessionStates.set(match.sessionId, "online");
+        sessionStates.set(account.uid, "online");
         bus.publish({
           type: "account.state",
           ts: Date.now(),
@@ -220,16 +224,19 @@ async function doEnsureSession(
 
   // 会话已入库（logging_in）：日志转发立即挂上，登录过程实时可见
   const stopLogs = await attachLogForwarder(account.uid, created.sessionId);
-  sessionStates.set(created.sessionId, "logging_in");
+  sessionStates.set(account.uid, "logging_in");
   live.set(account.uid, { sessionId: created.sessionId, stopLogs });
 
   try {
-    await waitForOnline(created.sessionId, 120_000);
+    await waitForOnline(created.sessionId, account.uid, 120_000);
   } catch (err) {
     // 登录失败：从 live 移除（网关侧会话保留 error 状态供日志查询）
+    sessionStates.set(account.uid, "error");
     live.delete(account.uid);
     throw err;
   }
+
+  sessionStates.set(account.uid, "online");
 
   live.set(account.uid, { sessionId: created.sessionId, stopLogs });
   bus.publish({
@@ -279,7 +286,7 @@ export async function dropSession(accountUid: string): Promise<void> {
   const s = live.get(accountUid);
   if (!s) return;
   live.delete(accountUid);
-  sessionStates.delete(s.sessionId);
+  sessionStates.delete(accountUid);
   s.stopLogs();
   try {
     await gateway.closeSession(s.sessionId);

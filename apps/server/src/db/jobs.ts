@@ -50,6 +50,30 @@ export function finishJob(id: string, state: JobState, summary: JobSummary): voi
     .run(state, now(), JSON.stringify(summary), id);
 }
 
+/**
+ * 启动恢复：进程死亡（崩溃/强杀/重启）时 running 任务来不及走 finishJob，
+ * 遗留的 running 行会让账号永远显示"运行中"且无法启动新任务，
+ * 启动时统一标记为 error 中断。
+ */
+export function recoverStaleRunningJobs(): number {
+  const rows = sqlite
+    .prepare(`SELECT id FROM jobs WHERE state = 'running'`)
+    .all() as unknown as { id: string }[];
+  if (!rows.length) return 0;
+  const summary: JobSummary = {
+    courses: 0,
+    videosCompleted: 0,
+    videosSkipped: 0,
+    flagsFound: 0,
+    worksDone: 0,
+    examsDone: 0,
+    scores: [],
+    errors: ["服务重启，任务被中断"],
+  };
+  for (const r of rows) finishJob(r.id, "error", summary);
+  return rows.length;
+}
+
 export function getJob(id: string): JobVO | null {
   const row = sqlite.prepare(`SELECT * FROM jobs WHERE id = ?`).get(id) as unknown as JobRow | undefined;
   return row ? toVO(row) : null;

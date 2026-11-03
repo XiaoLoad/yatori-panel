@@ -21,7 +21,7 @@ const UNLOCK_RE = /解锁时间【[^】]*】未到/;
 /** 登录超时：需要重建会话后重试 */
 const RELOGIN_RE = /账号登录超时/;
 /** 网关侧会话丢失（重建会话后，其他并发课程可能撞到旧 sid） */
-const SESSION_LOST_RE = /session not found/i;
+const SESSION_LOST_RE = /session not (?:found|online)/i;
 
 /** 去红：最多几轮、单节点最多几次、成功/失败后的间隔（对齐 console 的 8s/10s 节奏） */
 const RED_ROUND_LIMIT = 3;
@@ -46,6 +46,35 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
         resolve();
       },
       { once: true },
+    );
+  });
+}
+
+/** 任务停止触发的中断错误：manager 捕获后按 stopped 收尾而非 error */
+class JobAborted extends Error {
+  constructor() {
+    super("任务已停止");
+  }
+}
+
+/**
+ * 让不感知 signal 的长等待（会话创建/重建）可被任务停止打断：
+ * signal 触发立即 reject，底层 promise 继续跑但结果被丢弃。
+ */
+function abortable<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new JobAborted());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new JobAborted());
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(
+      (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      },
     );
   });
 }
@@ -91,7 +120,7 @@ export async function runJob(
   const account = getAccount(accountUid);
   const accountLabel = account ? (account.remark || account.username) : accountUid;
   // sid 用可变持有：登录超时自愈时会整会话重建
-  let sid = await ensureSessionForUid(accountUid);
+  let sid = await abortable(ensureSessionForUid(accountUid), signal);
   let rebuilds = 0;
   const MAX_REBUILDS = 5;
 
@@ -127,7 +156,7 @@ export async function runJob(
     } catch (err) {
       if (!isSessionLost(err)) throw err;
       emitLog("warn", "网关会话已失效，正在重建会话…");
-      sid = await rebuildSession(accountUid);
+      sid = await abortable(rebuildSession(accountUid), signal);
       return fn(sid);
     }
   }
@@ -151,11 +180,15 @@ export async function runJob(
     // start：让适配器从平台记录的续播位置开始
     try {
       await withSession((s) =>
-        gateway.study(s, {
-          courseId: course.id,
-          nodeId: node.id,
-          action: "start",
-        }),
+        gateway.study(
+          s,
+          {
+            courseId: course.id,
+            nodeId: node.id,
+            action: "start",
+          },
+          { signal },
+        ),
       );
     } catch {
       /* start 失败不致命，progress 会带上 position */
@@ -169,13 +202,17 @@ export async function runJob(
       let res;
       try {
         res = await withSession((s) =>
-          gateway.study(s, {
-            courseId: course.id,
-            nodeId: node.id,
-            action: "progress",
-            positionSeconds: position,
-            durationSeconds: total,
-          }),
+          gateway.study(
+            s,
+            {
+              courseId: course.id,
+              nodeId: node.id,
+              action: "progress",
+              positionSeconds: position,
+              durationSeconds: total,
+            },
+            { signal },
+          ),
         );
       } catch (err) {
         retries += 1;
@@ -205,7 +242,7 @@ export async function runJob(
         }
         emitLog("warn", `检测到登录超时，正在重建会话（第 ${rebuilds} 次）…`);
         position -= settings.tickSeconds;
-        sid = await rebuildSession(accountUid);
+        sid = await abortable(rebuildSession(accountUid), signal);
         emitLog("info", "会话已重建，继续当前视频");
         continue;
       }
@@ -289,12 +326,14 @@ export async function runJob(
         totalSeconds: total,
       });
 
+      // 对齐 console：最后一次提交后也睡一个 tick 再进入下一视频，
+      // 保证相邻视频之间有真实间隔（先睡后判断，否则间隔为零）
+      await sleep(tickMs, signal);
       if (res.completed || (total > 0 && position >= total)) {
         summary.videosCompleted += 1;
         emitLog("info", `视频学习完成：${course.name} / ${node.name}`);
         return;
       }
-      await sleep(tickMs, signal);
     }
   }
 
@@ -329,21 +368,29 @@ export async function runJob(
   ): Promise<Awaited<ReturnType<typeof gateway.doWork>>> {
     if (kind === "work") {
       return withSession((s) =>
-        gateway.doWork(s, {
-          courseId,
-          workId: id,
-          source: options.answerSource,
-          submit,
-        }),
+        gateway.doWork(
+          s,
+          {
+            courseId,
+            workId: id,
+            source: options.answerSource,
+            submit,
+          },
+          { signal },
+        ),
       );
     }
     return withSession((s) =>
-      gateway.doExam(s, {
-        courseId,
-        examId: id,
-        source: options.answerSource,
-        submit,
-      }),
+      gateway.doExam(
+        s,
+        {
+          courseId,
+          examId: id,
+          source: options.answerSource,
+          submit,
+        },
+        { signal },
+      ),
     );
   }
 
@@ -374,7 +421,7 @@ export async function runJob(
 
     let works: GatewayWork[] = [];
     try {
-      works = await withSession((s) => gateway.works(s, course.id));
+      works = await withSession((s) => gateway.works(s, course.id, { signal }));
     } catch (err) {
       const m = `作业列表拉取失败 ${course.name}: ${(err as Error).message}`;
       summary.errors.push(m);
@@ -382,7 +429,7 @@ export async function runJob(
     }
     let exams: GatewayExam[] = [];
     try {
-      exams = await withSession((s) => gateway.exams(s, course.id));
+      exams = await withSession((s) => gateway.exams(s, course.id, { signal }));
     } catch (err) {
       const m = `考试列表拉取失败 ${course.name}: ${(err as Error).message}`;
       summary.errors.push(m);
@@ -539,13 +586,17 @@ export async function runJob(
       if (stopRequested()) return false;
       try {
         const res = await withSession((s) =>
-          gateway.study(s, {
-            courseId: course.id,
-            nodeId: node.id,
-            action: "progress",
-            positionSeconds: position,
-            durationSeconds: total,
-          }),
+          gateway.study(
+            s,
+            {
+              courseId: course.id,
+              nodeId: node.id,
+              action: "progress",
+              positionSeconds: position,
+              durationSeconds: total,
+            },
+            { signal },
+          ),
         );
         const msg = res.message ?? "";
         const rawText =
@@ -575,7 +626,7 @@ export async function runJob(
         }
         if (RELOGIN_RE.test(msg) || rawText.includes("账号登录超时")) {
           emitLog("warn", "去红遇到登录超时，正在重建会话后重试…");
-          sid = await rebuildSession(accountUid);
+          sid = await abortable(rebuildSession(accountUid), signal);
           continue;
         }
         emitLog(
@@ -644,7 +695,7 @@ export async function runJob(
     tasks: Map<string, NodeTasks>,
   ): Promise<void> {
     emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name });
-    const tree = await withSession((s) => gateway.tree(s, course.id));
+    const tree = await withSession((s) => gateway.tree(s, course.id, { signal }));
     const nodes = flattenNodes(tree);
     const videoCount = nodes.filter(isVideoNode).length;
     const mode = options.videoMode;
@@ -702,7 +753,7 @@ export async function runJob(
   // ---------- 主流程 ----------
   let courses: GatewayCourse[] = [];
   try {
-    courses = await withSession((s) => gateway.courses(s));
+    courses = await withSession((s) => gateway.courses(s, { signal }));
   } catch (err) {
     throw new Error(`课程列表拉取失败：${(err as Error).message}`);
   }
