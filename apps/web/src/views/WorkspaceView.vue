@@ -333,10 +333,13 @@ const addOpen = ref(false);
 // ---------- 实时日志 ----------
 const logLevel = ref<"all" | "info" | "warn" | "error">("all");
 const logSearch = ref("");
-/** 持久化历史日志 + SSE 实时日志，按时间合并去重 */
+/** 只保留运行中任务的日志，避免已结束任务的上下文污染观测台 */
+const runningJobIds = computed(() => new Set(runningJobs.value.map((j) => j.id)));
+/** 持久化历史日志 + SSE 实时日志，按时间合并去重，仅保留运行中任务 */
 const mergedLogs = computed<JobEvent[]>(() => {
   const map = new Map<string, JobEvent>();
   for (const l of [...(historyLogsQuery.data.value ?? []), ...events.logs]) {
+    if (!l.jobId || !runningJobIds.value.has(l.jobId)) continue;
     map.set(`${l.ts}|${l.accountId ?? ""}|${l.message ?? ""}`, l);
   }
   return [...map.values()].sort((a, b) => a.ts - b.ts);
@@ -363,8 +366,10 @@ function levelCount(key: "all" | "info" | "warn" | "error"): number {
 
 // ---------- 异常与标记 ----------
 const recentFlags = computed(() => events.flags.slice(0, 6));
-/** 右侧实时事件流：保留最近 14 条实时日志 */
-const recentEvents = computed(() => events.logs.slice(-14).reverse());
+/** 右侧实时事件流：只保留运行中任务的最近 14 条实时日志 */
+const recentEvents = computed(() =>
+  events.logs.filter((l) => l.jobId && runningJobIds.value.has(l.jobId)).slice(-14).reverse(),
+);
 </script>
 
 <template>
@@ -739,8 +744,8 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
         <!-- 实时事件流：填满右栏剩余高度 -->
         <div class="panel flex h-[240px] flex-col overflow-hidden xl:h-auto xl:min-h-[160px] xl:flex-1">
           <div class="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-            <span class="text-[13px] font-medium">实时事件流</span>
-            <span class="mono text-[12px] text-muted-foreground">{{ events.logs.length }}</span>
+            <span class="text-[13px] font-medium">运行中日志</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ mergedLogs.length }}</span>
             <span class="mono ml-auto flex items-center gap-1 text-[11.5px] text-primary">
               <span class="size-1 animate-breathe rounded-full bg-primary" />LIVE
             </span>
@@ -759,7 +764,7 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
               <span class="min-w-0 flex-1 truncate text-[12px] text-foreground/85" :title="e.message">{{ e.message }}</span>
             </div>
           </div>
-          <p v-else class="px-3.5 py-8 text-center text-[12px] text-muted-foreground">暂无实时事件</p>
+          <p v-else class="px-3.5 py-8 text-center text-[12px] text-muted-foreground">当前运行任务暂无日志</p>
         </div>
 
         <div class="panel flex h-[240px] flex-col overflow-hidden">
@@ -806,14 +811,14 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
       </aside>
     </section>
 
-    <!-- 全站实时日志 -->
+    <!-- 运行中任务日志 -->
     <section class="panel overflow-hidden">
       <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
-        <h2 class="text-[15px] font-semibold">全站实时日志</h2>
+        <h2 class="text-[15px] font-semibold">运行中任务日志</h2>
         <span class="mono flex items-center gap-1.5 text-[12px] text-primary">
           <span class="size-1.5 animate-breathe rounded-full bg-primary" />SSE
         </span>
-        <span class="mono text-[12px] text-muted-foreground">全站 {{ mergedLogs.length }} 条 · 含历史</span>
+        <span class="mono text-[12px] text-muted-foreground">当前 {{ mergedLogs.length }} 条 · 任务结束后自动清空</span>
         <div class="ml-auto flex flex-wrap items-center gap-1">
           <button
             v-for="l in [
@@ -853,7 +858,7 @@ const recentEvents = computed(() => events.logs.slice(-14).reverse());
         </div>
       </div>
       <p v-else class="px-4 py-10 text-center text-[13px] text-muted-foreground">
-        暂无可显示的日志，发起任务后会实时汇总到这里
+        当前没有运行中的任务，启动任务后会实时显示其日志
       </p>
     </section>
 
