@@ -326,12 +326,14 @@ export async function runJob(
         totalSeconds: total,
       });
 
+      // 对齐 console：最后一次提交后也睡一个 tick 再进入下一视频，
+      // 保证相邻视频之间有真实间隔（先睡后判断，否则间隔为零）
+      await sleep(tickMs, signal);
       if (res.completed || (total > 0 && position >= total)) {
         summary.videosCompleted += 1;
         emitLog("info", `视频学习完成：${course.name} / ${node.name}`);
         return;
       }
-      await sleep(tickMs, signal);
     }
   }
 
