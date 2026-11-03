@@ -174,6 +174,7 @@ export async function runJob(
             nodeId: node.id,
             action: "progress",
             positionSeconds: position,
+            durationSeconds: total,
           }),
         );
       } catch (err) {
@@ -533,6 +534,7 @@ export async function runJob(
    */
   async function cleanRedNode(course: GatewayCourse, node: GatewayNode): Promise<boolean> {
     const position = Number(node.extra?.["viewedSeconds"] ?? 0);
+    const total = node.durationSeconds || Number(node.extra?.["duration"] ?? 0);
     for (let attempt = 1; attempt <= RED_ATTEMPT_LIMIT; attempt++) {
       if (stopRequested()) return false;
       try {
@@ -542,6 +544,7 @@ export async function runJob(
             nodeId: node.id,
             action: "progress",
             positionSeconds: position,
+            durationSeconds: total,
           }),
         );
         const msg = res.message ?? "";
