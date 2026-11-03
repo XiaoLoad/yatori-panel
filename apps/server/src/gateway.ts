@@ -160,19 +160,44 @@ interface Envelope<T> {
   logs?: GatewayLogEntry[];
 }
 
+/** 单次网关请求的默认超时：防止网关侧挂起把调用方无限拖住 */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+interface RequestOptions {
+  /** 调用方中断信号（如任务停止）；与超时取并集，任一触发即中断 */
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 async function request<T>(
   apiPath: string,
   method: string,
   body?: unknown,
+  opts?: RequestOptions,
 ): Promise<T> {
+  // 超时与调用方 signal 合并：停止任务时进行中的请求立即中断，不再等它自然结束
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+    ...(opts?.signal ? [opts.signal] : []),
+  ]);
   let res: Response;
   try {
     res = await fetch(env.gatewayURL + apiPath, {
       method,
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
     });
   } catch (err) {
+    if ((err as Error).name === "TimeoutError") {
+      throw new GatewayError(
+        `网关请求超时（${apiPath}，${((opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS) / 1000).toFixed(0)}s）`,
+        504,
+      );
+    }
+    if ((err as Error).name === "AbortError") {
+      throw new GatewayError(`网关请求已中止（${apiPath}）`, 499);
+    }
     throw new GatewayError(
       `网关不可达（${env.gatewayURL}）：${(err as Error).message}`,
       503,
@@ -206,29 +231,49 @@ export const gateway = {
     ai?: { type: string; url: string; model: string; apiKey: string };
     questionBank?: { url: string; key: string };
   }) => request<{ available: boolean; error?: string }>("/api/v1/preflight", "POST", body),
-  createSession: (payload: {
-    platform: string;
-    username: string;
-    password: string;
-    url?: string;
-    cookie?: string;
-    proxyURL?: string;
-    loginTimeoutSeconds?: number;
-    /** 面板侧配置指纹：网关原样存入 sessionInfo，复用会话时比对 */
-    configFingerprint?: string;
-    ai?: { enabled?: boolean; type: string; url: string; model: string; apiKey: string };
-    questionBank?: { url: string; key: string };
-  }) => request<GatewaySessionInfo>("/api/v1/sessions", "POST", payload),
-  closeSession: (sid: string) => request<void>(`/api/v1/sessions/${sid}`, "DELETE"),
-  courses: (sid: string) => request<GatewayCourse[]>(`/api/v1/sessions/${sid}/courses`, "GET"),
-  profile: (sid: string) =>
-    request<{ name: string }>(`/api/v1/sessions/${sid}/profile`, "GET"),
-  tree: (sid: string, courseId: string) =>
-    request<GatewayNode[]>(`/api/v1/sessions/${sid}/courses/${courseId}/tree`, "GET"),
-  works: (sid: string, courseId: string) =>
-    request<GatewayWork[]>(`/api/v1/sessions/${sid}/courses/${courseId}/works`, "GET"),
-  exams: (sid: string, courseId: string) =>
-    request<GatewayExam[]>(`/api/v1/sessions/${sid}/courses/${courseId}/exams`, "GET"),
+  createSession: (
+    payload: {
+      platform: string;
+      username: string;
+      password: string;
+      url?: string;
+      cookie?: string;
+      proxyURL?: string;
+      loginTimeoutSeconds?: number;
+      /** 面板侧配置指纹：网关原样存入 sessionInfo，复用会话时比对 */
+      configFingerprint?: string;
+      ai?: { enabled?: boolean; type: string; url: string; model: string; apiKey: string };
+      questionBank?: { url: string; key: string };
+    },
+    opts?: RequestOptions,
+  ) => request<GatewaySessionInfo>("/api/v1/sessions", "POST", payload, opts),
+  closeSession: (sid: string, opts?: RequestOptions) =>
+    request<void>(`/api/v1/sessions/${sid}`, "DELETE", undefined, opts),
+  courses: (sid: string, opts?: RequestOptions) =>
+    request<GatewayCourse[]>(`/api/v1/sessions/${sid}/courses`, "GET", undefined, opts),
+  profile: (sid: string, opts?: RequestOptions) =>
+    request<{ name: string }>(`/api/v1/sessions/${sid}/profile`, "GET", undefined, opts),
+  tree: (sid: string, courseId: string, opts?: RequestOptions) =>
+    request<GatewayNode[]>(
+      `/api/v1/sessions/${sid}/courses/${courseId}/tree`,
+      "GET",
+      undefined,
+      opts,
+    ),
+  works: (sid: string, courseId: string, opts?: RequestOptions) =>
+    request<GatewayWork[]>(
+      `/api/v1/sessions/${sid}/courses/${courseId}/works`,
+      "GET",
+      undefined,
+      opts,
+    ),
+  exams: (sid: string, courseId: string, opts?: RequestOptions) =>
+    request<GatewayExam[]>(
+      `/api/v1/sessions/${sid}/courses/${courseId}/exams`,
+      "GET",
+      undefined,
+      opts,
+    ),
   study: (
     sid: string,
     body: {
@@ -240,11 +285,27 @@ export const gateway = {
       /** 视频总时长（秒）：网关据此计算进度，英华直连学时接口时需要 */
       durationSeconds?: number;
     },
-  ) => request<GatewayStudyResult>(`/api/v1/sessions/${sid}/study`, "POST", body),
-  doWork: (sid: string, body: { courseId: string; workId: string; source: string; submit: boolean }) =>
-    request<GatewayAnswerResult>(`/api/v1/sessions/${sid}/works/do`, "POST", body),
-  doExam: (sid: string, body: { courseId: string; examId: string; source: string; submit: boolean }) =>
-    request<GatewayAnswerResult>(`/api/v1/sessions/${sid}/exams/do`, "POST", body),
+    opts?: RequestOptions,
+  ) => request<GatewayStudyResult>(`/api/v1/sessions/${sid}/study`, "POST", body, opts),
+  doWork: (
+    sid: string,
+    body: { courseId: string; workId: string; source: string; submit: boolean },
+    opts?: RequestOptions,
+  ) =>
+    // AI/题库逐题作答耗时长，单独放宽超时
+    request<GatewayAnswerResult>(`/api/v1/sessions/${sid}/works/do`, "POST", body, {
+      ...opts,
+      timeoutMs: opts?.timeoutMs ?? 600_000,
+    }),
+  doExam: (
+    sid: string,
+    body: { courseId: string; examId: string; source: string; submit: boolean },
+    opts?: RequestOptions,
+  ) =>
+    request<GatewayAnswerResult>(`/api/v1/sessions/${sid}/exams/do`, "POST", body, {
+      ...opts,
+      timeoutMs: opts?.timeoutMs ?? 600_000,
+    }),
   /**
    * 逐题模式考试（SSE）：onProgress 每题回调，resolve 于最终 result。
    * 仅英华支持；网关不支持/出错时 reject（错误信息含网关 error 事件）。
@@ -253,6 +314,7 @@ export const gateway = {
     sid: string,
     body: { courseId: string; examId: string; nodeId: string; bankUrl: string; submitMode: string },
     onProgress: (p: GatewayExamProgress) => void,
+    opts?: RequestOptions,
   ): Promise<GatewayExamDetailResult> =>
     new Promise((resolve, reject) => {
       void (async () => {
@@ -262,6 +324,11 @@ export const gateway = {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
+            // SSE 长连接：跟随调用方 signal，超时只做极端兜底（30 分钟）
+            signal: AbortSignal.any([
+              AbortSignal.timeout(opts?.timeoutMs ?? 1_800_000),
+              ...(opts?.signal ? [opts.signal] : []),
+            ]),
           });
         } catch (err) {
           reject(new GatewayError(`网关不可达（${env.gatewayURL}）：${(err as Error).message}`, 503));

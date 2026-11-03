@@ -101,6 +101,19 @@ class JobManager {
           scores: [],
           errors: [String((err as Error)?.message ?? err)],
         };
+        // 停止触发的中断（abort 打断请求/会话重建）按 stopped 收尾，不算错误
+        if (ctrl.signal.aborted) {
+          finishJob(job.id, "stopped", summary);
+          bus.publish({
+            type: "job.status",
+            ts: Date.now(),
+            jobId: job.id,
+            accountId: account.uid,
+            state: "stopped",
+            summary,
+          });
+          return;
+        }
         finishJob(job.id, "error", summary);
         bus.publish({
           type: "job.status",
