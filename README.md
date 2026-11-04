@@ -51,12 +51,25 @@ stop.bat     # 按命令行特征精确结束面板进程，不影响其他程�
 ### Docker 部署
 
 ```bash
+cp .env.example .env            # 首次部署：复制环境变量模板（默认开启访问锁）
+# 本地临时调试可把 PANEL_AUTH_REQUIRED 改为 false；线上保持 true
 docker compose up -d --build    # 一键启动（网关 + 面板）
 docker compose logs -f          # 查看日志
 docker compose down             # 停止服务
 ```
 
 启动后访问 `http://localhost:8080`；网关仅在容器网络内监听，不对外发布端口。运行时数据存于 `panel-data` 卷（容器内 `/app/data`）。
+
+### 生产部署安全清单
+
+> 公网暴露前请逐项确认。本项目不建议直接以 HTTP 开放在公网。
+
+1. **必须启用访问锁**：`.env` 设置 `PANEL_AUTH_REQUIRED=true`。数据库无密码时首次启动会生成随机密码并打印到日志，登录后立即在设置页修改，并确认启动日志显示「访问锁：已启用」。
+2. **不要公网 HTTP 裸奔**：HTTP 下会话 cookie 与账号密码明文传输。推荐 Caddy 自动 HTTPS、Cloudflare Tunnel 或 Tailscale/WireGuard 内网访问；仅在 HTTPS 下设置 `PANEL_COOKIE_SECURE=true`。
+3. **密钥与数据分开备份**：迁移已有数据时不要设置新的 `PANEL_SECRET_KEY`（旧密码由旧 `data/secret.key` 加密）。备份前先停面板再复制整个 data 目录，密钥文件与数据库分开保管，并实际演练一次恢复。
+4. **反代下再开 trustProxy**：只有可信代理会覆写 `X-Forwarded-For` 时才设 `PANEL_TRUST_PROXY=true`，否则登录限速可被伪造 IP 绕过。
+5. **部署选空闲时段**：重启会中断运行中的刷课任务并标记为「服务重启，任务被中断」。
+6. **前置限流与日志轮转**：公网部署建议在反代层加限流；为 Docker 配置日志轮转，避免日志与 SQLite 占满磁盘。
 
 ### 开发模式
 
@@ -77,6 +90,7 @@ yatori-panel/
 ├── cliff.toml              # git-cliff 更新日志生成配置
 ├── CHANGELOG.md            # 版本更新日志（git-cliff 生成 + 发版时人工润色）
 ├── compose.yaml            # Docker Compose（gateway + panel 双容器）
+├── .env.example            # 部署环境变量示例（访问锁 / 密钥 / 代理）
 ├── panel.Dockerfile        # 面板镜像（node:24 原生运行 TS）
 ├── start.bat / stop.bat    # Windows 一键启动 / 停止
 ├── scripts/                # 辅助脚本
@@ -152,6 +166,12 @@ yatori-go-core（上游逆向资产）
 | `GATEWAY_URL` | `http://127.0.0.1:9801` | 网关地址（Docker 中为 `http://gateway:9801`） |
 | `PANEL_DATA_DIR` | 项目根目录 `data/` | 数据存储目录（Docker 中为 `/app/data`） |
 | `WEB_DIST` | `apps/web/dist` | 前端产物目录（后端静态托管） |
+| `PANEL_AUTH_REQUIRED` | `false` | 强制访问锁：无密码时启动自动生成随机密码并打印日志（线上必开） |
+| `PANEL_SESSION_TTL_HOURS` | `24` | 登录会话有效期（小时） |
+| `PANEL_COOKIE_SECURE` | `false` | 会话 cookie 的 `secure` 标志，仅 HTTPS 部署时开启 |
+| `PANEL_TRUST_PROXY` | `false` | 信任反向代理的 `X-Forwarded-*`，仅可信代理后开启 |
+| `PANEL_SECRET_KEY` | 空 | base64 32 字节加密密钥；为空时使用 `data/secret.key` |
+| `PANEL_CORS_ORIGINS` | 空 | 跨域白名单（逗号分隔），为空时仅同源 |
 
 ## 常见问题
 

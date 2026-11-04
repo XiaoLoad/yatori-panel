@@ -14,11 +14,15 @@ services:
       PANEL_HOST: 0.0.0.0
       GATEWAY_URL: http://gateway:9801
       PANEL_DATA_DIR: /app/data
-      # 可选：加密密钥注入（base64 32 字节，openssl rand -base64 32 生成）。
-      # 注入后密钥独立于数据卷，备份数据卷不再等于泄露账号密码。
-      # PANEL_SECRET_KEY: ${PANEL_SECRET_KEY:-}
-      # 可选：跨域访问白名单（逗号分隔 Origin），默认仅同源。
-      # PANEL_CORS_ORIGINS: ${PANEL_CORS_ORIGINS:-}
+      # 访问锁与安全配置：从 .env 读取；线上务必设置 PANEL_AUTH_REQUIRED=true
+      PANEL_AUTH_REQUIRED: ${PANEL_AUTH_REQUIRED:-false}
+      PANEL_SESSION_TTL_HOURS: ${PANEL_SESSION_TTL_HOURS:-24}
+      PANEL_COOKIE_SECURE: ${PANEL_COOKIE_SECURE:-false}
+      PANEL_TRUST_PROXY: ${PANEL_TRUST_PROXY:-false}
+      # 可选：base64 32 字节密钥（已有数据时不要更换，否则旧密码无法解密）
+      PANEL_SECRET_KEY: ${PANEL_SECRET_KEY:-}
+      # 可选：跨域白名单（逗号分隔），默认仅同源
+      PANEL_CORS_ORIGINS: ${PANEL_CORS_ORIGINS:-}
     volumes:
       - panel-data:/app/data
     depends_on:
