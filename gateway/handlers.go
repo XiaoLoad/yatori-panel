@@ -54,6 +54,7 @@ func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/works/do", xlong(g.handleDoWork))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", xlong(g.handleDoExam))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/detail", g.handleExamDetail) // SSE 逐题流
+	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/results", xlong(g.handleExamResults)) // 考试结果只读查询
 
 	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)       // SSE 长连接，不适用
 	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", long(g.handleRecentLogs))
@@ -738,6 +739,40 @@ func (g *gateway) handleExamDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = writeEvent("result", result)
+}
+
+// handleExamResults 只读查询考试参与状态与最终得分（仅英华，不进入考试流程）。
+func (g *gateway) handleExamResults(w http.ResponseWriter, r *http.Request) {
+	se, ok := g.sessionFrom(r)
+	if !ok {
+		fail(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if se.info.Platform != "YINGHUA" {
+		fail(w, http.StatusBadRequest, "考试状态与成绩查询暂仅支持英华学堂")
+		return
+	}
+	var req struct {
+		CourseID string      `json:"courseId"`
+		Exams    []yhExamKey `json:"exams"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if len(req.Exams) == 0 {
+		fail(w, http.StatusBadRequest, "缺少考试列表")
+		return
+	}
+	if len(req.Exams) > 30 {
+		fail(w, http.StatusBadRequest, "单次最多查询 30 场考试")
+		return
+	}
+	results, err := RunExamResultsWithCreds(r.Context(), se.client.Session(), se.yhUsername, se.yhPassword, req.Exams)
+	if err != nil {
+		fail(w, mapStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": results})
 }
 
 // ---------- 日志 ----------
