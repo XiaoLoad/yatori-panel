@@ -12,6 +12,7 @@ import ScheduleDialog from "@/components/account/ScheduleDialog.vue";
 import { relativeTime } from "@/lib/utils";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
+import { isPending, runPending } from "@/lib/pending";
 
 const queryClient = useQueryClient();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
@@ -103,6 +104,7 @@ function ruleName(s: ScheduleVO): string {
 }
 
 async function askToggle(s: ScheduleVO) {
+  if (isPending(`toggle:${s.id}`)) return;
   // 只在关闭（暂停）规则时确认，启用是恢复性操作无需拦截
   if (s.enabled) {
     const ok = await confirmAction({
@@ -112,17 +114,18 @@ async function askToggle(s: ScheduleVO) {
     });
     if (!ok) return;
   }
-  toggleMutation.mutate(s.id);
+  runPending(`toggle:${s.id}`, () => toggleMutation.mutateAsync(s.id));
 }
 
 async function askDelete(s: ScheduleVO) {
+  if (isPending(`delete:${s.id}`)) return;
   const ok = await confirmAction({
     title: `删除定时规则「${ruleName(s)}」？`,
     description: "删除后规则不再自动开始或停止任务，该操作不可撤销。",
     confirmText: "删除规则",
     tone: "danger",
   });
-  if (ok) deleteMutation.mutate(s.id);
+  if (ok) runPending(`delete:${s.id}`, () => deleteMutation.mutateAsync(s.id));
 }
 </script>
 
@@ -223,11 +226,12 @@ async function askDelete(s: ScheduleVO) {
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <Switch :model-value="s.enabled" @update:model-value="askToggle(s)" />
+            <Switch :model-value="s.enabled" :disabled="isPending(`toggle:${s.id}`) || isPending(`delete:${s.id}`)" @update:model-value="askToggle(s)" />
             <Button
               variant="ghost"
               size="icon"
               class="size-7 text-muted-foreground hover:text-coral"
+              :disabled="isPending(`delete:${s.id}`) || isPending(`toggle:${s.id}`)"
               @click="askDelete(s)"
             ><Trash2 class="size-3.5" /></Button>
           </div>

@@ -15,6 +15,7 @@ import { formatDuration } from "@/lib/account";
 import { relativeTime } from "@/lib/utils";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
+import { isPending, runPending } from "@/lib/pending";
 import { cn } from "@/lib/utils";
 
 const router = useRouter();
@@ -172,13 +173,14 @@ const stopMutation = useMutation({
 });
 
 async function askStop(job: JobVO) {
+  if (isPending(`stop:${job.id}`)) return;
   const ok = await confirmAction({
     title: `停止「${job.accountName || job.accountUid.slice(0, 6)}」的任务？`,
     description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
     confirmText: "停止任务",
     tone: "danger",
   });
-  if (ok) stopMutation.mutate(job.id);
+  if (ok) runPending(`stop:${job.id}`, () => stopMutation.mutateAsync(job.id));
 }
 
 function outputOf(job: JobVO): { videos: number; works: number; exams: number; flags: number; errors: number } | null {
@@ -381,6 +383,7 @@ function absoluteTime(iso: string): string {
                     variant="outline"
                     size="sm"
                     class="h-6 gap-1 px-2 text-[12px]"
+                    :disabled="isPending(`stop:${job.id}`)"
                     @click="askStop(job)"
                   ><Square class="size-3" />停止</Button>
                   <span v-else class="text-[12px] text-muted-foreground">—</span>

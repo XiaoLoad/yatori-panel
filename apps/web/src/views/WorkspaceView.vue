@@ -17,6 +17,7 @@ import Sparkline from "@/components/charts/Sparkline.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
+import { isPending, runPending } from "@/lib/pending";
 import { formatDuration, formatEta, jobStateLabel, overallPercent, phaseLabel, progressDetail } from "@/lib/account";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +122,7 @@ function isJobPaused(job: JobVO): boolean {
   return pausedOverride.value[job.id] ?? job.paused ?? false;
 }
 async function togglePause(job: JobVO) {
+  if (isPending(`pause:${job.id}`)) return;
   const next = !isJobPaused(job);
   if (next) {
     const ok = await confirmAction({
@@ -130,15 +132,17 @@ async function togglePause(job: JobVO) {
     });
     if (!ok) return;
   }
-  try {
-    if (next) await api.pauseJob(job.id);
-    else await api.resumeJob(job.id);
-    pausedOverride.value = { ...pausedOverride.value, [job.id]: next };
-    toast.info(next ? "任务已暂停" : "任务已继续");
-    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-  } catch (err) {
-    toastError(err, next ? "暂停任务失败" : "继续任务失败");
-  }
+  runPending(`pause:${job.id}`, async () => {
+    try {
+      if (next) await api.pauseJob(job.id);
+      else await api.resumeJob(job.id);
+      pausedOverride.value = { ...pausedOverride.value, [job.id]: next };
+      toast.info(next ? "任务已暂停" : "任务已继续");
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    } catch (err) {
+      toastError(err, next ? "暂停任务失败" : "继续任务失败");
+    }
+  });
 }
 
 async function pauseSelected() {
@@ -147,32 +151,39 @@ async function pauseSelected() {
     toast.info("所选任务均处于暂停状态或已结束");
     return;
   }
+  if (targets.every((c) => isPending(`pause:${c.job.id}`))) return;
   const ok = await confirmAction({
     title: `暂停所选 ${targets.length} 个任务？`,
     description: "暂停后不再提交新进度，任务保留在当前节点，可在批量操作条里继续。",
     confirmText: "暂停所选",
   });
   if (!ok) return;
-  const results = await Promise.allSettled(
-    targets.map(async (c) => {
-      await api.pauseJob(c.job.id);
-      pausedOverride.value = { ...pausedOverride.value, [c.job.id]: true };
-    }),
+  await Promise.allSettled(
+    targets.map((c) =>
+      runPending(`pause:${c.job.id}`, async () => {
+        await api.pauseJob(c.job.id);
+        pausedOverride.value = { ...pausedOverride.value, [c.job.id]: true };
+      }),
+    ),
   );
-  const done = results.filter((r) => r.status === "fulfilled").length;
+  const done = targets.filter((c) => !isPending(`pause:${c.job.id}`)).length;
   toast.info(done ? `已暂停 ${done} 个任务` : "所选任务均处于暂停状态或已结束");
   void queryClient.invalidateQueries({ queryKey: ["jobs"] });
 }
 
 async function resumeSelected() {
   const targets = selectedCards.value.filter((c) => isJobPaused(c.job));
-  const results = await Promise.allSettled(
-    targets.map(async (c) => {
-      await api.resumeJob(c.job.id);
-      pausedOverride.value = { ...pausedOverride.value, [c.job.id]: false };
-    }),
+  if (!targets.length) return;
+  if (targets.every((c) => isPending(`pause:${c.job.id}`))) return;
+  await Promise.allSettled(
+    targets.map((c) =>
+      runPending(`pause:${c.job.id}`, async () => {
+        await api.resumeJob(c.job.id);
+        pausedOverride.value = { ...pausedOverride.value, [c.job.id]: false };
+      }),
+    ),
   );
-  const ok = results.filter((r) => r.status === "fulfilled").length;
+  const ok = targets.filter((c) => !isPending(`pause:${c.job.id}`)).length;
   toast.info(ok ? `已继续 ${ok} 个任务` : "所选任务均未处于暂停状态");
   void queryClient.invalidateQueries({ queryKey: ["jobs"] });
 }
@@ -609,7 +620,8 @@ const recentEvents = computed(() =>
                   </span>
                   <div class="flex items-center gap-1.5">
                     <button
-                      class="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[12px] text-muted-foreground transition-colors hover:border-amber/40 hover:text-amber"
+                      class="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[12px] text-muted-foreground transition-colors hover:border-amber/40 hover:text-amber disabled:opacity-40"
+                      :disabled="isPending(`pause:${card.job.id}`)"
                       @click.stop="togglePause(card.job)"
                     >
                       <Play v-if="isJobPaused(card.job)" class="size-3" />

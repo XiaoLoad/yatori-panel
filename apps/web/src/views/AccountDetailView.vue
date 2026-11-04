@@ -30,6 +30,7 @@ import ProgressRing from "@/components/charts/ProgressRing.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
+import { isPending, runPending } from "@/lib/pending";
 import { useExamStatus } from "@/composables/useExamStatus";
 import {
   accountStatus,
@@ -250,17 +251,22 @@ const removeMutation = useMutation({
 
 async function askStop() {
   if (!runningJob.value) return;
+  if (isPending(`stop:${runningJob.value.id}`)) return;
   const ok = await confirmAction({
     title: "停止当前任务？",
     description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
     confirmText: "停止任务",
     tone: "danger",
   });
-  if (ok) stopMutation.mutate(runningJob.value.id);
+  if (ok && runningJob.value) {
+    const id = runningJob.value.id;
+    runPending(`stop:${id}`, () => stopMutation.mutateAsync(id));
+  }
 }
 
 async function askRemove() {
   if (!account.value) return;
+  if (isPending(`remove:${props.uid}`)) return;
   const name = account.value.remark || account.value.username;
   const ok = await confirmAction({
     title: `删除账号「${name}」？`,
@@ -268,7 +274,7 @@ async function askRemove() {
     confirmText: "删除账号",
     tone: "danger",
   });
-  if (ok) removeMutation.mutate();
+  if (ok) runPending(`remove:${props.uid}`, () => removeMutation.mutateAsync());
 }
 
 /**
@@ -383,7 +389,7 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
-          <Button v-if="runningJob" variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="askStop">
+          <Button v-if="runningJob" variant="outline" size="sm" class="h-8 gap-1 text-[13px]" :disabled="isPending(`stop:${runningJob.id}`)" @click="askStop">
             <Square class="size-3.5" />停止任务
           </Button>
           <Button v-else size="sm" class="h-8 gap-1 text-[13px]" @click="startOpen = true">
@@ -392,14 +398,14 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="openPlatform">
             <ExternalLink class="size-3.5" />打开平台并复制
           </Button>
-          <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="verifyMutation.mutate()">
+          <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" :disabled="verifyMutation.isPending.value" @click="verifyMutation.mutate()">
             <RefreshCw class="size-3.5" />检测登录
           </Button>
           <span class="mx-1 h-4 w-px bg-border" />
           <Button variant="ghost" size="sm" class="h-8 gap-1 text-[13px]" @click="addOpen = true">
             <Pencil class="size-3.5" />编辑
           </Button>
-          <Button variant="ghost" size="sm" class="h-8 gap-1 text-[13px] text-muted-foreground hover:text-coral" @click="askRemove">
+          <Button variant="ghost" size="sm" class="h-8 gap-1 text-[13px] text-muted-foreground hover:text-coral" :disabled="isPending(`remove:${props.uid}`)" @click="askRemove">
             <Trash2 class="size-3.5" />删除
           </Button>
         </div>
