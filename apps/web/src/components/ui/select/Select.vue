@@ -41,6 +41,7 @@ const model = defineModel<string>();
     <SelectPortal>
       <SelectContent
         position="popper"
+        :body-lock="false"
         class="z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md"
       >
         <SelectItem
