@@ -12,6 +12,7 @@ import { parse } from "./shared.ts";
 /** 基础与元信息：健康、平台、预检、设置、统计、仪表盘 */
 export function registerBaseRoutes(app: FastifyInstance): void {
   // 网关状态由后台心跳维护（gateway-status.ts），这里只读快照；detail 供前端诊断提示
+  // 注意：无论网关是否在线，面板本身均返回 200——容器健康检查只关心面板进程存活
   app.get("/api/v1/health", async () => {
     const s = snapshot();
     return {

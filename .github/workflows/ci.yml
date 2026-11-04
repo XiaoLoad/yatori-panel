@@ -21,6 +21,17 @@ jobs:
       - name: 三包类型检查
         run: bun run typecheck:all
 
+  unit-test:
+    name: 单元测试（server 关键路径）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: 运行测试
+        run: bun test apps/server
+
   gateway-build:
     name: 网关编译（Go + CGO）
     runs-on: ubuntu-latest

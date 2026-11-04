@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { BatchStartJobBody, DeleteLogsBody, StartJobBody, type BatchStartResult } from "../shared.ts";
 import { bus } from "../bus.ts";
 import { getAccount } from "../db/accounts.ts";
-import { deleteLogEvents, eventsForJob, finishJob, getJob, listJobs, pageJobs, pageLogEvents, recentLogEvents } from "../db/jobs.ts";
+import { deleteLogEvents, eventsForJob, finishJob, getJob, listJobs, LOG_DELETE_SPAN_MS, LOG_RETENTION_MS, pageJobs, pageLogEvents, recentLogEvents } from "../db/jobs.ts";
 import { HttpError } from "../errors.ts";
 import { jobManager } from "../jobs/manager.ts";
 import { assertAnswerSourceReady } from "./guards.ts";
@@ -179,8 +179,8 @@ export function registerJobRoutes(app: FastifyInstance): void {
     return { ok: true, data: { items, total, page, pageSize } };
   });
 
-  // 按时间段删除日志：结束时间必须早于 7 天前，防止误删近期日志
-  const LOG_RETENTION_MS = 7 * 86_400_000;
+  // 按时间段删除日志：保护规则（7 天保留 / 366 天跨度）在 db 层强制执行，
+  // 路由层仅提前拦截以返回更清晰的错误信息
   app.delete("/api/v1/logs", async (req) => {
     const body = parse<DeleteLogsBody>(req.body, DeleteLogsBody);
     const from = new Date(body.from);
@@ -189,11 +189,10 @@ export function registerJobRoutes(app: FastifyInstance): void {
       throw new HttpError(400, "时间格式不正确");
     }
     if (from.getTime() >= to.getTime()) throw new HttpError(400, "开始时间必须早于结束时间");
-    const cutoff = Date.now() - LOG_RETENTION_MS;
-    if (to.getTime() > cutoff) {
+    if (to.getTime() > Date.now() - LOG_RETENTION_MS) {
       throw new HttpError(400, "近 7 天内的日志不可删除，请把结束时间调整到 7 天以前");
     }
-    if (to.getTime() - from.getTime() > 366 * 86_400_000) {
+    if (to.getTime() - from.getTime() > LOG_DELETE_SPAN_MS) {
       throw new HttpError(400, "单次最多删除 366 天内的日志");
     }
     const deleted = deleteLogEvents(from.toISOString(), to.toISOString());
