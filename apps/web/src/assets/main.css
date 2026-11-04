@@ -113,6 +113,8 @@
   }
   html {
     color-scheme: dark;
+    /* 常驻滚动条槽位：避免不同页面有无滚动条时内容区宽度跳动 */
+    scrollbar-gutter: stable;
   }
   html:not(.dark) {
     color-scheme: light;
