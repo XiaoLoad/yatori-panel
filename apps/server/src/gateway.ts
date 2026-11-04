@@ -58,6 +58,17 @@ export interface GatewayExamResult {
   checkedAt?: string;
 }
 
+/** 作业结果只读查询（仅英华）：是否已提交与最高分/最终得分 */
+export interface GatewayWorkResult {
+  workId: string;
+  nodeId: string;
+  taken: boolean;
+  score?: number | null;
+  message?: string;
+  error?: string;
+  checkedAt?: string;
+}
+
 export interface GatewayStudyResult {
   courseId: string;
   nodeId: string;
@@ -292,6 +303,16 @@ export const gateway = {
     opts?: RequestOptions,
   ) =>
     request<GatewayExamResult[]>(`/api/v1/sessions/${sid}/exams/results`, "POST", body, {
+      ...opts,
+      timeoutMs: opts?.timeoutMs ?? 180_000,
+    }),
+  /** 只读查询作业状态与得分（仅英华；首次查询可能触发英华 OCR 登录，放宽超时） */
+  workResults: (
+    sid: string,
+    body: { courseId: string; works: { workId: string; nodeId: string }[] },
+    opts?: RequestOptions,
+  ) =>
+    request<GatewayWorkResult[]>(`/api/v1/sessions/${sid}/works/results`, "POST", body, {
       ...opts,
       timeoutMs: opts?.timeoutMs ?? 180_000,
     }),
