@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS job_events (
   created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, id);
+CREATE INDEX IF NOT EXISTS idx_job_events_log ON job_events(type, id DESC);
+CREATE INDEX IF NOT EXISTS idx_job_events_log_created ON job_events(type, created_at);
 CREATE TABLE IF NOT EXISTS job_progress (
   job_id       TEXT PRIMARY KEY,
   payload_json TEXT NOT NULL,
@@ -117,6 +119,24 @@ try {
 }
 try {
   sqlite.exec(`ALTER TABLE schedules ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
+} catch {
+  // 列已存在
+}
+
+// 日志筛选列提升：level/account/message 从 payload JSON 提升为独立列并建索引，
+// 避免日志分页对 job_events 全表 json_extract 扫描；旧数据按 payload 回填一次
+try {
+  sqlite.exec(`ALTER TABLE job_events ADD COLUMN log_level TEXT NOT NULL DEFAULT ''`);
+  sqlite.exec(`ALTER TABLE job_events ADD COLUMN account_uid TEXT NOT NULL DEFAULT ''`);
+  sqlite.exec(`ALTER TABLE job_events ADD COLUMN message TEXT NOT NULL DEFAULT ''`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_job_events_log_filter ON job_events(type, log_level, account_uid, id DESC)`);
+  sqlite.exec(`
+    UPDATE job_events
+    SET log_level = COALESCE(json_extract(payload_json, '$.level'), 'info'),
+        account_uid = COALESCE(json_extract(payload_json, '$.accountId'), ''),
+        message = COALESCE(json_extract(payload_json, '$.message'), '')
+    WHERE type = 'log' AND log_level = ''
+  `);
 } catch {
   // 列已存在
 }

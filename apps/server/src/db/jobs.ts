@@ -154,9 +154,19 @@ export function countRunningByAccount(accountUid: string): number {
 export function appendJobEvent(jobId: string, event: JobEvent): void {
   sqlite
     .prepare(
-      `INSERT INTO job_events (job_id, type, payload_json, created_at) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO job_events (job_id, type, payload_json, created_at, log_level, account_uid, message)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(jobId, event.type, JSON.stringify(event), now());
+    .run(
+      jobId,
+      event.type,
+      JSON.stringify(event),
+      now(),
+      // 筛选列与 payload 同步落库，日志页按列索引过滤而非全表 json_extract
+      event.level ?? "info",
+      event.accountId ?? "",
+      event.message ?? "",
+    );
 }
 
 export function eventsForJob(jobId: string, limit = 500): JobEvent[] {
@@ -210,22 +220,22 @@ export function pageLogEvents(filter: LogPageFilter): { items: JobEvent[]; total
   if (filter.level && filter.level !== "all") {
     if (filter.level === "info") {
       // debug 归入信息级别，与前端「信息」标签的统计口径保持一致
-      conds.push("COALESCE(json_extract(payload_json, '$.level'), 'info') IN ('info', 'debug')");
+      conds.push("log_level IN ('info', 'debug')");
     } else {
-      conds.push("json_extract(payload_json, '$.level') = @level");
+      conds.push("log_level = @level");
       params.level = filter.level;
     }
   }
   if (filter.accountUid) {
-    conds.push("json_extract(payload_json, '$.accountId') = @accountUid");
+    conds.push("account_uid = @accountUid");
     params.accountUid = filter.accountUid;
   }
   if (filter.jobId) {
-    conds.push("json_extract(payload_json, '$.jobId') = @jobId");
+    conds.push("job_id = @jobId");
     params.jobId = filter.jobId;
   }
   if (filter.search) {
-    conds.push("json_extract(payload_json, '$.message') LIKE @search");
+    conds.push("message LIKE @search");
     params.search = `%${filter.search}%`;
   }
   const where = `WHERE ${conds.join(" AND ")}`;
