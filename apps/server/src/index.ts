@@ -10,7 +10,7 @@ import { authRequired, SESSION_COOKIE, verifySession } from "./db/auth.ts";
 import { env } from "./env.ts";
 import { gateway } from "./gateway.ts";
 import { jobManager } from "./jobs/manager.ts";
-import { registerRoutes } from "./routes.ts";
+import { registerRoutes } from "./routes/index.ts";
 import { startScheduler } from "./scheduler.ts";
 import { startGatewayWatch } from "./gateway-status.ts";
 import { dropAllSessions } from "./sessions.ts";
