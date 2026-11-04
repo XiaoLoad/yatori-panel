@@ -5,6 +5,7 @@ import {
   BookOpen,
   ClipboardList,
   ExternalLink,
+  FileEdit,
   History,
   Pencil,
   Play,
@@ -23,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import AddAccountDialog from "@/components/account/AddAccountDialog.vue";
 import ExamPanel from "@/components/account/ExamPanel.vue";
+import WorkPanel from "@/components/account/WorkPanel.vue";
 import StartJobDialog from "@/components/account/StartJobDialog.vue";
 import ProgressRing from "@/components/charts/ProgressRing.vue";
 import { useEventStore } from "@/stores/events";
@@ -165,9 +167,10 @@ const treeStats = computed(() => {
 });
 
 // ---------- 标签 ----------
-const tab = ref<"courses" | "exams" | "logs" | "history">("courses");
+const tab = ref<"courses" | "works" | "exams" | "logs" | "history">("courses");
 const TABS = [
   { key: "courses", label: "课程进度", icon: BookOpen },
+  { key: "works", label: "作业", icon: FileEdit },
   { key: "exams", label: "考试", icon: ClipboardList },
   { key: "logs", label: "实时日志", icon: ScrollText },
   { key: "history", label: "任务记录", icon: History },
@@ -601,6 +604,9 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           </div>
         </div>
       </div>
+
+      <!-- 作业 -->
+      <WorkPanel v-else-if="tab === 'works'" :account-uid="uid" :course-id="courseId" :platform="account?.platform" />
 
       <!-- 考试 -->
       <ExamPanel v-else-if="tab === 'exams'" :account-uid="uid" :course-id="courseId" :platform="account?.platform" />

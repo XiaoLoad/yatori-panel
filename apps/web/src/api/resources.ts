@@ -65,6 +65,39 @@ export interface ExamRunningItem {
   examId: string;
 }
 
+export interface WorkDTO {
+  id: string;
+  courseId: string;
+  name: string;
+  status: string;
+  deadline?: string;
+  questionCount: number;
+  extra?: Record<string, string>;
+}
+
+export interface WorkStartResult {
+  started: boolean;
+  count: number;
+  names: string[];
+}
+
+export interface WorkRunningItem {
+  accountUid: string;
+  courseId: string;
+  workId: string;
+}
+
+/** 作业提交状态与得分（仅英华支持只读查询，不消耗做题次数） */
+export interface WorkStatusDTO {
+  workId: string;
+  nodeId: string;
+  taken: boolean;
+  score?: number | null;
+  message?: string;
+  error?: string;
+  checkedAt?: string;
+}
+
 export interface AccountWithSession extends AccountVO {
   hasSession: boolean;
   sessionState?: string; // logging_in / online / error
@@ -154,6 +187,23 @@ export const api = {
   ) => post<ExamStartResult>(`/accounts/${uid}/courses/${courseId}/exams/do`, body),
   runningExams: (uid: string) =>
     get<ExamRunningItem[]>(`/accounts/${uid}/exams/running`),
+
+  works: (uid: string, courseId: string) =>
+    get<WorkDTO[]>(`/accounts/${uid}/courses/${courseId}/works`),
+  /** 作业状态与成绩只读查询（仅英华，不进入作答、不消耗做题次数） */
+  workResults: (uid: string, courseId: string, works: { workId: string; nodeId: string }[]) =>
+    post<WorkStatusDTO[]>(`/accounts/${uid}/courses/${courseId}/works/results`, { works }),
+  doWork: (
+    uid: string,
+    courseId: string,
+    body: {
+      works: { workId: string; workName?: string }[];
+      source: "off" | "ai" | "bank";
+      submit?: boolean;
+    },
+  ) => post<WorkStartResult>(`/accounts/${uid}/courses/${courseId}/works/do`, body),
+  runningWorks: (uid: string) =>
+    get<WorkRunningItem[]>(`/accounts/${uid}/works/running`),
 
   startJob: (body: StartJobBody) => post<JobVO>("/jobs", body),
   startJobsBatch: (body: BatchStartJobBody) =>
