@@ -25,7 +25,12 @@ const PUBLIC_APIS = new Set([
 async function main(): Promise<void> {
   const app = Fastify({ logger: { level: "info" } });
 
-  await app.register(cors, { origin: true });
+  // CORS 白名单：默认仅同源（单端口部署无需跨域）；跨域需求用 PANEL_CORS_ORIGINS 显式放行，
+  // 不再反射任意 Origin，避免恶意站点携带 Cookie 跨站调用 API
+  await app.register(cors, {
+    origin: env.corsOrigins.length ? env.corsOrigins : false,
+    credentials: true,
+  });
   await app.register(cookie);
 
   // API 访问锁：未启用密码时全放行；启用后除公开接口外一律校验会话。
