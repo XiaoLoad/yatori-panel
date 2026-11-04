@@ -470,6 +470,35 @@ export function registerRoutes(app: FastifyInstance): void {
     return { ok: true, data: await gateway.exams(sid, courseId) };
   });
 
+  // 考试状态与成绩只读查询：仅英华，不进入考试、不消耗答题次数
+  app.post("/api/v1/accounts/:uid/courses/:courseId/exams/results", async (req) => {
+    const account = getAccount((req.params as { uid: string }).uid);
+    if (!account) throw new HttpError(404, "账号不存在");
+    if (account.platform !== "YINGHUA") {
+      throw new HttpError(400, "考试状态与成绩查询暂仅支持英华学堂");
+    }
+    const { courseId } = req.params as { courseId: string };
+    const body = parse(
+      req.body,
+      z.object({
+        exams: z
+          .array(
+            z.object({
+              examId: z.string({ required_error: "缺少考试 ID" }).min(1, "缺少考试 ID"),
+              nodeId: z.string({ required_error: "缺少节点 ID" }).min(1, "缺少节点 ID"),
+            }),
+          )
+          .min(1, "缺少考试列表")
+          .max(30, "单次最多查询 30 场考试"),
+      }),
+    );
+    const sid = await ensureSession(account);
+    return {
+      ok: true,
+      data: await gateway.examResults(sid, { courseId, exams: body.exams }),
+    };
+  });
+
   // 单场考试触发：与任务发起同一套答题来源预检门禁，不可用直接拒绝。
   // 后台执行 + SSE 实时状态（同步 HTTP 会让答题期间前端无任何反馈）。
   app.post("/api/v1/accounts/:uid/courses/:courseId/exams/do", async (req) => {
