@@ -9,18 +9,18 @@ import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
+import { useExamStatus } from "@/composables/useExamStatus";
 
-const props = defineProps<{ accountUid: string; courseId: string }>();
+const props = defineProps<{ accountUid: string; courseId: string; platform?: string }>();
 
 const events = useEventStore();
 const queryClient = useQueryClient();
 const gatewayOffline = computed(() => events.gatewayStatus !== null && !events.gatewayStatus.up);
 
-const examsQuery = useQuery({
-  queryKey: computed(() => ["drawer-exams", props.accountUid, props.courseId]),
-  queryFn: () => api.exams(props.accountUid, props.courseId),
-  enabled: computed(() => !!props.courseId),
-  staleTime: 60_000,
+const { examsQuery, resultsQuery, byExam } = useExamStatus({
+  accountUid: () => props.accountUid,
+  courseId: () => props.courseId,
+  platform: () => props.platform,
 });
 
 const runningQuery = useQuery({
@@ -94,6 +94,37 @@ function statusText(status: string): string {
   if (s.includes("open") || s.includes("ing") || s.includes("start")) return "进行中";
   return status || "未知";
 }
+
+/** 按考试时间推导开放状态，避免英华 status 恒为空显示「未知」 */
+function availabilityOf(exam: ExamDTO): string {
+  const now = Date.now();
+  const start = exam.startAt ? Date.parse(exam.startAt) : NaN;
+  const end = exam.endAt ? Date.parse(exam.endAt) : NaN;
+  if (Number.isFinite(start) && now < start) return "未开始";
+  if (Number.isFinite(end) && now > end) return "已截止";
+  return "可参加";
+}
+
+function stateOf(exam: ExamDTO): string {
+  return props.platform === "YINGHUA" ? availabilityOf(exam) : statusText(exam.status);
+}
+
+/** 只读查询到的参与状态：已参加显示最终得分，未参加/成绩未出明确区分 */
+function resultOf(exam: ExamDTO): { text: string; tone: string } | null {
+  if (props.platform !== "YINGHUA") return null;
+  const r = byExam.value[exam.id];
+  if (!r) return null;
+  if (r.error) return { text: "状态查询失败", tone: "text-coral" };
+  if (r.taken && typeof r.score === "number") return { text: `已参加 · ${r.score} 分`, tone: "text-mint" };
+  if (r.taken) return { text: "已参加 · 成绩未出", tone: "text-amber" };
+  return { text: "未参加", tone: "text-muted-foreground" };
+}
+
+const resultError = computed(() =>
+  props.platform === "YINGHUA" && resultsQuery.isError.value
+    ? ((resultsQuery.error.value as Error)?.message ?? "查询失败")
+    : "",
+);
 </script>
 
 <template>
@@ -102,6 +133,13 @@ function statusText(status: string): string {
       <Select v-model="source" :options="sourceOptions" />
       <Select v-model="submitMode" :options="submitOptions" />
     </div>
+
+    <p
+      v-if="resultError"
+      class="mb-2 rounded-md border border-coral/30 bg-coral/10 px-2.5 py-1.5 text-[12px] text-coral"
+    >
+      考试状态查询失败：{{ resultError }}
+    </p>
 
     <div v-if="!courseId" class="py-8 text-center text-[13.5px] text-muted-foreground">
       先从课程标签选择一门课程
@@ -120,8 +158,17 @@ function statusText(status: string): string {
       >
         <div class="min-w-0 flex-1">
           <div class="truncate text-[14px]">{{ exam.name }}</div>
-          <div class="text-[12px] text-muted-foreground">
-            {{ exam.questionCount ? `${exam.questionCount} 题` : "题量未知" }} · {{ statusText(exam.status) }}
+          <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground">
+            <span v-if="exam.extra?.score" class="mono">满分 {{ exam.extra.score }}</span>
+            <span>{{ exam.questionCount ? `${exam.questionCount} 题` : "题量未知" }}</span>
+            <span>{{ stateOf(exam) }}</span>
+            <span
+              v-if="resultOf(exam)"
+              class="mono"
+              :class="resultOf(exam)?.tone"
+              :title="byExam[exam.id]?.message"
+            >{{ resultOf(exam)?.text }}</span>
+            <span v-else-if="platform === 'YINGHUA' && resultsQuery.isLoading.value" class="text-primary/80">状态查询中…</span>
           </div>
         </div>
         <button

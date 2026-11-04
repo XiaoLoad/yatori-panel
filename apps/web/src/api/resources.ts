@@ -35,6 +35,17 @@ export interface ExamDTO {
   extra?: Record<string, string>;
 }
 
+/** 考试参与状态与得分（仅英华支持只读查询） */
+export interface ExamStatusDTO {
+  examId: string;
+  nodeId: string;
+  taken: boolean;
+  score?: number | null;
+  message?: string;
+  error?: string;
+  checkedAt?: string;
+}
+
 export interface ExamResultDTO {
   taskId: string;
   title: string;
@@ -128,6 +139,9 @@ export const api = {
     get<NodeDTO[]>(`/accounts/${uid}/courses/${courseId}/tree`),
   exams: (uid: string, courseId: string) =>
     get<ExamDTO[]>(`/accounts/${uid}/courses/${courseId}/exams`),
+  /** 考试状态与成绩只读查询（仅英华，不进入考试、不消耗答题次数） */
+  examResults: (uid: string, courseId: string, exams: { examId: string; nodeId: string }[]) =>
+    post<ExamStatusDTO[]>(`/accounts/${uid}/courses/${courseId}/exams/results`, { exams }),
   doExam: (
     uid: string,
     courseId: string,

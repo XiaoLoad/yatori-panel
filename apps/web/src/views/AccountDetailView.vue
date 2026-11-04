@@ -28,6 +28,7 @@ import ProgressRing from "@/components/charts/ProgressRing.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
+import { useExamStatus } from "@/composables/useExamStatus";
 import {
   accountStatus,
   formatDuration,
@@ -171,6 +172,31 @@ const TABS = [
   { key: "logs", label: "实时日志", icon: ScrollText },
   { key: "history", label: "任务记录", icon: History },
 ] as const;
+
+/** 课程标签下的考试节点状态：仅英华加载，考试标签与章节树共用同一份缓存 */
+const examStatus = useExamStatus({
+  accountUid: () => props.uid,
+  courseId: () => courseId.value,
+  platform: () => account.value?.platform,
+  enabled: () => tab.value === "courses" && account.value?.platform === "YINGHUA",
+});
+const examBadges = computed<Record<string, { text: string; tone: string }>>(() => {
+  const badges: Record<string, { text: string; tone: string }> = {};
+  if (!account.value || account.value.platform !== "YINGHUA") return badges;
+  for (const item of flatTree.value) {
+    if (item.node.extra?.tabExam !== "true") continue;
+    const result = examStatus.byNode.value[item.node.id];
+    if (!result || result.error) continue;
+    if (result.taken) {
+      badges[item.node.id] = typeof result.score === "number"
+        ? { text: `已考 ${result.score} 分`, tone: "text-mint" }
+        : { text: "已参加", tone: "text-amber" };
+    } else {
+      badges[item.node.id] = { text: "未参加", tone: "text-muted-foreground" };
+    }
+  }
+  return badges;
+});
 
 // ---------- 日志 ----------
 const logLevel = ref<"all" | "info" | "warn" | "error">("all");
@@ -565,6 +591,11 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
               />
               <span class="min-w-0 flex-1 truncate">{{ item.node.name }}</span>
               <span v-if="item.node.progress > 0 && !item.node.completed" class="mono shrink-0 text-[12px] text-amber">{{ Math.round(item.node.progress) }}%</span>
+              <span
+                v-if="examBadges[item.node.id]"
+                class="mono shrink-0 text-[12px]"
+                :class="examBadges[item.node.id]?.tone"
+              >{{ examBadges[item.node.id]?.text }}</span>
               <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ item.node.durationSeconds ? formatDuration(item.node.durationSeconds) : "—" }}</span>
             </div>
           </div>
@@ -572,7 +603,7 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
       </div>
 
       <!-- 考试 -->
-      <ExamPanel v-else-if="tab === 'exams'" :account-uid="uid" :course-id="courseId" />
+      <ExamPanel v-else-if="tab === 'exams'" :account-uid="uid" :course-id="courseId" :platform="account?.platform" />
 
       <!-- 日志 -->
       <div v-else-if="tab === 'logs'">
