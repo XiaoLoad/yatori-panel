@@ -14,7 +14,8 @@ import {
   Square,
   Trash2,
 } from "lucide-vue-next";
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
+import { gsap } from "gsap";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import type { JobVO, ScheduleVO } from "@yatori/shared";
@@ -180,6 +181,61 @@ const TABS = [
   { key: "logs", label: "实时日志", icon: ScrollText },
   { key: "history", label: "任务记录", icon: History },
 ] as const;
+
+/** 分段滑块指示器：随激活 tab 平滑滑动 */
+const tabButtonsRef = ref<HTMLElement | null>(null);
+const sliderStyle = ref<{ left: string; width: string }>({ left: "0px", width: "0px" });
+
+function moveSlider(animate = true): void {
+  const root = tabButtonsRef.value;
+  if (!root) return;
+  const active = root.querySelector<HTMLButtonElement>(`button[data-tab="${tab.value}"]`);
+  if (!active) return;
+  const style = { left: `${active.offsetLeft}px`, width: `${active.offsetWidth}px` };
+  if (!animate) {
+    sliderStyle.value = style;
+    return;
+  }
+  // 直接动画 sliderStyle 内的数值，避免逐帧改 CSS 字符串
+  const current = { left: parseFloat(sliderStyle.value.left) || 0, width: parseFloat(sliderStyle.value.width) || 0 };
+  gsap.to(current, {
+    left: active.offsetLeft,
+    width: active.offsetWidth,
+    duration: 0.28,
+    ease: "power2.out",
+    onUpdate: () => {
+      sliderStyle.value = { left: `${current.left}px`, width: `${current.width}px` };
+    },
+  });
+}
+
+watch(tab, () => moveSlider());
+// 首次渲染与窗口尺寸变化时无动画对位
+watch(tabButtonsRef, (el) => el && nextTick(() => moveSlider(false)));
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", () => moveSlider(false));
+}
+
+/** 分段内容切换：GSAP 高度自适应过渡（旧内容淡出收起 → 新内容淡入展开） */
+const tabContentRef = ref<HTMLElement | null>(null);
+let firstTabRender = true;
+watch(tab, async () => {
+  const el = tabContentRef.value;
+  if (!el) return;
+  // 首次渲染不播动画，避免页面进入时的多余位移
+  if (firstTabRender) {
+    firstTabRender = false;
+    return;
+  }
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) return;
+  gsap.killTweensOf(el);
+  await gsap.fromTo(
+    el,
+    { autoAlpha: 0, y: 8 },
+    { autoAlpha: 1, y: 0, duration: 0.26, ease: "power2.out" },
+  );
+});
 
 /** 课程标签下的考试节点状态：仅英华加载，考试标签与章节树共用同一份缓存 */
 const examStatus = useExamStatus({
@@ -507,10 +563,11 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
 
     <!-- 明细标签 -->
     <section class="panel overflow-hidden">
-      <div class="flex flex-wrap items-center gap-4 border-b border-border px-4">
+      <div ref="tabButtonsRef" class="relative flex flex-wrap items-center gap-4 border-b border-border px-4">
         <button
           v-for="t in TABS"
           :key="t.key"
+          :data-tab="t.key"
           :class="cn(
             'relative flex items-center gap-1.5 py-2.5 text-[14px] transition-colors',
             tab === t.key ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
@@ -518,8 +575,11 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           @click="tab = t.key"
         >
           <component :is="t.icon" class="size-4" />{{ t.label }}
-          <span v-if="tab === t.key" class="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />
         </button>
+        <span
+          class="pointer-events-none absolute bottom-0 h-0.5 rounded-full bg-primary transition-none"
+          :style="{ left: sliderStyle.left, width: sliderStyle.width }"
+        />
         <div class="ml-auto flex items-center gap-1" v-if="tab === 'logs'">
           <button
             v-for="l in [
@@ -535,8 +595,10 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
         </div>
       </div>
 
-      <!-- 课程进度 -->
-      <div v-if="tab === 'courses'" class="grid gap-0 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <!-- 分段内容过渡容器：切换时由 GSAP 播放淡入动画 -->
+      <div ref="tabContentRef">
+        <!-- 课程进度 -->
+        <div v-if="tab === 'courses'" class="grid gap-0 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div class="border-b border-border lg:border-b-0 lg:border-r">
           <div class="flex items-center justify-between px-4 py-2.5 text-[12.5px] text-muted-foreground">
             <span>课程列表</span>
@@ -644,43 +706,44 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
         </p>
       </div>
 
-      <!-- 任务记录 -->
-      <div v-else>
-        <div v-if="jobsQuery.isLoading.value" class="space-y-2 p-4">
-          <Skeleton v-for="i in 4" :key="i" class="h-10 w-full" />
-        </div>
-        <div v-else-if="!(jobsQuery.data.value ?? []).length" class="px-4 py-12 text-center text-[13px] text-muted-foreground">
-          还没有任务记录
-        </div>
-        <div v-else class="overflow-x-auto">
-          <div class="hidden min-w-[760px] grid-cols-[92px_minmax(0,1fr)_120px_96px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
-            <span>状态</span>
-            <span>开始时间</span>
-            <span>耗时</span>
-            <span class="text-right">产出</span>
+        <!-- 任务记录 -->
+        <div v-else>
+          <div v-if="jobsQuery.isLoading.value" class="space-y-2 p-4">
+            <Skeleton v-for="i in 4" :key="i" class="h-10 w-full" />
           </div>
-          <div
-            v-for="job in jobsQuery.data.value ?? []"
-            :key="job.id"
-            class="grid min-w-[760px] grid-cols-[92px_minmax(0,1fr)_120px_96px] items-center gap-3 border-b border-border/60 px-4 py-2 text-[13px] last:border-b-0"
-          >
-            <span
-              :class="cn(
-                'w-fit rounded px-1.5 py-0.5 text-[12.5px]',
-                job.state === 'running'
-                  ? 'bg-primary/10 text-primary'
-                  : job.state === 'error'
-                    ? 'bg-coral/10 text-coral'
-                    : job.state === 'done'
-                      ? 'bg-mint/10 text-mint'
-                      : 'bg-muted text-muted-foreground',
-              )"
-            >{{ jobStateLabel(job.state) }}</span>
-            <span class="mono truncate text-[12.5px]">{{ startedAt(job) }}</span>
-            <span class="mono text-[12.5px] text-muted-foreground">{{ durationOf(job) }}</span>
-            <span class="mono text-right text-[12.5px]">
-              {{ job.summary ? `视频 ${job.summary.videosCompleted} · 作业 ${job.summary.worksDone} · 考试 ${job.summary.examsDone}` : "—" }}
-            </span>
+          <div v-else-if="!(jobsQuery.data.value ?? []).length" class="px-4 py-12 text-center text-[13px] text-muted-foreground">
+            还没有任务记录
+          </div>
+          <div v-else class="overflow-x-auto">
+            <div class="hidden min-w-[760px] grid-cols-[92px_minmax(0,1fr)_120px_96px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
+              <span>状态</span>
+              <span>开始时间</span>
+              <span>耗时</span>
+              <span class="text-right">产出</span>
+            </div>
+            <div
+              v-for="job in jobsQuery.data.value ?? []"
+              :key="job.id"
+              class="grid min-w-[760px] grid-cols-[92px_minmax(0,1fr)_120px_96px] items-center gap-3 border-b border-border/60 px-4 py-2 text-[13px] last:border-b-0"
+            >
+              <span
+                :class="cn(
+                  'w-fit rounded px-1.5 py-0.5 text-[12.5px]',
+                  job.state === 'running'
+                    ? 'bg-primary/10 text-primary'
+                    : job.state === 'error'
+                      ? 'bg-coral/10 text-coral'
+                      : job.state === 'done'
+                        ? 'bg-mint/10 text-mint'
+                        : 'bg-muted text-muted-foreground',
+                )"
+              >{{ jobStateLabel(job.state) }}</span>
+              <span class="mono truncate text-[12.5px]">{{ startedAt(job) }}</span>
+              <span class="mono text-[12.5px] text-muted-foreground">{{ durationOf(job) }}</span>
+              <span class="mono text-right text-[12.5px]">
+                {{ job.summary ? `视频 ${job.summary.videosCompleted} · 作业 ${job.summary.worksDone} · 考试 ${job.summary.examsDone}` : "—" }}
+              </span>
+            </div>
           </div>
         </div>
       </div>
