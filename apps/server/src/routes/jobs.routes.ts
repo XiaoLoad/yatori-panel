@@ -161,6 +161,7 @@ export function registerJobRoutes(app: FastifyInstance): void {
   app.get("/api/v1/logs/history", async (req) => {
     const q = req.query as {
       level?: string;
+      minLevel?: string;
       accountUid?: string;
       jobId?: string;
       search?: string;
@@ -170,6 +171,7 @@ export function registerJobRoutes(app: FastifyInstance): void {
     const { page, pageSize } = pageParams(q, 50, 200);
     const { items, total } = pageLogEvents({
       level: q.level || undefined,
+      minLevel: q.minLevel || undefined,
       accountUid: q.accountUid || undefined,
       jobId: q.jobId || undefined,
       search: q.search?.trim() || undefined,

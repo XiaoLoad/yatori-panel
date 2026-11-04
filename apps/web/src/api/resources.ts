@@ -241,6 +241,7 @@ export const api = {
       page?: number;
       pageSize?: number;
       level?: LogQuery["level"];
+      minLevel?: LogQuery["minLevel"];
       accountUid?: string;
       jobId?: string;
       search?: string;

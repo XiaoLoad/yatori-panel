@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { Ban, BrainCircuit, ChevronDown, ChevronUp, Database, Gauge, Lock, Mail, RotateCcw, Save } from "lucide-vue-next";
+import { Ban, BrainCircuit, ChevronDown, ChevronUp, Database, Gauge, Lock, Mail, RotateCcw, Save, ScrollText } from "lucide-vue-next";
 import { computed, markRaw, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { Settings } from "@yatori/shared";
@@ -27,6 +27,7 @@ const draft = reactive<Settings>({
   tickSeconds: 5,
   maxAccountsConcurrency: 3,
   maxCoursesConcurrency: 3,
+  logLevel: "info",
 });
 const loaded = ref(false);
 
@@ -39,6 +40,7 @@ function syncFromServer(data: Settings) {
   draft.tickSeconds = snap.tickSeconds;
   draft.maxAccountsConcurrency = snap.maxAccountsConcurrency;
   draft.maxCoursesConcurrency = snap.maxCoursesConcurrency;
+  draft.logLevel = snap.logLevel;
 }
 
 watch(settingsQuery.data, (data) => {
@@ -69,6 +71,7 @@ const LABELS: Record<string, string> = {
   tickSeconds: "学时提交间隔（秒）",
   maxAccountsConcurrency: "最大并发账号数",
   maxCoursesConcurrency: "单账号课程并发数",
+  logLevel: "日志输出档位",
   "email.enabled": "邮箱通知开关",
   "email.smtpHost": "SMTP 服务器",
   "email.smtpPort": "SMTP 端口",
@@ -91,6 +94,7 @@ function flatten(s: Settings): Record<string, string | number | boolean> {
     tickSeconds: s.tickSeconds,
     maxAccountsConcurrency: s.maxAccountsConcurrency,
     maxCoursesConcurrency: s.maxCoursesConcurrency,
+    logLevel: s.logLevel,
     "email.enabled": s.email.enabled,
     "email.smtpHost": s.email.smtpHost,
     "email.smtpPort": s.email.smtpPort,
@@ -102,7 +106,8 @@ function flatten(s: Settings): Record<string, string | number | boolean> {
 
 /** 明细面板按配置分组展示，避免一长串平铺 */
 const GROUPS = [
-  { key: "run", label: "运行参数", icon: markRaw(Gauge), match: (k: string) => !k.includes(".") },
+  { key: "run", label: "运行参数", icon: markRaw(Gauge), match: (k: string) => !k.includes(".") && k !== "logLevel" },
+  { key: "log", label: "日志输出", icon: markRaw(ScrollText), match: (k: string) => k === "logLevel" },
   { key: "ai", label: "AI 答题", icon: markRaw(BrainCircuit), match: (k: string) => k.startsWith("ai.") },
   { key: "bank", label: "外置题库", icon: markRaw(Database), match: (k: string) => k.startsWith("questionBank.") },
   { key: "email", label: "邮箱通知", icon: markRaw(Mail), match: (k: string) => k.startsWith("email.") },
@@ -409,6 +414,35 @@ async function askDisable() {
         <p class="mt-2 text-[12.5px] text-muted-foreground">
           两个并发是叠加的：账号之间并行由上一项控制，账号内的课程并行由这一项控制，互不影响。
         </p>
+      </section>
+
+      <!-- 日志输出 -->
+      <section class="panel p-4 lg:col-span-2">
+        <div class="flex items-center gap-2.5">
+          <div class="grid size-8 place-items-center rounded-lg bg-muted text-muted-foreground"><ScrollText class="size-4" /></div>
+          <div class="min-w-0">
+            <h2 class="text-[15.5px] font-semibold">日志输出</h2>
+            <p class="text-[13px] text-muted-foreground">日志页与观测台只显示不低于该档位的日志</p>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
+          <div class="grid w-64 gap-1.5">
+            <Label class="text-[13px]">输出档位</Label>
+            <Select
+              v-model="draft.logLevel"
+              :options="[
+                { value: 'debug', label: '调试（输出全部日志）' },
+                { value: 'info', label: '信息及以上' },
+                { value: 'warn', label: '警告及以上' },
+                { value: 'error', label: '仅错误' },
+              ]"
+              class="h-8 text-[13.5px]"
+            />
+          </div>
+          <p class="max-w-xl pb-1 text-[12px] leading-relaxed text-muted-foreground">
+            调整后立即生效；已打开的页面会在下一次刷新时应用。日志仍会完整落库，不受显示档位影响。
+          </p>
+        </div>
       </section>
 
       <!-- 访问锁 -->

@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tickSeconds: 5,
   maxAccountsConcurrency: 3,
   maxCoursesConcurrency: 3,
+  logLevel: "info",
 };
 
 export function getSettings(): Settings {
@@ -27,6 +28,7 @@ export function getSettings(): Settings {
       parsed.maxAccountsConcurrency ?? DEFAULT_SETTINGS.maxAccountsConcurrency,
     maxCoursesConcurrency:
       parsed.maxCoursesConcurrency ?? DEFAULT_SETTINGS.maxCoursesConcurrency,
+    logLevel: parsed.logLevel ?? DEFAULT_SETTINGS.logLevel,
   };
 }
 

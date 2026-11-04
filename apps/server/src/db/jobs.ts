@@ -206,6 +206,8 @@ export function recentLogEvents(limit = 300): JobEvent[] {
 
 export interface LogPageFilter {
   level?: string;
+  /** 全局输出档位（最低级别）：低于该级别的日志不返回 */
+  minLevel?: string;
   accountUid?: string;
   jobId?: string;
   search?: string;
@@ -213,10 +215,28 @@ export interface LogPageFilter {
   pageSize: number;
 }
 
+/** 把档位转成可走索引的级别集合条件 */
+function minLevelCondition(minLevel?: string): string | null {
+  switch (minLevel) {
+    case "debug":
+      return null;
+    case "info":
+      return "log_level IN ('info', 'warn', 'error')";
+    case "warn":
+      return "log_level IN ('warn', 'error')";
+    case "error":
+      return "log_level = 'error'";
+    default:
+      return null;
+  }
+}
+
 /** 日志分页查询：级别/账号/关键字在服务端过滤，按时间倒序返回 */
 export function pageLogEvents(filter: LogPageFilter): { items: JobEvent[]; total: number } {
   const conds: string[] = ["type = 'log'"];
   const params: Record<string, string | number> = {};
+  const minCond = minLevelCondition(filter.minLevel);
+  if (minCond) conds.push(minCond);
   if (filter.level && filter.level !== "all") {
     if (filter.level === "info") {
       // debug 归入信息级别，与前端「信息」标签的统计口径保持一致

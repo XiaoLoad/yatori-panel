@@ -203,6 +203,8 @@ export interface LogQuery {
   page?: number;
   pageSize?: number;
   level?: "all" | "info" | "warn" | "error";
+  /** 全局输出档位：低于该级别的日志不返回 */
+  minLevel?: "debug" | "info" | "warn" | "error";
   accountUid?: string;
   /** 仅查看某个任务的日志（日志页「当前任务」筛选） */
   jobId?: string;
@@ -306,6 +308,10 @@ export const EmailConfigSchema = z.object({
   to: z.string().default(""),
 });
 
+/** 日志输出档位：低于该档位的日志在日志页与观测台不再展示 */
+export const DisplayLogLevelSchema = z.enum(["debug", "info", "warn", "error"]).default("info");
+export type DisplayLogLevel = z.infer<typeof DisplayLogLevelSchema>;
+
 export const SettingsSchema = z.object({
   ai: AiConfigSchema,
   questionBank: BankConfigSchema,
@@ -314,6 +320,8 @@ export const SettingsSchema = z.object({
   maxAccountsConcurrency: z.number().int().min(1).max(10).default(3),
   /** 同一账号同时推进的课程数：1=逐门课串行；N=最多 N 门课同时刷 */
   maxCoursesConcurrency: z.number().int().min(1).max(5).default(3),
+  /** 日志输出档位（最低级别），debug 表示全部 */
+  logLevel: DisplayLogLevelSchema,
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const UpdateSettingsBody = SettingsSchema;

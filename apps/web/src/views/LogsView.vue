@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { confirmAction } from "@/lib/confirm";
 import { toastError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
+import { logRank, useLogLevelSetting } from "@/composables/useLogLevel";
 
 const queryClient = useQueryClient();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
@@ -30,7 +31,12 @@ function accountLabel(uid?: string): string {
 }
 
 // ---------- 检索 ----------
+/** 设置页配置的全局输出档位：低于该级别的日志不展示 */
+const minLevel = useLogLevelSetting();
 const level = ref<"all" | "info" | "warn" | "error">("all");
+watch(minLevel, (next) => {
+  if (level.value !== "all" && logRank(level.value) < logRank(next)) level.value = "all";
+});
 const accountFilter = ref("all");
 const jobFilter = ref("all");
 const search = ref("");
@@ -85,6 +91,7 @@ const logsQuery = useQuery({
     "logs-page",
     {
       level: level.value,
+      minLevel: minLevel.value,
       accountUid: accountFilter.value,
       jobId: jobFilter.value,
       search: debouncedSearch.value,
@@ -96,6 +103,7 @@ const logsQuery = useQuery({
     api.logsPage(
       {
         level: level.value,
+        minLevel: minLevel.value,
         accountUid: accountFilter.value === "all" ? undefined : accountFilter.value,
         jobId: jobFilter.value === "all" ? undefined : jobFilter.value,
         search: debouncedSearch.value || undefined,
@@ -123,6 +131,10 @@ const LEVEL_TABS = [
   { key: "warn", label: "警告" },
   { key: "error", label: "错误" },
 ] as const;
+/** 档位以下的筛选标签直接隐藏，避免用户选到必然为空的级别 */
+const levelTabs = computed(() =>
+  LEVEL_TABS.filter((tab) => tab.key === "all" || logRank(tab.key) >= logRank(minLevel.value)),
+);
 
 function levelLabel(l?: string): string {
   return { debug: "调试", info: "信息", warn: "警告", error: "错误" }[l ?? "info"] ?? (l ?? "信息");
@@ -235,7 +247,7 @@ async function askDeleteLogs() {
 
         <div class="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
           <button
-            v-for="tab in LEVEL_TABS"
+            v-for="tab in levelTabs"
             :key="tab.key"
             :class="cn(
               'rounded-md border px-2.5 py-1 text-[13px] transition-colors',
@@ -246,7 +258,9 @@ async function askDeleteLogs() {
             @click="level = tab.key"
           >{{ tab.label }}</button>
           <span class="text-[12px] text-muted-foreground">任务筛选只列出运行中的任务</span>
-          <span class="mono ml-auto text-[12px] text-muted-foreground">共 {{ total }} 条 · 第 {{ page }} / {{ pageCount }} 页</span>
+          <span class="mono ml-auto text-[12px] text-muted-foreground">
+            全局档位 {{ levelLabel(minLevel) }} · 第 {{ page }} / {{ pageCount }} 页
+          </span>
         </div>
 
         <div v-if="logsQuery.isLoading.value" class="h-[520px] space-y-2 overflow-hidden p-4">

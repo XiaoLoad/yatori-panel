@@ -20,6 +20,7 @@ import { confirmAction } from "@/lib/confirm";
 import { isPending, runPending } from "@/lib/pending";
 import { formatDuration, formatEta, jobStateLabel, overallPercent, phaseLabel, progressDetail } from "@/lib/account";
 import { cn } from "@/lib/utils";
+import { logRank, useLogLevelSetting } from "@/composables/useLogLevel";
 
 const router = useRouter();
 const queryClient = useQueryClient();
@@ -343,7 +344,22 @@ function timeOf(iso: string) {
 const addOpen = ref(false);
 
 // ---------- 实时日志 ----------
+/** 设置页配置的全局输出档位：低于该级别的日志不展示 */
+const minLevel = useLogLevelSetting();
 const logLevel = ref<"all" | "info" | "warn" | "error">("all");
+const LOG_TABS = [
+  { key: "all", label: "全部" },
+  { key: "info", label: "信息" },
+  { key: "warn", label: "警告" },
+  { key: "error", label: "错误" },
+] as const;
+/** 档位以下的筛选标签直接隐藏 */
+const logTabs = computed(() =>
+  LOG_TABS.filter((tab) => tab.key === "all" || logRank(tab.key) >= logRank(minLevel.value)),
+);
+watch(minLevel, (next) => {
+  if (logLevel.value !== "all" && logRank(logLevel.value) < logRank(next)) logLevel.value = "all";
+});
 const logSearch = ref("");
 /** 只保留运行中任务的日志，避免已结束任务的上下文污染观测台 */
 const runningJobIds = computed(() => new Set(runningJobs.value.map((j) => j.id)));
@@ -352,6 +368,7 @@ const mergedLogs = computed<JobEvent[]>(() => {
   const map = new Map<string, JobEvent>();
   for (const l of [...(historyLogsQuery.data.value ?? []), ...events.logs]) {
     if (!l.jobId || !runningJobIds.value.has(l.jobId)) continue;
+    if (logRank(l.level) < logRank(minLevel.value)) continue;
     map.set(`${l.ts}|${l.accountId ?? ""}|${l.message ?? ""}`, l);
   }
   return [...map.values()].sort((a, b) => a.ts - b.ts);
@@ -380,7 +397,10 @@ function levelCount(key: "all" | "info" | "warn" | "error"): number {
 const recentFlags = computed(() => events.flags.slice(0, 6));
 /** 右侧实时事件流：只保留运行中任务的最近 14 条实时日志 */
 const recentEvents = computed(() =>
-  events.logs.filter((l) => l.jobId && runningJobIds.value.has(l.jobId)).slice(-14).reverse(),
+  events.logs
+    .filter((l) => l.jobId && runningJobIds.value.has(l.jobId) && logRank(l.level) >= logRank(minLevel.value))
+    .slice(-14)
+    .reverse(),
 );
 </script>
 
@@ -834,12 +854,7 @@ const recentEvents = computed(() =>
         <span class="mono text-[12px] text-muted-foreground">当前 {{ mergedLogs.length }} 条 · 任务结束后自动清空</span>
         <div class="ml-auto flex flex-wrap items-center gap-1">
           <button
-            v-for="l in [
-              { key: 'all', label: '全部' },
-              { key: 'info', label: '信息' },
-              { key: 'warn', label: '警告' },
-              { key: 'error', label: '错误' },
-            ] as const"
+            v-for="l in logTabs"
             :key="l.key"
             :class="cn('rounded border px-2 py-1 text-[12.5px] transition-colors', logLevel === l.key ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
             @click="logLevel = l.key"
