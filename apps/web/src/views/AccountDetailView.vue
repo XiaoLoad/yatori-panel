@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import {
+  Activity,
   ArrowLeft,
   BookOpen,
+  ChevronRight,
   ClipboardList,
   ExternalLink,
   FileEdit,
   History,
   Pencil,
   Play,
+  Radio,
   RefreshCw,
   ScrollText,
   Square,
   Trash2,
+  UserRound,
 } from "lucide-vue-next";
 import { computed, nextTick, ref, watch } from "vue";
 import { gsap } from "gsap";
@@ -409,6 +413,45 @@ function durationOf(job: JobVO): string {
 }
 
 const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
+
+/** 头部左侧强调线颜色：用状态色区分运行 / 在线 / 异常 / 待登录 */
+const statusAccent = computed(() => {
+  switch (status.value) {
+    case "running":
+      return "border-l-primary";
+    case "online":
+      return "border-l-mint";
+    case "error":
+      return "border-l-coral";
+    default:
+      return "border-l-border";
+  }
+});
+
+/** 右栏实时事件只展示最近若干条，完整列表回到日志分区 */
+const recentLogs = computed(() =>
+  events.logs
+    .filter((l) => l.accountId === props.uid)
+    .slice(-6)
+    .reverse(),
+);
+
+/** 该账号本次累计事件数，作为右栏底部摘要 */
+const accountLogCount = computed(
+  () => events.logs.filter((l) => l.accountId === props.uid).length,
+);
+
+/** 当前任务涉及课程的独立进度，按未完成优先、进度从高到低排列 */
+const taskCourses = computed(() => {
+  const list = progress.value?.coursesProgress ?? [];
+  return [...list]
+    .sort((a, b) => {
+      if (a.completed !== b.completed) return a.completed ? 1 : -1;
+      return b.progress - a.progress;
+    })
+    .slice(0, 4);
+});
+
 </script>
 
 <template>
@@ -426,15 +469,15 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
       <span class="text-foreground">{{ account?.remark || account?.username || "加载中" }}</span>
     </nav>
 
-    <!-- 账号头部 -->
-    <section class="panel overflow-hidden">
-      <div class="flex flex-wrap items-start gap-4 p-4">
-        <div class="grid size-12 shrink-0 place-items-center rounded-lg border border-border bg-panel-2 text-[18px] font-semibold text-primary">
+    <!-- 账号头部：状态强调线 + 身份信息 + 操作 -->
+    <section class="panel overflow-hidden border-l-[3px] py-4 pl-4 pr-4 md:py-5 md:pl-5" :class="statusAccent">
+      <div class="flex flex-wrap items-start gap-4">
+        <div class="grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-panel-2 text-[19px] font-semibold text-primary">
           {{ (account?.remark || account?.username || "?").slice(0, 1) }}
         </div>
         <div class="min-w-0 flex-1">
-          <div class="flex flex-wrap items-center gap-2">
-            <h1 class="text-[20px] font-semibold leading-none">{{ account?.remark || account?.username }}</h1>
+          <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <h1 class="text-[22px] font-semibold leading-none">{{ account?.remark || account?.username }}</h1>
             <span class="mono rounded border border-border px-1.5 py-0.5 text-[12px] text-muted-foreground">{{ platformName }}</span>
             <span class="flex items-center gap-1.5 text-[13px]" :class="statusMeta(status).text">
               <span class="size-1.5 rounded-full" :class="[statusMeta(status).dot, status === 'running' && 'animate-breathe']" />
@@ -442,10 +485,16 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
             </span>
             <span v-if="!account?.enabled" class="rounded bg-muted px-1.5 text-[12px] text-muted-foreground">已停用</span>
           </div>
-          <div class="mono mt-1.5 text-[12.5px] text-muted-foreground">
-            {{ account?.username }}
-            <template v-if="account?.baseUrl"> · {{ account.baseUrl }}</template>
-            <template v-if="account?.proxyUrl"> · 代理 {{ account.proxyUrl }}</template>
+          <div class="mono mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
+            <span>{{ account?.username }}</span>
+            <template v-if="account?.baseUrl">
+              <span class="h-3 w-px bg-border" />
+              <span class="max-w-[420px] truncate">{{ account.baseUrl }}</span>
+            </template>
+            <template v-if="account?.proxyUrl">
+              <span class="h-3 w-px bg-border" />
+              <span class="max-w-[260px] truncate">代理 {{ account.proxyUrl }}</span>
+            </template>
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
@@ -455,7 +504,7 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           <Button v-else size="sm" class="h-8 gap-1 text-[13px]" @click="startOpen = true">
             <Play class="size-3.5" />开始任务
           </Button>
-          <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" @click="openPlatform">
+          <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" title="自动复制账号密码后打开平台" @click="openPlatform">
             <ExternalLink class="size-3.5" />打开平台并复制
           </Button>
           <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" :disabled="verifyMutation.isPending.value" @click="verifyMutation.mutate()">
@@ -470,107 +519,173 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
           </Button>
         </div>
       </div>
-
-      <div class="grid gap-px border-t border-border bg-border sm:grid-cols-2 xl:grid-cols-4">
-        <div class="bg-card px-4 py-2.5">
-          <div class="text-[12px] text-muted-foreground">会话状态</div>
-          <div class="mt-0.5 text-[14px]">{{ account?.hasSession ? "已建立会话" : "未建立会话" }}</div>
-        </div>
-        <div class="bg-card px-4 py-2.5">
-          <div class="text-[12px] text-muted-foreground">上次登录检测</div>
-          <div class="mono mt-0.5 text-[13.5px]">
-            {{ account?.lastVerifyAt ? new Date(account.lastVerifyAt).toLocaleString("zh-CN", { hour12: false }) : "—" }}
-          </div>
-        </div>
-        <div class="bg-card px-4 py-2.5">
-          <div class="text-[12px] text-muted-foreground">定时规则</div>
-          <div class="mono mt-0.5 truncate text-[13.5px]">{{ scheduleWindow(schedule)?.time ?? "未设定时" }}</div>
-        </div>
-        <div class="bg-card px-4 py-2.5">
-          <div class="text-[12px] text-muted-foreground">课程数量</div>
-          <div class="mono mt-0.5 text-[14px]">{{ coursesQuery.data.value?.length ?? 0 }} 门</div>
-        </div>
-      </div>
     </section>
 
-    <!-- 当前任务进度 -->
-    <section class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div class="panel p-4">
-        <div class="flex items-start gap-4">
-          <ProgressRing :value="displayPercent" :size="66" :stroke="6" :tone="status === 'running' ? 'primary' : 'muted'" />
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <span
-                :class="cn(
-                  'stage-chip',
-                  status === 'running' ? 'border-primary/30 bg-primary/10 text-primary' : 'text-muted-foreground',
-                )"
-              >{{ phaseLabel(progress, status === 'running') }}</span>
-              <span class="mono text-[12.5px] text-muted-foreground">{{ status === "running" ? "运行中" : "当前无任务" }}</span>
-              <span v-if="runningJob" class="mono text-[12.5px] text-muted-foreground">开始于 {{ startedAt(runningJob) }}</span>
+    <!-- 指挥台：账号档案 / 当前任务 / 实时事件 -->
+    <section class="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+      <aside class="panel flex flex-col overflow-hidden">
+        <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+          <UserRound class="size-4 text-muted-foreground" />
+          <h2 class="text-[14px] font-semibold">账号档案</h2>
+        </div>
+        <div class="divide-y divide-border/60">
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+            <span class="text-[12.5px] text-muted-foreground">会话状态</span>
+            <span class="flex items-center gap-1.5 text-[13px]" :class="account?.hasSession ? 'text-mint' : 'text-muted-foreground'">
+              <span class="size-1.5 rounded-full" :class="account?.hasSession ? 'bg-mint' : 'bg-border'" />
+              {{ account?.hasSession ? "已建立会话" : "未建立会话" }}
+            </span>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+            <span class="text-[12.5px] text-muted-foreground">上次登录检测</span>
+            <span class="mono text-right text-[12.5px]">
+              {{ account?.lastVerifyAt ? new Date(account.lastVerifyAt).toLocaleString("zh-CN", { hour12: false }) : "—" }}
+            </span>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+            <span class="text-[12.5px] text-muted-foreground">定时规则</span>
+            <span class="mono truncate text-[12.5px]">{{ scheduleWindow(schedule)?.time ?? "未设定时" }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-4 py-2.5">
+            <span class="text-[12.5px] text-muted-foreground">课程数量</span>
+            <span class="mono text-[12.5px]">{{ coursesQuery.data.value?.length ?? 0 }} 门</span>
+          </div>
+        </div>
+        <div class="mt-auto border-t border-border bg-panel-2/60 px-4 py-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[12.5px] font-medium">最近一次任务</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ latestJob ? jobStateLabel(latestJob.state) : "—" }}</span>
+          </div>
+          <div v-if="summaryOfLatest" class="mt-2 space-y-1">
+            <div class="flex items-baseline justify-between text-[12.5px]">
+              <span class="text-muted-foreground">视频</span>
+              <span class="mono">{{ summaryOfLatest.videosCompleted }}</span>
             </div>
-            <div class="mt-1.5 truncate text-[15px]">
+            <div class="flex items-baseline justify-between text-[12.5px]">
+              <span class="text-muted-foreground">作业</span>
+              <span class="mono">{{ summaryOfLatest.worksDone }}</span>
+            </div>
+            <div class="flex items-baseline justify-between text-[12.5px]">
+              <span class="text-muted-foreground">考试</span>
+              <span class="mono">{{ summaryOfLatest.examsDone }}</span>
+            </div>
+            <div class="flex items-baseline justify-between text-[12.5px]">
+              <span class="text-muted-foreground">跳过 / 标记 / 错误</span>
+              <span class="mono" :class="summaryOfLatest.errors.length ? 'text-coral' : ''">
+                {{ summaryOfLatest.videosSkipped }} / {{ summaryOfLatest.flagsFound }} / {{ summaryOfLatest.errors.length }}
+              </span>
+            </div>
+          </div>
+          <p v-else class="mt-2 text-[12.5px] text-muted-foreground">暂无任务记录</p>
+          <div v-if="summaryOfLatest?.scores.length" class="mt-2 border-t border-border/60 pt-2">
+            <div v-for="(s, i) in summaryOfLatest.scores.slice(0, 2)" :key="i" class="truncate text-[12px] text-muted-foreground">{{ s }}</div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="panel flex flex-col p-4 md:p-5">
+        <div class="flex flex-wrap items-center gap-2">
+          <Activity class="size-4 text-muted-foreground" />
+          <h2 class="text-[14px] font-semibold">当前任务</h2>
+          <span
+            :class="cn(
+              'stage-chip',
+              status === 'running' ? 'border-primary/30 bg-primary/10 text-primary' : 'text-muted-foreground',
+            )"
+          >{{ phaseLabel(progress, status === 'running') }}</span>
+          <span v-if="runningJob" class="mono ml-auto text-[12px] text-muted-foreground">开始于 {{ startedAt(runningJob) }}</span>
+          <span v-else-if="latestJob" class="mono ml-auto text-[12px] text-muted-foreground">上次 {{ jobStateLabel(latestJob.state) }}</span>
+        </div>
+
+        <div class="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+          <ProgressRing :value="displayPercent" :size="76" :stroke="7" :tone="status === 'running' ? 'primary' : 'muted'" />
+          <div class="min-w-0 flex-1">
+            <div class="truncate text-[16px] font-medium">
               {{ progress?.courseName || currentCourse?.name || runningJob?.accountName || "等待任务启动" }}
             </div>
             <div class="mono mt-1 truncate text-[12.5px] text-muted-foreground">
-              <template v-if="progress?.watchedSeconds !== undefined">
-                已看 {{ formatDuration(progress.watchedSeconds) }}
-                <template v-if="progress?.totalSeconds"> / {{ formatDuration(progress.totalSeconds) }}</template>
-              </template>
-              <template v-else>{{ progress?.nodeName || "发起任务后此处显示课程与节点进度" }}</template>
+              {{ progress?.nodeName || (status === "running" ? "正在同步当前节点…" : "发起任务后此处显示课程与节点进度") }}
             </div>
-            <div v-if="overall !== null" class="mono mt-1 truncate text-[12.5px] text-muted-foreground">
-              课程整体 {{ overall }}% · 课程 {{ progress?.courseCount ?? 0 }} 门 · 剩 {{ progress?.coursesRemaining ?? 0 }} 门
-            </div>
-            <div v-if="status === 'running' && progress?.etaSeconds !== undefined" class="mt-0.5 text-[12.5px] text-muted-foreground">
-              预计还需 {{ formatEta(progress.etaSeconds) }}（按当前课程并发估算）
-            </div>
-            <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+            <div class="mt-2.5 h-2 overflow-hidden rounded-full bg-muted">
               <div class="h-full rounded-full bg-primary transition-[width] duration-500" :style="{ width: `${displayPercent}%` }" />
             </div>
+            <div class="mono mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
+              <span v-if="progress?.watchedSeconds !== undefined">
+                已看 {{ formatDuration(progress.watchedSeconds) }}<template v-if="progress?.totalSeconds"> / {{ formatDuration(progress.totalSeconds) }}</template>
+              </span>
+              <span v-if="overall !== null">整体 {{ overall }}%</span>
+              <span v-if="progress?.courseCount !== undefined">课程 {{ progress.courseCount }} 门 · 剩 {{ progress.coursesRemaining ?? 0 }} 门</span>
+              <span v-if="status === 'running' && progress?.etaSeconds !== undefined">预计还需 {{ formatEta(progress.etaSeconds) }}</span>
+            </div>
           </div>
+        </div>
+
+        <div v-if="taskCourses.length" class="mt-4 flex flex-1 flex-col border-t border-border pt-3">
+          <div class="flex items-center justify-between">
+            <span class="text-[12.5px] text-muted-foreground">课程并行进度</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ taskCourses.length }} 门</span>
+          </div>
+          <div class="mt-2 space-y-1.5">
+            <div v-for="c in taskCourses" :key="c.courseId" class="flex items-center gap-2 text-[12.5px]">
+              <span class="size-1.5 shrink-0 rounded-full" :class="c.completed ? 'bg-mint' : c.progress > 0 ? 'bg-primary' : 'bg-border'" />
+              <span class="min-w-0 flex-1 truncate">{{ c.courseName }}</span>
+              <div class="h-1 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
+                <div class="h-full rounded-full bg-primary" :style="{ width: `${Math.round(c.progress)}%` }" />
+              </div>
+              <span class="mono w-9 shrink-0 text-right text-muted-foreground">{{ Math.round(c.progress) }}%</span>
+            </div>
+          </div>
+        </div>
+        <div v-else class="mt-4 flex flex-1 items-start border-t border-border pt-3 text-[12.5px] text-muted-foreground">
+          发起任务后，这里会并行展示每门课程的独立进度
         </div>
       </div>
 
-      <div class="panel p-4">
-        <div class="text-[13px] font-medium">最近一次任务产出</div>
-        <div v-if="summaryOfLatest" class="mt-2.5 grid grid-cols-3 gap-2 text-center">
-          <div class="rounded-md border border-border bg-panel-2 py-2">
-            <div class="mono text-[18px] font-semibold leading-none">{{ summaryOfLatest.videosCompleted }}</div>
-            <div class="mt-1 text-[12px] text-muted-foreground">视频</div>
-          </div>
-          <div class="rounded-md border border-border bg-panel-2 py-2">
-            <div class="mono text-[18px] font-semibold leading-none">{{ summaryOfLatest.worksDone }}</div>
-            <div class="mt-1 text-[12px] text-muted-foreground">作业</div>
-          </div>
-          <div class="rounded-md border border-border bg-panel-2 py-2">
-            <div class="mono text-[18px] font-semibold leading-none">{{ summaryOfLatest.examsDone }}</div>
-            <div class="mt-1 text-[12px] text-muted-foreground">考试</div>
+      <div class="panel flex min-h-0 flex-col overflow-hidden lg:col-span-2 xl:col-span-1">
+        <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+          <Radio class="size-4 text-muted-foreground" />
+          <h2 class="text-[14px] font-semibold">实时事件</h2>
+          <span v-if="status === 'running'" class="size-1.5 rounded-full bg-primary animate-breathe" />
+          <button
+            class="ml-auto inline-flex items-center gap-0.5 text-[12.5px] text-muted-foreground transition-colors hover:text-primary"
+            @click="tab = 'logs'; logLevel = 'all'"
+          >
+            查看全部<ChevronRight class="size-3.5" />
+          </button>
+        </div>
+        <div v-if="recentLogs.length" class="flex flex-1 flex-col px-4 py-1">
+          <div v-for="(l, i) in recentLogs" :key="i" class="flex flex-1 items-center gap-2 border-b border-border/50 py-1.5 last:border-b-0">
+            <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ clockOf(l.ts) }}</span>
+            <span
+              :class="cn(
+                'mono w-9 shrink-0 text-[12px] uppercase',
+                l.level === 'error' ? 'text-coral' : l.level === 'warn' ? 'text-amber' : 'text-primary/80',
+              )"
+            >{{ l.level ?? "info" }}</span>
+            <span class="min-w-0 flex-1 truncate text-[12.5px] text-foreground/85">{{ l.message }}</span>
           </div>
         </div>
-        <div v-if="summaryOfLatest" class="mono mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
-          <span>课程 {{ summaryOfLatest.courses }}</span>
-          <span>跳过 {{ summaryOfLatest.videosSkipped }}</span>
-          <span>标记 {{ summaryOfLatest.flagsFound }}</span>
-          <span :class="summaryOfLatest.errors.length ? 'text-coral' : ''">错误 {{ summaryOfLatest.errors.length }}</span>
+        <div v-else class="flex flex-1 flex-col items-center justify-center px-4 py-10 text-center">
+          <p class="text-[13px] text-muted-foreground">暂无实时事件</p>
+          <p class="mt-1 text-[12px] text-muted-foreground">发起任务后，事件会实时出现在这里</p>
         </div>
-        <p v-if="!summaryOfLatest" class="mt-3 text-[13px] text-muted-foreground">暂无任务记录</p>
-        <div v-if="summaryOfLatest?.scores.length" class="mt-2 space-y-0.5">
-          <div v-for="(s, i) in summaryOfLatest.scores.slice(0, 3)" :key="i" class="truncate text-[12.5px] text-muted-foreground">{{ s }}</div>
+        <div class="mt-auto flex shrink-0 items-center justify-between gap-2 border-t border-border px-4 py-2">
+          <span class="text-[12px] text-muted-foreground">共 {{ accountLogCount }} 条 · 显示最近 {{ recentLogs.length }} 条</span>
+          <span class="text-[12px] text-muted-foreground">自动推送</span>
         </div>
       </div>
     </section>
 
     <!-- 明细标签 -->
     <section class="panel overflow-hidden">
-      <div ref="tabButtonsRef" class="relative flex flex-wrap items-center gap-4 border-b border-border px-4">
+      <div ref="tabButtonsRef" class="relative flex flex-wrap items-center gap-1 border-b border-border px-3">
         <button
           v-for="t in TABS"
           :key="t.key"
           :data-tab="t.key"
           :class="cn(
-            'relative flex items-center gap-1.5 py-2.5 text-[14px] transition-colors',
-            tab === t.key ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+            'relative flex items-center gap-1.5 rounded-t-md px-3 py-2.5 text-[13.5px] transition-colors',
+            tab === t.key ? 'bg-accent/40 text-foreground' : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
           )"
           @click="tab = t.key"
         >
@@ -598,84 +713,85 @@ const summaryOfLatest = computed(() => latestJob.value?.summary ?? null);
       <!-- 分段内容过渡容器：切换时由 GSAP 播放淡入动画 -->
       <div ref="tabContentRef">
         <!-- 课程进度 -->
-        <div v-if="tab === 'courses'" class="grid gap-0 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <div class="border-b border-border lg:border-b-0 lg:border-r">
-          <div class="flex items-center justify-between px-4 py-2.5 text-[12.5px] text-muted-foreground">
-            <span>课程列表</span>
-            <span class="mono">{{ coursesQuery.data.value?.length ?? 0 }} 门</span>
-          </div>
-          <div v-if="coursesQuery.isLoading.value" class="space-y-2 px-4 pb-4">
-            <Skeleton v-for="i in 4" :key="i" class="h-12 w-full" />
-          </div>
-          <div v-else-if="!(coursesQuery.data.value ?? []).length" class="px-4 py-10 text-center text-[13px] text-muted-foreground">
-            未获取到课程，请先检测登录
-          </div>
-          <div v-else class="max-h-[420px] overflow-y-auto">
-            <button
-              v-for="course in coursesQuery.data.value ?? []"
-              :key="course.id"
-              :class="cn(
-                'flex w-full flex-col gap-1.5 border-b border-border/60 px-4 py-2.5 text-left transition-colors last:border-b-0',
-                courseId === course.id ? 'bg-primary/5' : 'hover:bg-accent/60',
-              )"
-              @click="courseId = course.id"
-            >
-              <div class="flex items-center gap-2">
-                <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ course.name }}</span>
-                <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <div class="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div class="h-full rounded-full bg-primary" :style="{ width: `${Math.round(course.progress)}%` }" />
+        <div v-if="tab === 'courses'" class="grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <div class="border-b border-border lg:border-b-0 lg:border-r">
+            <div class="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+              <span class="text-[12.5px] font-medium">课程</span>
+              <span class="mono text-[12px] text-muted-foreground">{{ coursesQuery.data.value?.length ?? 0 }} 门</span>
+            </div>
+            <div v-if="coursesQuery.isLoading.value" class="space-y-2 p-4">
+              <Skeleton v-for="i in 4" :key="i" class="h-12 w-full" />
+            </div>
+            <div v-else-if="!(coursesQuery.data.value ?? []).length" class="px-4 py-10 text-center text-[13px] text-muted-foreground">
+              未获取到课程，请先检测登录
+            </div>
+            <div v-else class="max-h-[420px] overflow-y-auto">
+              <button
+                v-for="course in coursesQuery.data.value ?? []"
+                :key="course.id"
+                :class="cn(
+                  'relative flex w-full flex-col gap-1.5 border-b border-border/60 px-4 py-2.5 text-left transition-colors last:border-b-0',
+                  courseId === course.id ? 'bg-primary/5' : 'hover:bg-accent/60',
+                )"
+                @click="courseId = course.id"
+              >
+                <span v-if="courseId === course.id" class="absolute inset-y-0 left-0 w-0.5 bg-primary" />
+                <div class="flex items-center gap-2">
+                  <span class="min-w-0 flex-1 truncate text-[13.5px]" :class="courseId === course.id ? 'font-medium text-foreground' : ''">{{ course.name }}</span>
+                  <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
                 </div>
-                <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ course.teacher || "—" }}</span>
-              </div>
-            </button>
+                <div class="flex items-center gap-2">
+                  <div class="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div class="h-full rounded-full bg-primary" :style="{ width: `${Math.round(course.progress)}%` }" />
+                  </div>
+                  <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ course.teacher || "—" }}</span>
+                </div>
+              </button>
+            </div>
           </div>
-        </div>
 
-        <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
-            <span class="min-w-0 truncate text-[14px] font-medium">{{ currentCourse?.name || "章节树" }}</span>
-            <span class="mono text-[12.5px] text-muted-foreground">
-              节点 {{ treeStats.completed }} / {{ treeStats.total }} 已完成
-            </span>
-            <div class="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
-              <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-mint" />已完成</span>
-              <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-amber" />进行中</span>
-              <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-border" />未开始</span>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
+              <span class="min-w-0 truncate text-[14px] font-medium">{{ currentCourse?.name || "章节树" }}</span>
+              <span class="mono text-[12.5px] text-muted-foreground">
+                节点 {{ treeStats.completed }} / {{ treeStats.total }} 已完成
+              </span>
+              <div class="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
+                <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-mint" />已完成</span>
+                <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-amber" />进行中</span>
+                <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-border" />未开始</span>
+              </div>
             </div>
-          </div>
-          <div v-if="treeQuery.isLoading.value" class="space-y-1.5 p-4">
-            <Skeleton v-for="i in 6" :key="i" class="h-7 w-full" />
-          </div>
-          <div v-else-if="!flatTree.length" class="px-4 py-12 text-center text-[13px] text-muted-foreground">
-            选择课程后加载章节节点
-          </div>
-          <div v-else class="max-h-[420px] overflow-y-auto py-1">
-            <div
-              v-for="item in flatTree"
-              :key="item.node.id"
-              class="flex items-center gap-2.5 border-b border-border/40 px-4 py-1.5 text-[13.5px] last:border-b-0"
-              :class="item.node.children?.length ? 'font-medium text-foreground' : 'text-foreground/80'"
-              :style="{ paddingLeft: `${16 + item.depth * 16}px` }"
-            >
-              <span
-                class="size-1.5 shrink-0 rounded-full"
-                :class="item.node.completed ? 'bg-mint' : item.node.progress > 0 ? 'bg-amber' : 'bg-border'"
-              />
-              <span class="min-w-0 flex-1 truncate">{{ item.node.name }}</span>
-              <span v-if="item.node.progress > 0 && !item.node.completed" class="mono shrink-0 text-[12px] text-amber">{{ Math.round(item.node.progress) }}%</span>
-              <span
-                v-if="examBadges[item.node.id]"
-                class="mono shrink-0 text-[12px]"
-                :class="examBadges[item.node.id]?.tone"
-              >{{ examBadges[item.node.id]?.text }}</span>
-              <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ item.node.durationSeconds ? formatDuration(item.node.durationSeconds) : "—" }}</span>
+            <div v-if="treeQuery.isLoading.value" class="space-y-1.5 p-4">
+              <Skeleton v-for="i in 6" :key="i" class="h-7 w-full" />
+            </div>
+            <div v-else-if="!flatTree.length" class="px-4 py-12 text-center text-[13px] text-muted-foreground">
+              选择课程后加载章节节点
+            </div>
+            <div v-else class="max-h-[420px] overflow-y-auto py-1">
+              <div
+                v-for="item in flatTree"
+                :key="item.node.id"
+                class="flex items-center gap-2.5 border-b border-border/40 px-4 py-2 text-[13.5px] transition-colors last:border-b-0 hover:bg-accent/40"
+                :class="item.node.children?.length ? 'font-medium text-foreground' : 'text-foreground/80'"
+                :style="{ paddingLeft: `${16 + item.depth * 16}px` }"
+              >
+                <span
+                  class="size-1.5 shrink-0 rounded-full"
+                  :class="item.node.completed ? 'bg-mint' : item.node.progress > 0 ? 'bg-amber' : 'bg-border'"
+                />
+                <span class="min-w-0 flex-1 truncate">{{ item.node.name }}</span>
+                <span v-if="item.node.progress > 0 && !item.node.completed" class="mono shrink-0 text-[12px] text-amber">{{ Math.round(item.node.progress) }}%</span>
+                <span
+                  v-if="examBadges[item.node.id]"
+                  class="mono shrink-0 text-[12px]"
+                  :class="examBadges[item.node.id]?.tone"
+                >{{ examBadges[item.node.id]?.text }}</span>
+                <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ item.node.durationSeconds ? formatDuration(item.node.durationSeconds) : "—" }}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
       <!-- 作业 -->
       <WorkPanel v-else-if="tab === 'works'" :account-uid="uid" :course-id="courseId" :platform="account?.platform" />
