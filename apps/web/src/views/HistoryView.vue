@@ -20,16 +20,16 @@ import { cn } from "@/lib/utils";
 
 const router = useRouter();
 const queryClient = useQueryClient();
-const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 // 汇总卡片与侧栏仍使用最近一批记录，避免每页数据影响统计口径
 const jobsQuery = useQuery({
   queryKey: ["jobs"],
-  queryFn: () => api.jobs({ limit: 80 }),
+  queryFn: () => api.jobs({ limit: 80 }, { silent: true }),
   refetchInterval: 5_000,
 });
 const statsQuery = useQuery({
   queryKey: ["stats", 7],
-  queryFn: () => api.statsDaily(7),
+  queryFn: () => api.statsDaily(7, { silent: true }),
   refetchInterval: 60_000,
 });
 
@@ -61,13 +61,16 @@ const recordsQuery = useQuery({
     },
   ]),
   queryFn: () =>
-    api.jobsPage({
-      accountUid: accountFilter.value === "all" ? undefined : accountFilter.value,
-      state: stateFilter.value === "all" ? undefined : stateFilter.value,
-      search: debouncedSearch.value || undefined,
-      page: page.value,
-      pageSize: pageSize.value,
-    }),
+    api.jobsPage(
+      {
+        accountUid: accountFilter.value === "all" ? undefined : accountFilter.value,
+        state: stateFilter.value === "all" ? undefined : stateFilter.value,
+        search: debouncedSearch.value || undefined,
+        page: page.value,
+        pageSize: pageSize.value,
+      },
+      { silent: true },
+    ),
   refetchInterval: 10_000,
 });
 

@@ -25,16 +25,16 @@ const router = useRouter();
 const queryClient = useQueryClient();
 const events = useEventStore();
 
-const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 const platformsQuery = useQuery({ queryKey: ["platforms"], queryFn: api.platforms });
 const jobsQuery = useQuery({
   queryKey: ["jobs"],
-  queryFn: () => api.jobs({ limit: 120 }),
+  queryFn: () => api.jobs({ limit: 120 }, { silent: true }),
   refetchInterval: 5_000,
 });
 const schedulesQuery = useQuery({
   queryKey: ["schedules"],
-  queryFn: api.schedules,
+  queryFn: () => api.schedules({ silent: true }),
   refetchInterval: 30_000,
 });
 

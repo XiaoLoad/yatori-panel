@@ -14,7 +14,7 @@ import { toastError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 const queryClient = useQueryClient();
-const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 const accounts = computed(() => accountsQuery.data.value ?? []);
 const accountOptions = computed(() => [
   { value: "all", label: "全部账号" },
@@ -46,7 +46,7 @@ watch(search, (value) => {
 // 运行中任务：作为「当前任务」筛选的数据源
 const runningJobsQuery = useQuery({
   queryKey: ["running-jobs"],
-  queryFn: () => api.jobs({ state: "running", limit: 50 }),
+  queryFn: () => api.jobs({ state: "running", limit: 50 }, { silent: true }),
   refetchInterval: 5_000,
 });
 const runningJobs = computed(() => runningJobsQuery.data.value ?? []);
@@ -92,14 +92,17 @@ const logsQuery = useQuery({
     },
   ]),
   queryFn: () =>
-    api.logsPage({
-      level: level.value,
-      accountUid: accountFilter.value === "all" ? undefined : accountFilter.value,
-      jobId: jobFilter.value === "all" ? undefined : jobFilter.value,
-      search: debouncedSearch.value || undefined,
-      page: page.value,
-      pageSize: pageSize.value,
-    }),
+    api.logsPage(
+      {
+        level: level.value,
+        accountUid: accountFilter.value === "all" ? undefined : accountFilter.value,
+        jobId: jobFilter.value === "all" ? undefined : jobFilter.value,
+        search: debouncedSearch.value || undefined,
+        page: page.value,
+        pageSize: pageSize.value,
+      },
+      { silent: true },
+    ),
   refetchInterval: 20_000,
 });
 

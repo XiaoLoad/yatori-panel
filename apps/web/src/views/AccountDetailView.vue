@@ -63,12 +63,16 @@ const backLabel = computed(() => {
   return "账号";
 });
 
-const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 const platformsQuery = useQuery({ queryKey: ["platforms"], queryFn: api.platforms });
-const schedulesQuery = useQuery({ queryKey: ["schedules"], queryFn: api.schedules, refetchInterval: 30_000 });
+const schedulesQuery = useQuery({
+  queryKey: ["schedules"],
+  queryFn: () => api.schedules({ silent: true }),
+  refetchInterval: 30_000,
+});
 const jobsQuery = useQuery({
   queryKey: computed(() => ["jobs", props.uid]),
-  queryFn: () => api.jobs({ accountUid: props.uid, limit: 30 }),
+  queryFn: () => api.jobs({ accountUid: props.uid, limit: 30 }, { silent: true }),
   refetchInterval: 5_000,
 });
 

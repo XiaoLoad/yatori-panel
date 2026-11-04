@@ -25,7 +25,7 @@ const { examsQuery, resultsQuery, byExam } = useExamStatus({
 
 const runningQuery = useQuery({
   queryKey: computed(() => ["drawer-exams-running", props.accountUid]),
-  queryFn: () => api.runningExams(props.accountUid),
+  queryFn: () => api.runningExams(props.accountUid, { silent: true }),
   refetchInterval: 5_000,
 });
 

@@ -15,10 +15,10 @@ import { confirmAction } from "@/lib/confirm";
 import { isPending, runPending } from "@/lib/pending";
 
 const queryClient = useQueryClient();
-const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 const schedulesQuery = useQuery({
   queryKey: ["schedules"],
-  queryFn: api.schedules,
+  queryFn: () => api.schedules({ silent: true }),
   refetchInterval: 30_000,
 });
 const dialogOpen = ref(false);

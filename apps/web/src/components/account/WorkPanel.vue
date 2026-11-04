@@ -28,7 +28,7 @@ const { worksQuery, resultsQuery, byWork } = useWorkStatus({
 
 const runningQuery = useQuery({
   queryKey: computed(() => ["drawer-works-running", props.accountUid]),
-  queryFn: () => api.runningWorks(props.accountUid),
+  queryFn: () => api.runningWorks(props.accountUid, { silent: true }),
   refetchInterval: 5_000,
 });
 

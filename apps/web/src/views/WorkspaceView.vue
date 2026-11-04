@@ -25,20 +25,20 @@ const router = useRouter();
 const queryClient = useQueryClient();
 const events = useEventStore();
 
-const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
+const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 const jobsQuery = useQuery({
   queryKey: ["jobs"],
-  queryFn: () => api.jobs({ limit: 80 }),
+  queryFn: () => api.jobs({ limit: 80 }, { silent: true }),
   refetchInterval: 5_000,
 });
 const statsQuery = useQuery({
   queryKey: ["stats", 14],
-  queryFn: () => api.statsDaily(14),
+  queryFn: () => api.statsDaily(14, { silent: true }),
   refetchInterval: 60_000,
 });
 const historyLogsQuery = useQuery({
   queryKey: ["logs", 300],
-  queryFn: () => api.logEvents(300),
+  queryFn: () => api.logEvents(300, { silent: true }),
   refetchInterval: 15_000,
 });
 
