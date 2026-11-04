@@ -735,7 +735,7 @@ const recentEvents = computed(() =>
       </div>
 
       <!-- 站点遥测 -->
-      <aside class="flex flex-col gap-3 xl:h-full">
+      <aside class="flex flex-col gap-3">
         <div class="panel flex h-[240px] flex-col px-3.5 py-3">
           <div class="flex items-baseline justify-between">
             <div>
@@ -753,8 +753,8 @@ const recentEvents = computed(() =>
           </div>
         </div>
 
-        <!-- 实时事件流：填满右栏剩余高度 -->
-        <div class="panel flex h-[240px] flex-col overflow-hidden xl:h-auto xl:min-h-[160px] xl:flex-1">
+        <!-- 运行中日志：固定高度，日志增多时内部滚动，不随数据量拉伸 -->
+        <div class="panel flex h-[280px] flex-col overflow-hidden">
           <div class="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
             <span class="text-[13px] font-medium">运行中日志</span>
             <span class="mono text-[12px] text-muted-foreground">{{ mergedLogs.length }}</span>
