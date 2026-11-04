@@ -17,6 +17,7 @@ import ScheduleDialog from "@/components/account/ScheduleDialog.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
+import { isPending, runPending } from "@/lib/pending";
 import { accountStatus, overallPercent, phaseLabel, progressDetail, scheduleWindow, statusMeta } from "@/lib/account";
 import { cn } from "@/lib/utils";
 
@@ -195,13 +196,14 @@ const verifyMutation = useMutation({
 async function askStop(account: AccountWithSession) {
   const job = runningByAccount.value[account.uid];
   if (!job) return;
+  if (isPending(`stop:${job.id}`)) return;
   const ok = await confirmAction({
     title: `停止「${account.remark || account.username}」的任务？`,
     description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
     confirmText: "停止任务",
     tone: "danger",
   });
-  if (ok) stopMutation.mutate(job.id);
+  if (ok) runPending(`stop:${job.id}`, () => stopMutation.mutateAsync(job.id));
 }
 
 async function stopSelected() {
@@ -210,6 +212,7 @@ async function stopSelected() {
     toast.info("所选账号没有运行中的任务");
     return;
   }
+  if (targets.every((job) => isPending(`stop:${job.id}`))) return;
   const ok = await confirmAction({
     title: `停止所选 ${targets.length} 个任务？`,
     description: "停止后任务立即结束，未完成节点的进度不会保留，该操作不可撤销。",
@@ -217,7 +220,9 @@ async function stopSelected() {
     tone: "danger",
   });
   if (!ok) return;
-  for (const job of targets) stopMutation.mutate(job.id);
+  for (const job of targets) {
+    runPending(`stop:${job.id}`, () => stopMutation.mutateAsync(job.id));
+  }
 }
 </script>
 
@@ -395,7 +400,8 @@ async function stopSelected() {
             <div class="flex items-center justify-end gap-1" @click.stop>
               <button
                 v-if="statusOf(account) === 'running'"
-                class="rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-coral/40 hover:text-coral"
+                class="rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-coral/40 hover:text-coral disabled:opacity-40"
+                :disabled="runningByAccount[account.uid] ? isPending(`stop:${runningByAccount[account.uid].id}`) : false"
                 @click="askStop(account)"
               >停止</button>
               <button
@@ -404,8 +410,9 @@ async function stopSelected() {
                 @click="openStart([{ uid: account.uid, label: account.remark || account.username }])"
               >启动</button>
               <button
-                class="rounded px-1.5 py-1 text-[12.5px] text-muted-foreground hover:text-primary"
+                class="rounded px-1.5 py-1 text-[12.5px] text-muted-foreground hover:text-primary disabled:opacity-40"
                 title="检测登录"
+                :disabled="verifyMutation.isPending.value"
                 @click="verifyMutation.mutate(account.uid)"
               >检测</button>
               <RouterLink :to="`/accounts/${account.uid}`" class="inline-flex items-center rounded px-1 py-1 text-[12.5px] text-muted-foreground hover:text-primary">
@@ -430,7 +437,7 @@ async function stopSelected() {
           <SquarePlay class="size-3.5" />发起任务
         </Button>
         <Button variant="outline" size="sm" class="h-7 text-[13px]" @click="scheduleOpen = true; schedulePreselect = selectedUids">设定定时</Button>
-        <Button variant="outline" size="sm" class="h-7 text-[13px]" @click="stopSelected">停止</Button>
+        <Button variant="outline" size="sm" class="h-7 text-[13px]" :disabled="stopMutation.isPending.value" @click="stopSelected">停止</Button>
         <Button variant="ghost" size="sm" class="h-7 text-[13px]" @click="selectedUids = []">取消</Button>
       </div>
     </div>

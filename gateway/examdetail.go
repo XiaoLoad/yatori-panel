@@ -847,3 +847,116 @@ func RunExamResultsWithCreds(
 	}
 	return out, nil
 }
+
+// ---------- 作业结果只读查询（英华） ----------
+
+// yhWorkResult 单份作业状态：只读作业详情页，不进入作答流程、不消耗做题次数。
+type yhWorkResult struct {
+	WorkID    string   `json:"workId"`
+	NodeID    string   `json:"nodeId"`
+	Taken     bool     `json:"taken"`
+	Score     *float64 `json:"score,omitempty"`
+	Message   string   `json:"message,omitempty"`
+	Error     string   `json:"error,omitempty"`
+	CheckedAt string   `json:"checkedAt"`
+}
+
+// 平台作业详情页文案特征：最高分/最终得分、「已完成/已交」等参与提示。
+var yhWorkScoreRe = regexp.MustCompile(`(?:最高分|最终得分)：[^\d]*([\d]+(?:\.[\d]+)?)[^分]*分`)
+var yhWorkTakenRe = regexp.MustCompile(`您已完成(?:该)?作业|作业已(?:完成|提交|交)|已完成作业|已提交|已交卷`)
+
+// workResult GET /api/work.json —— 只读拉取作业详情页（对齐 core WorkedFinallyDetailApi 报文，不触发作答）。
+func (s *yhSession) workResult(ctx context.Context, nodeID, workID string) (string, error) {
+	c := s.creds()
+	url := fmt.Sprintf("%s/api/work.json?nodeId=%s&workId=%s&token=%s", c.baseURL, nodeID, workID, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	s.setHeaders(req)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+// RunWorkResultsWithCreds 批量只读查询作业状态与得分（仅英华）。
+// 单份失败不会中断整批，错误随该份结果返回。
+func RunWorkResultsWithCreds(
+	ctx context.Context,
+	sess core.Session,
+	account, passwd string,
+	works []yhExamKey,
+) ([]yhWorkResult, error) {
+	if len(works) > 30 {
+		return nil, fmt.Errorf("单次最多查询 30 份作业")
+	}
+	base := sess.Extra["url"]
+	if base == "" {
+		return nil, fmt.Errorf("会话缺少站点地址")
+	}
+	if account == "" || passwd == "" {
+		return nil, fmt.Errorf("缺少英华登录凭据（账号/密码），无法查询作业结果")
+	}
+	sess2, err := getYhSession(base, account, passwd)
+	if err != nil {
+		return nil, fmt.Errorf("建立英华会话失败: %w", err)
+	}
+	out := make([]yhWorkResult, 0, len(works))
+	for _, key := range works {
+		item := yhWorkResult{
+			WorkID:    key.ExamID,
+			NodeID:    key.NodeID,
+			CheckedAt: time.Now().Format(time.RFC3339),
+		}
+		body, err := sess2.workResult(ctx, key.NodeID, key.ExamID)
+		if err != nil {
+			item.Error = err.Error()
+			out = append(out, item)
+			continue
+		}
+		if checkRelogin(body) != nil {
+			// 会话过期：原地重登一次再查
+			if rerr := sess2.relogin(); rerr != nil {
+				item.Error = fmt.Sprintf("登录超时且重登失败: %v", rerr)
+				out = append(out, item)
+				continue
+			}
+			body, err = sess2.workResult(ctx, key.NodeID, key.ExamID)
+			if err != nil {
+				item.Error = err.Error()
+				out = append(out, item)
+				continue
+			}
+		}
+		if m := yhWorkScoreRe.FindStringSubmatch(strings.ReplaceAll(body, "&nbsp;", "")); len(m) > 1 {
+			if score, perr := strconv.ParseFloat(m[1], 64); perr == nil {
+				item.Taken = true
+				item.Score = &score
+				item.Message = "已提交作业"
+				out = append(out, item)
+				continue
+			}
+		}
+		if yhWorkTakenRe.MatchString(body) {
+			item.Taken = true
+			item.Message = "已提交作业，成绩未出"
+			out = append(out, item)
+			continue
+		}
+		// 平台 JSON 提示（如「作业时间还未开始」）直接透传，便于前端展示
+		if msg, ok := gojsonq.New().JSONString(body).Find("msg").(string); ok && msg != "" {
+			item.Message = msg
+		} else {
+			item.Message = "未查询到成绩，可能未提交或成绩尚未公布"
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}

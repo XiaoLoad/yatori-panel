@@ -55,6 +55,7 @@ func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", xlong(g.handleDoExam))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/detail", g.handleExamDetail) // SSE 逐题流
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/results", xlong(g.handleExamResults)) // 考试结果只读查询
+	mux.HandleFunc("POST /api/v1/sessions/{id}/works/results", xlong(g.handleWorkResults)) // 作业结果只读查询
 
 	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)       // SSE 长连接，不适用
 	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", long(g.handleRecentLogs))
@@ -768,6 +769,47 @@ func (g *gateway) handleExamResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	results, err := RunExamResultsWithCreds(r.Context(), se.client.Session(), se.yhUsername, se.yhPassword, req.Exams)
+	if err != nil {
+		fail(w, mapStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": results})
+}
+
+// handleWorkResults 只读查询作业参与状态与最终得分（仅英华，不进入作答流程）。
+func (g *gateway) handleWorkResults(w http.ResponseWriter, r *http.Request) {
+	se, ok := g.sessionFrom(r)
+	if !ok {
+		fail(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if se.info.Platform != "YINGHUA" {
+		fail(w, http.StatusBadRequest, "作业状态与成绩查询暂仅支持英华学堂")
+		return
+	}
+	var req struct {
+		CourseID string `json:"courseId"`
+		Works    []struct {
+			WorkID string `json:"workId"`
+			NodeID string `json:"nodeId"`
+		} `json:"works"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if len(req.Works) == 0 {
+		fail(w, http.StatusBadRequest, "缺少作业列表")
+		return
+	}
+	if len(req.Works) > 30 {
+		fail(w, http.StatusBadRequest, "单次最多查询 30 份作业")
+		return
+	}
+	keys := make([]yhExamKey, 0, len(req.Works))
+	for _, wk := range req.Works {
+		keys = append(keys, yhExamKey{ExamID: wk.WorkID, NodeID: wk.NodeID})
+	}
+	results, err := RunWorkResultsWithCreds(r.Context(), se.client.Session(), se.yhUsername, se.yhPassword, keys)
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
 		return
