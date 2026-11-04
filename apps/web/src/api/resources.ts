@@ -141,6 +141,11 @@ import type {
 } from "@yatori/shared";
 import { del, get, post, put } from "./client";
 
+/** 透传给底层请求的选项；silent: true 表示后台轮询，不驱动全局加载条 */
+export interface GetOpts {
+  silent?: boolean;
+}
+
 /** 面板只开放已重点适配的平台：学习通、英华 */
 const SUPPORTED_PLATFORMS: string[] = ["YINGHUA", "XUEXITONG"];
 
@@ -156,7 +161,7 @@ export const api = {
     put<void>("/auth/password", { newPassword }),
   disablePassword: () => del<void>("/auth/password"),
 
-  accounts: () => get<AccountWithSession[]>("/accounts"),
+  accounts: (opts?: GetOpts) => get<AccountWithSession[]>("/accounts", undefined, opts),
   createAccount: (body: CreateAccountBody) =>
     post<CreateAccountResult>("/accounts", body),
   verifyAccount: (uid: string) =>
@@ -185,8 +190,8 @@ export const api = {
       submitMode?: "off" | "direct" | "smart";
     },
   ) => post<ExamStartResult>(`/accounts/${uid}/courses/${courseId}/exams/do`, body),
-  runningExams: (uid: string) =>
-    get<ExamRunningItem[]>(`/accounts/${uid}/exams/running`),
+  runningExams: (uid: string, opts?: GetOpts) =>
+    get<ExamRunningItem[]>(`/accounts/${uid}/exams/running`, undefined, opts),
 
   works: (uid: string, courseId: string) =>
     get<WorkDTO[]>(`/accounts/${uid}/courses/${courseId}/works`),
@@ -202,8 +207,8 @@ export const api = {
       submit?: boolean;
     },
   ) => post<WorkStartResult>(`/accounts/${uid}/courses/${courseId}/works/do`, body),
-  runningWorks: (uid: string) =>
-    get<WorkRunningItem[]>(`/accounts/${uid}/works/running`),
+  runningWorks: (uid: string, opts?: GetOpts) =>
+    get<WorkRunningItem[]>(`/accounts/${uid}/works/running`, undefined, opts),
 
   startJob: (body: StartJobBody) => post<JobVO>("/jobs", body),
   startJobsBatch: (body: BatchStartJobBody) =>
@@ -215,27 +220,33 @@ export const api = {
     ),
   pauseJob: (id: string) => post<{ paused: boolean }>(`/jobs/${id}/pause`),
   resumeJob: (id: string) => post<{ paused: boolean }>(`/jobs/${id}/resume`),
-  jobs: (params?: { accountUid?: string; state?: string; limit?: number }) =>
-    get<JobVO[]>("/jobs", params),
+  jobs: (params?: { accountUid?: string; state?: string; limit?: number }, opts?: GetOpts) =>
+    get<JobVO[]>("/jobs", params, opts),
   /** 台账分页：筛选与分页由服务端处理 */
-  jobsPage: (params: {
-    accountUid?: string;
-    state?: string;
-    search?: string;
-    page: number;
-    pageSize: number;
-  }) => get<PageResult<JobVO>>("/jobs/history", params),
+  jobsPage: (
+    params: {
+      accountUid?: string;
+      state?: string;
+      search?: string;
+      page: number;
+      pageSize: number;
+    },
+    opts?: GetOpts,
+  ) => get<PageResult<JobVO>>("/jobs/history", params, opts),
   /** 全站持久化日志，用于观测台刷新后回填历史 */
-  logEvents: (limit = 300) => get<JobEvent[]>("/logs", { limit }),
+  logEvents: (limit = 300, opts?: GetOpts) => get<JobEvent[]>("/logs", { limit }, opts),
   /** 日志分页检索：级别 / 账号 / 关键字 */
-  logsPage: (params: {
-    page?: number;
-    pageSize?: number;
-    level?: LogQuery["level"];
-    accountUid?: string;
-    jobId?: string;
-    search?: string;
-  }) => get<PageResult<JobEvent>>("/logs/history", params),
+  logsPage: (
+    params: {
+      page?: number;
+      pageSize?: number;
+      level?: LogQuery["level"];
+      accountUid?: string;
+      jobId?: string;
+      search?: string;
+    },
+    opts?: GetOpts,
+  ) => get<PageResult<JobEvent>>("/logs/history", params, opts),
   /** 按时间段删除日志（服务端强制保护近 7 天） */
   deleteLogs: (body: DeleteLogsBody) => del<DeleteLogsResult>("/logs", body),
 
@@ -246,7 +257,7 @@ export const api = {
       "/accounts/import",
       { yaml },
     ),
-  schedules: () => get<ScheduleVO[]>("/schedules"),
+  schedules: (opts?: GetOpts) => get<ScheduleVO[]>("/schedules", undefined, opts),
   createSchedule: (body: CreateScheduleBody) => post<ScheduleVO>("/schedules", body),
   deleteSchedule: (id: string) => del<void>(`/schedules/${id}`),
   toggleSchedule: (id: string) => post<{ enabled: boolean }>(`/schedules/${id}/toggle`),
@@ -264,6 +275,6 @@ export const api = {
       recentJobs: JobVO[];
     }>("/dashboard"),
 
-  statsDaily: (days = 14) =>
-    get<{ day: string; jobs: number; errors: number; videos: number }[]>("/stats/daily", { days }),
+  statsDaily: (days = 14, opts?: GetOpts) =>
+    get<{ day: string; jobs: number; errors: number; videos: number }[]>("/stats/daily", { days }, opts),
 };
