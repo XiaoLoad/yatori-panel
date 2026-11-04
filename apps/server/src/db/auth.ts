@@ -1,16 +1,10 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { env } from "../env.ts";
 import { now, sqlite } from "./index.ts";
+import { machineKey } from "./key.ts";
 
-// 会话签名与密码加密共用机器本地密钥（data/secret.key），由 db/crypto.ts 创建
-function machineKey(): Buffer {
-  return fs.readFileSync(path.join(env.dataDir, "secret.key"));
-}
-
-const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
 export const SESSION_COOKIE = "panel_session";
+const SESSION_TTL_MS = env.sessionTtlHours * 3600 * 1000;
 
 interface PanelAuth {
   hash: string;
@@ -24,8 +18,44 @@ function readPanelAuth(): PanelAuth | null {
   return row ? (JSON.parse(row.value_json) as PanelAuth) : null;
 }
 
+// authRequired 在每个请求的鉴权钩子里都会调用：缓存 5s，避免逐请求查 SQLite。
+// 缓存期间改密/关锁最多延迟 5s 生效，对安全无实质影响（会话校验始终实时）。
+let authRequiredCache: { value: boolean; at: number } | null = null;
+const AUTH_REQUIRED_CACHE_MS = 5_000;
+
 export function authRequired(): boolean {
-  return readPanelAuth() !== null;
+  const nowMs = Date.now();
+  if (authRequiredCache && nowMs - authRequiredCache.at < AUTH_REQUIRED_CACHE_MS) {
+    return authRequiredCache.value;
+  }
+  const value = readPanelAuth() !== null;
+  authRequiredCache = { value, at: nowMs };
+  return value;
+}
+
+function invalidateAuthRequiredCache(): void {
+  authRequiredCache = null;
+}
+
+/**
+ * 密码强度：至少 8 位，且至少包含字母/数字/其他字符中的两类。
+ * 返回错误提示，通过校验返回 null。
+ */
+export function passwordPolicyError(password: string): string | null {
+  if (password.length < 8) return "密码至少 8 位";
+  const kinds =
+    (/[a-zA-Z]/.test(password) ? 1 : 0) +
+    (/[0-9]/.test(password) ? 1 : 0) +
+    (/[^a-zA-Z0-9]/.test(password) ? 1 : 0);
+  if (kinds < 2) return "密码需包含字母、数字、符号中的至少两类";
+  return null;
+}
+
+/** 生成可读性较好的随机密码（去掉易混淆字符），24 字符，用于强制访问锁的首次自动启用 */
+export function generateRandomPassword(): string {
+  const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.randomBytes(24);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]!).join("");
 }
 
 export function setPassword(password: string): void {
@@ -37,6 +67,12 @@ export function setPassword(password: string): void {
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
     )
     .run(JSON.stringify({ hash: hash.toString("hex"), salt: salt.toString("hex") }));
+  invalidateAuthRequiredCache();
+}
+
+export function clearPassword(): void {
+  sqlite.prepare(`DELETE FROM settings WHERE key = 'panelAuth'`).run();
+  invalidateAuthRequiredCache();
 }
 
 export function verifyPassword(password: string): boolean {

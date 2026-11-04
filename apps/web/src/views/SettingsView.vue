@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { confirmAction } from "@/lib/confirm";
+import { cn } from "@/lib/utils";
 
 const queryClient = useQueryClient();
 const auth = useAuthStore();
@@ -216,15 +217,30 @@ const AI_TYPES = [
 ];
 
 const newPassword = ref("");
+const confirmPassword = ref("");
+const oldPassword = ref("");
+/** 两次输入的新密码不一致时的本地校验提示 */
+const confirmMismatch = computed(() => confirmPassword.value !== "" && confirmPassword.value !== newPassword.value);
 const passwordMutation = useMutation({
-  mutationFn: () => api.setPassword(newPassword.value),
+  mutationFn: () => api.setPassword(newPassword.value, auth.authRequired ? oldPassword.value : undefined),
   onSuccess: async () => {
     toast.success("访问密码已生效");
     newPassword.value = "";
+    confirmPassword.value = "";
+    oldPassword.value = "";
     await auth.refresh();
   },
   onError: (err) => toast.error((err as Error).message),
 });
+
+/** 提交前本地校验：两次输入一致才允许提交 */
+function submitPassword() {
+  if (newPassword.value !== confirmPassword.value) {
+    toast.error("两次输入的新密码不一致");
+    return;
+  }
+  passwordMutation.mutate();
+}
 const disableMutation = useMutation({
   mutationFn: () => api.disablePassword(),
   onSuccess: async () => {
@@ -407,12 +423,29 @@ async function askDisable() {
           </div>
           <Badge :variant="auth.authRequired ? 'success' : 'outline'">{{ auth.authRequired ? "已启用" : "未启用" }}</Badge>
         </div>
-        <form class="mt-3 flex flex-wrap items-end gap-2" @submit.prevent="passwordMutation.mutate()">
-          <div class="grid w-64 gap-1">
-            <Label class="text-[13px]">{{ auth.authRequired ? "修改访问密码" : "设置访问密码" }}</Label>
-            <Input v-model="newPassword" type="password" autocomplete="new-password" placeholder="至少 6 位" required minlength="6" class="h-8 text-[13.5px]" />
+        <form class="mt-3 flex flex-wrap items-end gap-2" @submit.prevent="submitPassword">
+          <div v-if="auth.authRequired" class="grid w-56 gap-1">
+            <Label class="text-[13px]">旧密码</Label>
+            <Input v-model="oldPassword" type="password" autocomplete="current-password" placeholder="当前访问密码" required class="h-8 text-[13.5px]" />
           </div>
-          <Button type="submit" size="sm" class="h-8 text-[13.5px]" :disabled="passwordMutation.isPending.value || !newPassword">
+          <div class="grid w-64 gap-1">
+            <Label class="text-[13px]">{{ auth.authRequired ? "新访问密码" : "设置访问密码" }}</Label>
+            <Input v-model="newPassword" type="password" autocomplete="new-password" placeholder="至少 8 位，含字母/数字/符号中两类" required minlength="8" class="h-8 text-[13.5px]" />
+          </div>
+          <div class="grid w-64 gap-1">
+            <Label class="text-[13px]">确认新密码</Label>
+            <Input
+              v-model="confirmPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="再次输入新密码"
+              required
+              minlength="8"
+              :class="cn('h-8 text-[13.5px]', confirmMismatch && 'border-red-500 focus-visible:ring-red-500')"
+            />
+            <p v-if="confirmMismatch" class="text-[12px] text-red-500">两次输入不一致</p>
+          </div>
+          <Button type="submit" size="sm" class="h-8 text-[13.5px]" :disabled="passwordMutation.isPending.value || !newPassword || confirmMismatch">
             {{ auth.authRequired ? "修改" : "启用" }}
           </Button>
           <Button

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sqlite } from "./db/index.ts";
 import { recoverStaleRunningJobs } from "./db/jobs.ts";
-import { authRequired, SESSION_COOKIE, verifySession } from "./db/auth.ts";
+import { authRequired, generateRandomPassword, SESSION_COOKIE, setPassword, touchAuthStamp, verifySession } from "./db/auth.ts";
 import { env } from "./env.ts";
 import { gateway } from "./gateway.ts";
 import { jobManager } from "./jobs/manager.ts";
@@ -23,7 +23,7 @@ const PUBLIC_APIS = new Set([
 ]);
 
 async function main(): Promise<void> {
-  const app = Fastify({ logger: { level: "info" } });
+  const app = Fastify({ logger: { level: "info" }, trustProxy: env.trustProxy });
 
   // CORS 白名单：默认仅同源（单端口部署无需跨域）；跨域需求用 PANEL_CORS_ORIGINS 显式放行，
   // 不再反射任意 Origin，避免恶意站点携带 Cookie 跨站调用 API
@@ -46,6 +46,16 @@ async function main(): Promise<void> {
   });
 
   registerRoutes(app);
+  // 强制访问锁（线上部署）：设置了 PANEL_AUTH_REQUIRED=true 而数据库还没有密码时，
+  // 自动生成随机密码并启用访问锁——杜绝"忘设密码裸奔上线"。
+  // 随机密码打印到日志（仅启动时一次），登录后可在设置页改成自己的密码。
+  if (env.authRequired && !authRequired()) {
+    const generated = generateRandomPassword();
+    setPassword(generated);
+    touchAuthStamp();
+    app.log.warn("已按 PANEL_AUTH_REQUIRED=true 强制启用访问锁");
+    app.log.warn(`初始访问密码：${generated}（仅本次启动打印，请立即登录并在设置页修改）`);
+  }
   // 启动恢复：上次进程遗留的 running 任务已不可能再结束，标记为中断，
   // 否则账号会永久卡在"运行中"且无法启动新任务
   const interrupted = recoverStaleRunningJobs();
