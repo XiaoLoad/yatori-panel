@@ -3,10 +3,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { env } from "../env.ts";
 
-// 机器本地密钥：首次运行生成，落在 data/secret.key（随目录走，重装面板仍可解密）
+// 加密密钥来源（二选一，优先环境变量）：
+// 1. PANEL_SECRET_KEY：base64 的 32 字节密钥，由部署方注入——密钥可独立于数据目录保管，
+//    备份数据卷不再等于泄露全部账号密码；生产部署推荐此方式。
+// 2. 兜底生成 data/secret.key（机器本地密钥，重装面板仍可解密）。
 const keyFile = path.join(env.dataDir, "secret.key");
 
 function loadKey(): Buffer {
+  if (env.secretKey) {
+    const key = Buffer.from(env.secretKey, "base64");
+    if (key.length === 32) return key;
+    throw new Error("PANEL_SECRET_KEY 必须是 32 字节的 base64 密钥（可用 openssl rand -base64 32 生成）");
+  }
   fs.mkdirSync(env.dataDir, { recursive: true });
   if (fs.existsSync(keyFile)) {
     const raw = fs.readFileSync(keyFile, "utf8").trim();
