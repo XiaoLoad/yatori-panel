@@ -47,6 +47,17 @@ export interface GatewayExam {
   extra?: Record<string, string>;
 }
 
+/** 考试结果只读查询（仅英华）：是否已参加与最终得分 */
+export interface GatewayExamResult {
+  examId: string;
+  nodeId: string;
+  taken: boolean;
+  score?: number | null;
+  message?: string;
+  error?: string;
+  checkedAt?: string;
+}
+
 export interface GatewayStudyResult {
   courseId: string;
   nodeId: string;
@@ -274,6 +285,16 @@ export const gateway = {
       undefined,
       opts,
     ),
+  /** 只读查询考试状态与得分（仅英华；首次查询可能触发英华 OCR 登录，放宽超时） */
+  examResults: (
+    sid: string,
+    body: { courseId: string; exams: { examId: string; nodeId: string }[] },
+    opts?: RequestOptions,
+  ) =>
+    request<GatewayExamResult[]>(`/api/v1/sessions/${sid}/exams/results`, "POST", body, {
+      ...opts,
+      timeoutMs: opts?.timeoutMs ?? 180_000,
+    }),
   study: (
     sid: string,
     body: {

@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 // 英华考试/作业的「逐题模式」：绕过 SDK 聚合层黑盒（DoExam 一次性跑完
 // 整个答题循环、过程日志走全局控制台、AnswerResult.Answers 不填充），
@@ -728,4 +728,122 @@ func RunExamDetailWithCreds(
 		result.Submitted = true
 	}
 	return result, nil
+}
+
+// ---------- 考试结果只读查询（英华） ----------
+
+// yhExamResult 单场考试状态：只读取平台成绩页，不进入考试、不提交、不消耗答题次数。
+type yhExamResult struct {
+	ExamID    string   `json:"examId"`
+	NodeID    string   `json:"nodeId"`
+	Taken     bool     `json:"taken"`
+	Score     *float64 `json:"score,omitempty"`
+	Message   string   `json:"message,omitempty"`
+	Error     string   `json:"error,omitempty"`
+	CheckedAt string   `json:"checkedAt"`
+}
+
+// 平台成绩页文案特征：最终得分、「已完成考试/已交卷」等参与提示。
+var yhFinalScoreRe = regexp.MustCompile(`最终得分：[^\d]*([\d]+(?:\.[\d]+)?)[^分]*分`)
+var yhExamTakenRe = regexp.MustCompile(`您已完成(?:该)?考试|考试已(?:完成|交卷)|已完成考试|已参加(?:该)?考试|已交卷`)
+
+// examResult GET /api/exam.json —— 只读拉取考试结果页（不触发开始考试流程）。
+func (s *yhSession) examResult(ctx context.Context, nodeID, examID string) (string, error) {
+	c := s.creds()
+	url := fmt.Sprintf("%s/api/exam.json?nodeId=%s&examId=%s&token=%s", c.baseURL, nodeID, examID, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	s.setHeaders(req)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+type yhExamKey struct {
+	ExamID string `json:"examId"`
+	NodeID string `json:"nodeId"`
+}
+
+// RunExamResultsWithCreds 批量只读查询考试状态与得分（仅英华）。
+// 单场失败不会中断整批，错误随该场结果返回。
+func RunExamResultsWithCreds(
+	ctx context.Context,
+	sess core.Session,
+	account, passwd string,
+	exams []yhExamKey,
+) ([]yhExamResult, error) {
+	if len(exams) > 30 {
+		return nil, fmt.Errorf("单次最多查询 30 场考试")
+	}
+	base := sess.Extra["url"]
+	if base == "" {
+		return nil, fmt.Errorf("会话缺少站点地址")
+	}
+	if account == "" || passwd == "" {
+		return nil, fmt.Errorf("缺少英华登录凭据（账号/密码），无法查询考试结果")
+	}
+	sess2, err := getYhSession(base, account, passwd)
+	if err != nil {
+		return nil, fmt.Errorf("建立英华会话失败: %w", err)
+	}
+	out := make([]yhExamResult, 0, len(exams))
+	for _, key := range exams {
+		item := yhExamResult{
+			ExamID:    key.ExamID,
+			NodeID:    key.NodeID,
+			CheckedAt: time.Now().Format(time.RFC3339),
+		}
+		body, err := sess2.examResult(ctx, key.NodeID, key.ExamID)
+		if err != nil {
+			item.Error = err.Error()
+			out = append(out, item)
+			continue
+		}
+		if checkRelogin(body) != nil {
+			// 会话过期：原地重登一次再查
+			if rerr := sess2.relogin(); rerr != nil {
+				item.Error = fmt.Sprintf("登录超时且重登失败: %v", rerr)
+				out = append(out, item)
+				continue
+			}
+			body, err = sess2.examResult(ctx, key.NodeID, key.ExamID)
+			if err != nil {
+				item.Error = err.Error()
+				out = append(out, item)
+				continue
+			}
+		}
+		if m := yhFinalScoreRe.FindStringSubmatch(body); len(m) > 1 {
+			if score, perr := strconv.ParseFloat(m[1], 64); perr == nil {
+				item.Taken = true
+				item.Score = &score
+				item.Message = "已参加考试"
+				out = append(out, item)
+				continue
+			}
+		}
+		if yhExamTakenRe.MatchString(body) {
+			item.Taken = true
+			item.Message = "已参加考试，成绩未出"
+			out = append(out, item)
+			continue
+		}
+		// 平台 JSON 提示（如「考试时间还未开始」）直接透传，便于前端展示
+		if msg, ok := gojsonq.New().JSONString(body).Find("msg").(string); ok && msg != "" {
+			item.Message = msg
+		} else {
+			item.Message = "未查询到成绩，可能未参加或成绩尚未公布"
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }
