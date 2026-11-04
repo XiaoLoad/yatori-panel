@@ -90,14 +90,11 @@ export function registerAccountRoutes(app: FastifyInstance): void {
         };
       } catch (err) {
         const e = err as HttpError;
-        markVerify(account.uid, false);
         await dropSession(account.uid);
-        return {
-          ok: false,
-          error: e.message,
-          logs: e.logs,
-          data: { ...account, verify: { ok: false } },
-        };
+        // 登录检测失败（密码错误/账号不存在/平台地址错误）：回滚刚插入的账号，
+        // 让用户修正后重新提交，而不是留一个无法登录的脏账号在列表里
+        deleteAccount(account.uid);
+        throw new HttpError(400, e.message ?? "登录检测未通过，请检查账号信息", e.logs);
       }
     }
     return { ok: true, data: account };
