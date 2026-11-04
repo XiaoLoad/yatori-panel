@@ -26,7 +26,8 @@ const { examsQuery, resultsQuery, byExam } = useExamStatus({
 const runningQuery = useQuery({
   queryKey: computed(() => ["drawer-exams-running", props.accountUid]),
   queryFn: () => api.runningExams(props.accountUid, { silent: true }),
-  refetchInterval: 5_000,
+  // 任务状态变化由 SSE 失效刷新，此间隔仅作断线兜底
+  refetchInterval: 30_000,
 });
 
 const source = ref<"off" | "ai" | "bank">("bank");

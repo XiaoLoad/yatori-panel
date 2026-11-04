@@ -47,7 +47,8 @@ watch(search, (value) => {
 const runningJobsQuery = useQuery({
   queryKey: ["running-jobs"],
   queryFn: () => api.jobs({ state: "running", limit: 50 }, { silent: true }),
-  refetchInterval: 5_000,
+  // SSE 已实时推送任务状态，此间隔仅作断线兜底
+  refetchInterval: 30_000,
 });
 const runningJobs = computed(() => runningJobsQuery.data.value ?? []);
 const jobOptions = computed(() => [
