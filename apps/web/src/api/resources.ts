@@ -157,8 +157,8 @@ export const api = {
     get<{ authRequired: boolean; authed: boolean }>("/auth/status"),
   login: (password: string) => post<void>("/auth/login", { password }),
   logout: () => post<void>("/auth/logout"),
-  setPassword: (newPassword: string) =>
-    put<void>("/auth/password", { newPassword }),
+  setPassword: (newPassword: string, oldPassword?: string) =>
+    put<void>("/auth/password", { newPassword, oldPassword }),
   disablePassword: () => del<void>("/auth/password"),
 
   accounts: (opts?: GetOpts) => get<AccountWithSession[]>("/accounts", undefined, opts),

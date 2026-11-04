@@ -29,7 +29,8 @@ const { worksQuery, resultsQuery, byWork } = useWorkStatus({
 const runningQuery = useQuery({
   queryKey: computed(() => ["drawer-works-running", props.accountUid]),
   queryFn: () => api.runningWorks(props.accountUid, { silent: true }),
-  refetchInterval: 5_000,
+  // 任务状态变化由 SSE 失效刷新，此间隔仅作断线兜底
+  refetchInterval: 30_000,
 });
 
 const source = ref<"off" | "ai" | "bank">("bank");

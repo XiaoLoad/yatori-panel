@@ -25,7 +25,8 @@ const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.acco
 const jobsQuery = useQuery({
   queryKey: ["jobs"],
   queryFn: () => api.jobs({ limit: 80 }, { silent: true }),
-  refetchInterval: 5_000,
+  // SSE 已实时推送任务状态，此间隔仅作断线兜底
+  refetchInterval: 30_000,
 });
 const statsQuery = useQuery({
   queryKey: ["stats", 7],
@@ -71,7 +72,8 @@ const recordsQuery = useQuery({
       },
       { silent: true },
     ),
-  refetchInterval: 10_000,
+  // job.status 事件会失效该查询，此间隔仅作断线兜底
+  refetchInterval: 30_000,
 });
 
 const accounts = computed(() => accountsQuery.data.value ?? []);

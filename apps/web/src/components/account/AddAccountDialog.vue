@@ -125,14 +125,14 @@ const saveMutation = useMutation({
       toast.success("账号已更新");
       return;
     }
-    if (result.verify?.ok) {
-      const filled = result.remark ? `，备注已自动填入「${result.remark}」` : "";
-      toast.success(`账号已添加，登录正常，共 ${result.verify.courseCount} 门课程${filled}`);
-    } else {
-      toast.warning("账号已保存，但登录检测未通过，可稍后在列表中重试");
-    }
+    const filled = result.remark ? `，备注已自动填入「${result.remark}」` : "";
+    toast.success(`账号已添加，登录正常，共 ${result.verify?.courseCount ?? 0} 门课程${filled}`);
   },
-  onError: (err) => toastError(err as ApiError, "保存失败"),
+  onError: (err) => {
+    // 验证失败时服务端已回滚账号，弹窗保持打开、输入保留，方便修正后重试
+    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    toastError(err as ApiError, "保存失败");
+  },
 });
 
 function submit() {

@@ -78,7 +78,8 @@ const schedulesQuery = useQuery({
 const jobsQuery = useQuery({
   queryKey: computed(() => ["jobs", props.uid]),
   queryFn: () => api.jobs({ accountUid: props.uid, limit: 30 }, { silent: true }),
-  refetchInterval: 5_000,
+  // SSE 已实时推送任务状态，此间隔仅作断线兜底
+  refetchInterval: 30_000,
 });
 
 const account = computed<AccountWithSession | undefined>(() =>
