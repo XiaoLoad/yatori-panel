@@ -176,6 +176,13 @@ const treeStats = computed(() => {
   const completed = flatTree.value.filter((n) => n.node.completed).length;
   return { total, completed };
 });
+/** 课程总时长：仅累加叶子节点，避免父章节的聚合时长被重复计算 */
+const treeTotalSeconds = computed(() =>
+  flatTree.value.reduce(
+    (sum, item) => sum + (item.node.children?.length ? 0 : item.node.durationSeconds || 0),
+    0,
+  ),
+);
 
 // ---------- 标签 ----------
 const tab = ref<"courses" | "works" | "exams" | "logs" | "history">("courses");
@@ -615,6 +622,8 @@ const taskCourses = computed(() => {
                 已看 {{ formatDuration(progress.watchedSeconds) }}<template v-if="progress?.totalSeconds"> / {{ formatDuration(progress.totalSeconds) }}</template>
               </span>
               <span v-if="overall !== null">整体 {{ overall }}%</span>
+              <span v-if="progress?.courseTotalSeconds">课程总时长 {{ formatDuration(progress.courseTotalSeconds) }}</span>
+              <span v-else-if="treeTotalSeconds">课程总时长 {{ formatDuration(treeTotalSeconds) }}</span>
               <span v-if="progress?.courseCount !== undefined">课程 {{ progress.courseCount }} 门 · 剩 {{ progress.coursesRemaining ?? 0 }} 门</span>
               <span v-if="status === 'running' && progress?.etaSeconds !== undefined">预计还需 {{ formatEta(progress.etaSeconds) }}</span>
             </div>
@@ -756,6 +765,9 @@ const taskCourses = computed(() => {
               <span class="min-w-0 truncate text-[14px] font-medium">{{ currentCourse?.name || "章节树" }}</span>
               <span class="mono text-[12.5px] text-muted-foreground">
                 节点 {{ treeStats.completed }} / {{ treeStats.total }} 已完成
+              </span>
+              <span v-if="treeTotalSeconds" class="mono text-[12.5px] text-muted-foreground">
+                课程总时长 {{ formatDuration(treeTotalSeconds) }}
               </span>
               <div class="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
                 <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-mint" />已完成</span>
