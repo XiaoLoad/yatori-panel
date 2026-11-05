@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { AlarmClock, Pencil, Plus, Trash2 } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { toast } from "vue-sonner";
-import type { ScheduleVO } from "@yatori/shared";
+import type { AccountVO, ScheduleVO } from "@yatori/shared";
+import { accountDisplayLabel, siteTagsFor } from "@yatori/shared";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -36,20 +37,40 @@ function openEdit(s: ScheduleVO) {
 }
 
 const accounts = computed(() => accountsQuery.data.value ?? []);
-const accountOptions = computed(() =>
-  accounts.value.map((a) => ({ uid: a.uid, label: a.remark || a.username })),
-);
+const allSiteTags = computed(() => siteTagsFor(accounts.value));
 
-function accountLabel(uid: string): string {
-  const a = accounts.value.find((x) => x.uid === uid);
-  return a ? a.remark || a.username : uid.slice(0, 8);
-}
-
-/** 作用范围展示文案：全部账号 / 账号名单（空名单显示警示文案） */
+/**
+ * 作用范围展示文案：全部账号 / 按人聚合的账号名单。
+ * 同学号同平台多站点的人：全部选中显示「姓名（全部站点）」，
+ * 部分选中逐个显示「姓名 · 站点标签」；空名单显示警示文案。
+ */
 function scopeLabel(s: ScheduleVO): string {
   if (s.scope === "all") return "全部账号";
   if (s.accountUids.length === 0) return "未指定账号";
-  return s.accountUids.map(accountLabel).join("、");
+  const byPerson = new Map<string, { name: string; total: number; picked: AccountVO[] }>();
+  const persons: { name: string; total: number; picked: AccountVO[] }[] = [];
+  for (const uid of s.accountUids) {
+    const a = accounts.value.find((x) => x.uid === uid);
+    if (!a) continue;
+    const key = `${a.platform}|${a.username}`;
+    let entry = byPerson.get(key);
+    if (!entry) {
+      const total = accounts.value.filter((x) => x.platform === a.platform && x.username === a.username).length;
+      entry = { name: a.remark || a.username, total, picked: [] };
+      byPerson.set(key, entry);
+      persons.push(entry);
+    }
+    entry.picked.push(a);
+  }
+  if (persons.length === 0) return `${s.accountUids.length} 个账号`;
+  return persons
+    .map((p) => {
+      if (p.total > 1 && p.picked.length >= p.total) return `${p.name}（全部站点）`;
+      if (p.total > 1) return p.picked.map((a) => accountDisplayLabel(a, allSiteTags.value.get(a.uid))).join("、");
+      return p.picked[0] ? p.picked[0].remark || p.picked[0].username : "";
+    })
+    .filter(Boolean)
+    .join("、");
 }
 
 const WEEK_TEXT: Record<string, string> = {
@@ -277,7 +298,7 @@ async function askDelete(s: ScheduleVO) {
 
     <ScheduleDialog
       v-model:open="dialogOpen"
-      :accounts="accountOptions"
+      :accounts="accounts"
       :schedule="editing"
       @saved="queryClient.invalidateQueries({ queryKey: ['schedules'] })"
     />

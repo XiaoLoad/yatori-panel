@@ -4,7 +4,7 @@ import { AlarmClock, ChevronRight, Plus, Search, SquarePlay, Users } from "lucid
 import { computed, nextTick, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import type { JobEvent, JobVO, ScheduleVO } from "@yatori/shared";
+import { accountDisplayLabel, siteTagsFor, type JobEvent, type JobVO, type ScheduleVO } from "@yatori/shared";
 import type { AccountWithSession } from "@/api/resources";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
 import { isPending, runPending } from "@/lib/pending";
+import { animateCollapse } from "@/lib/collapse";
 import { withViewTransition, markSharedElement, accountSharedStyle } from "@/lib/view-transition";
 import { accountStatus, overallPercent, phaseLabel, progressDetail, scheduleWindow, statusMeta } from "@/lib/account";
 import { cn } from "@/lib/utils";
@@ -119,6 +120,87 @@ function liveProgress(uid: string): JobEvent | null {
   return job ? events.jobLive[job.id]?.lastProgress ?? job.progress ?? null : null;
 }
 
+// ---------- 人 → 站点分组（同学号同平台的多个英华站点收敛展示） ----------
+interface AccountGroup {
+  key: string;
+  platform: string;
+  username: string;
+  accounts: AccountWithSession[];
+  ambiguous: boolean;
+  /** 歧义组的站点标签：uid → 域名短标签 */
+  siteTags: Map<string, string>;
+}
+
+const expandedGroups = ref<Set<string>>(new Set());
+
+/** 全量账号的站点标签（供所有展示位的身份标签使用） */
+const allSiteTags = computed(() => siteTagsFor(accountsQuery.data.value ?? []));
+
+/** 账号展示标签：备注（或学号）；同学号多站点时自动追加站点标签 */
+function displayLabel(a: AccountWithSession): string {
+  return accountDisplayLabel(a, allSiteTags.value.get(a.uid));
+}
+
+const grouped = computed<AccountGroup[]>(() => {
+  const groups: AccountGroup[] = [];
+  const byKey = new Map<string, AccountGroup>();
+  for (const a of filtered.value) {
+    const key = `${a.platform}|${a.username}`;
+    let g = byKey.get(key);
+    if (!g) {
+      g = { key, platform: a.platform, username: a.username, accounts: [], ambiguous: false, siteTags: new Map() };
+      byKey.set(key, g);
+      groups.push(g);
+    }
+    g.accounts.push(a);
+  }
+  for (const g of groups) {
+    g.ambiguous = g.accounts.length > 1;
+    if (g.ambiguous) g.siteTags = siteTagsFor(g.accounts);
+  }
+  return groups;
+});
+
+function toggleGroup(key: string) {
+  const next = new Set(expandedGroups.value);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  expandedGroups.value = next;
+}
+
+function groupState(g: AccountGroup): "all" | "none" | "partial" {
+  const picked = g.accounts.filter((a) => selectedUids.value.includes(a.uid)).length;
+  if (picked === 0) return "none";
+  return picked === g.accounts.length ? "all" : "partial";
+}
+
+function toggleGroupSelection(g: AccountGroup) {
+  const uids = g.accounts.map((a) => a.uid);
+  selectedUids.value = groupState(g) === "none"
+    ? [...new Set([...selectedUids.value, ...uids])]
+    : selectedUids.value.filter((u) => !uids.includes(u));
+}
+
+function groupStatusSummary(g: AccountGroup): string {
+  let running = 0;
+  let online = 0;
+  for (const a of g.accounts) {
+    const s = statusOf(a);
+    if (s === "running") running += 1;
+    else if (s === "online") online += 1;
+  }
+  if (running > 0) return `${running} 个运行中`;
+  if (online > 0) return `${online} 个在线`;
+  return "—";
+}
+
+function onGroupEnter(el: Element, done: () => void): void {
+  animateCollapse(el, "enter", done);
+}
+function onGroupLeave(el: Element, done: () => void): void {
+  animateCollapse(el, "leave", done);
+}
+
 /** 行点击 → 详情页：经 VT 共享元素过渡（头像从行内飞到详情头部） */
 async function openAccount(uid: string) {
   markSharedElement(uid); // 瞬态命名：仅本次导航窗口内头像参与共享过渡
@@ -145,7 +227,7 @@ const selectedAccounts = computed(() =>
   (accountsQuery.data.value ?? []).filter((a) => selectedUids.value.includes(a.uid)),
 );
 const selectedPayload = computed(() =>
-  selectedAccounts.value.map((a) => ({ uid: a.uid, label: a.remark || a.username })),
+  selectedAccounts.value.map((a) => ({ uid: a.uid, label: displayLabel(a) })),
 );
 const selectedRunning = computed(() =>
   selectedAccounts.value.map((a) => runningByAccount.value[a.uid]).filter((j): j is JobVO => !!j),
@@ -328,16 +410,46 @@ async function stopSelected() {
           没有符合筛选条件的账号
         </div>
         <template v-else>
-          <div
-            v-for="account in filtered"
-            :key="account.uid"
-            :class="cn(
-              'group grid min-w-[1060px] cursor-pointer items-center gap-3 border-b border-border/70 px-4 py-2.5 transition-colors last:border-b-0',
-              'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]',
-              selectedUids.includes(account.uid) ? 'bg-primary/5' : 'hover:bg-accent/60',
-            )"
-            @click="openAccount(account.uid)"
-          >
+          <template v-for="group in grouped" :key="group.key">
+            <div
+              v-if="group.ambiguous"
+              class="grid min-w-[1060px] cursor-pointer select-none items-center gap-3 border-b border-border/70 bg-panel-2/50 px-4 py-2 transition-colors hover:bg-accent/40"
+              :class="'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]'"
+              @click="toggleGroup(group.key)"
+            >
+              <span @click.stop>
+                <Checkbox
+                  :model-value="groupState(group) === 'all'"
+                  :indeterminate="groupState(group) === 'partial'"
+                  @update:model-value="toggleGroupSelection(group)"
+                />
+              </span>
+              <div class="flex min-w-0 items-center gap-1.5">
+                <ChevronRight class="size-3.5 shrink-0 text-muted-foreground transition-transform" :class="expandedGroups.has(group.key) ? 'rotate-90' : ''" />
+                <span class="truncate text-[14px] font-medium">{{ group.accounts[0]?.remark || group.username }}</span>
+                <span class="mono shrink-0 rounded border border-border px-1 text-[12px] text-muted-foreground">{{ platformName[group.platform] ?? group.platform }} · {{ group.accounts.length }} 个站点</span>
+              </div>
+              <div class="truncate text-[13px] text-muted-foreground">{{ groupStatusSummary(group) }}</div>
+              <span />
+              <span />
+              <span />
+              <span />
+              <div class="mono text-right text-[12px] text-muted-foreground">{{ expandedGroups.has(group.key) ? "收起" : "展开" }}</div>
+            </div>
+
+            <Transition :css="false" @enter="onGroupEnter" @leave="onGroupLeave">
+              <div v-if="!group.ambiguous || expandedGroups.has(group.key)">
+                <div
+                  v-for="account in group.accounts"
+                  :key="account.uid"
+                  :class="cn(
+                    'group grid min-w-[1060px] cursor-pointer items-center gap-3 border-b border-border/70 px-4 py-2.5 transition-colors last:border-b-0',
+                    'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]',
+                    group.ambiguous && 'ml-6 border-l-2 border-l-primary/15',
+                    selectedUids.includes(account.uid) ? 'bg-primary/5' : 'hover:bg-accent/60',
+                  )"
+                  @click="openAccount(account.uid)"
+                >
             <span @click.stop><Checkbox :model-value="selectedUids.includes(account.uid)" @update:model-value="toggle(account.uid)" /></span>
 
             <div class="flex min-w-0 items-center gap-2.5">
@@ -351,6 +463,10 @@ async function stopSelected() {
                 <div class="flex items-center gap-1.5">
                   <span class="truncate text-[14.5px] font-medium">{{ account.remark || account.username }}</span>
                   <span class="mono shrink-0 rounded border border-border px-1 text-[12px] text-muted-foreground">{{ platformName[account.platform] ?? account.platform }}</span>
+                  <span
+                    v-if="group.ambiguous"
+                    class="mono shrink-0 rounded border border-primary/30 bg-primary/10 px-1 text-[12px] text-primary"
+                  >{{ group.siteTags.get(account.uid) }}</span>
                   <span v-if="!account.enabled" class="shrink-0 rounded bg-muted px-1 text-[12px] text-muted-foreground">已停用</span>
                 </div>
                 <div class="mono mt-0.5 truncate text-[12px] text-muted-foreground">{{ account.username }}</div>
@@ -422,7 +538,7 @@ async function stopSelected() {
               <button
                 v-else
                 class="rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-                @click="openStart([{ uid: account.uid, label: account.remark || account.username }])"
+                @click="openStart([{ uid: account.uid, label: displayLabel(account) }])"
               >启动</button>
               <button
                 class="rounded px-1.5 py-1 text-[12.5px] text-muted-foreground hover:text-primary disabled:opacity-40"
@@ -434,8 +550,9 @@ async function stopSelected() {
                 <ChevronRight class="size-3.5" />
               </RouterLink>
             </div>
-          </div>
-        </template>
+                </div>
+              </Transition>
+          </template>
       </div>
     </section>
 
@@ -465,7 +582,7 @@ async function stopSelected() {
     <StartJobDialog v-model:open="startOpen" :accounts="startPayload" @started="selectedUids = []" />
     <ScheduleDialog
       v-model:open="scheduleOpen"
-      :accounts="(accountsQuery.data.value ?? []).map((a) => ({ uid: a.uid, label: a.remark || a.username }))"
+      :accounts="(accountsQuery.data.value ?? [])"
       :preselected="schedulePreselect"
     />
   </div>

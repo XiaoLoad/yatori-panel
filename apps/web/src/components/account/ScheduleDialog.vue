@@ -1,23 +1,25 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, ref, watch } from "vue";
-import { gsap } from "gsap";
 import { toast } from "vue-sonner";
-import type { ScheduleScope, ScheduleVO } from "@yatori/shared";
+import type { AccountVO, ScheduleScope, ScheduleVO } from "@yatori/shared";
+import { accountDisplayLabel, siteTagsFor } from "@yatori/shared";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Check, ChevronDown, Minus } from "lucide-vue-next";
 import { Dialog, DialogBody, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toastError } from "@/lib/errors";
+import { animateCollapse } from "@/lib/collapse";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<{
   open: boolean;
-  accounts: { uid: string; label: string }[];
+  accounts: AccountVO[];
   preselected?: string[];
   /** 传入即为编辑模式，表单以该规则回填 */
   schedule?: ScheduleVO | null;
@@ -48,6 +50,90 @@ const WEEK = [
 ];
 
 const isEdit = computed(() => !!props.schedule);
+
+// ---------- 人 → 站点：同学号同平台多站点收敛为人级芯片，可展开精调 ----------
+interface PersonGroup {
+  key: string;
+  accounts: AccountVO[];
+  ambiguous: boolean;
+  siteTags: Map<string, string>;
+  /** 展示名：备注（或学号），歧义时追加首个站点标签外的通用形式由模板拼接 */
+  label: string;
+}
+
+const allSiteTags = computed(() => siteTagsFor(props.accounts));
+
+const personGroups = computed<PersonGroup[]>(() => {
+  const groups: PersonGroup[] = [];
+  const byKey = new Map<string, PersonGroup>();
+  for (const a of props.accounts) {
+    const key = `${a.platform}|${a.username}`;
+    let g = byKey.get(key);
+    if (!g) {
+      g = { key, accounts: [], ambiguous: false, siteTags: new Map(), label: "" };
+      byKey.set(key, g);
+      groups.push(g);
+    }
+    g.accounts.push(a);
+  }
+  for (const g of groups) {
+    g.ambiguous = g.accounts.length > 1;
+    if (g.ambiguous) g.siteTags = siteTagsFor(g.accounts);
+    g.label = accountDisplayLabel(g.accounts[0]!, g.ambiguous ? undefined : allSiteTags.value.get(g.accounts[0]!.uid));
+  }
+  return groups;
+});
+
+const expandedPerson = ref<string | null>(null);
+const expandedPersonAccounts = computed(
+  () => personGroups.value.find((g) => g.key === expandedPerson.value)?.accounts ?? [],
+);
+
+function personState(g: PersonGroup): "all" | "none" | "partial" {
+  const picked = g.accounts.filter((a) => selected.value.includes(a.uid)).length;
+  if (picked === 0) return "none";
+  return picked === g.accounts.length ? "all" : "partial";
+}
+
+/** 绑定的单账号发生变化后，课程范围选择随之失效（仅单账号规则可指定课程） */
+function resetCourseIfAccountChanged(singleBefore: string | null) {
+  const singleAfter = singleAccount.value ? selectedUid.value : null;
+  if (singleAfter !== singleBefore) {
+    courseMode.value = "all";
+    picked.value = [];
+  }
+}
+
+/** 点人芯片主体：选中/取消该人全部站点 */
+function togglePerson(g: PersonGroup) {
+  const before = singleAccount.value ? selectedUid.value : null;
+  const uids = g.accounts.map((a) => a.uid);
+  selected.value = personState(g) === "none"
+    ? [...new Set([...selected.value, ...uids])]
+    : selected.value.filter((u) => !uids.includes(u));
+  resetCourseIfAccountChanged(before);
+}
+
+function togglePersonExpand(g: PersonGroup) {
+  expandedPerson.value = expandedPerson.value === g.key ? null : g.key;
+}
+
+function toggleSiteAccount(uid: string) {
+  const before = singleAccount.value ? selectedUid.value : null;
+  selected.value = selected.value.includes(uid)
+    ? selected.value.filter((x) => x !== uid)
+    : [...selected.value, uid];
+  resetCourseIfAccountChanged(before);
+}
+
+/** 人级芯片的三态指示块（纯视觉，不用 Checkbox 组件以避免 label 点击双触发） */
+const personMarkClass = (state: "all" | "none" | "partial") =>
+  cn(
+    "grid size-[15px] shrink-0 place-items-center rounded-[4px] border",
+    state === "none"
+      ? "border-input bg-card text-transparent"
+      : "border-primary/60 bg-primary text-primary-foreground",
+  );
 
 /** 指定课程仅对「绑定单个账号」的规则开放 */
 const singleAccount = computed(() => scope.value === "accounts" && selected.value.length === 1);
@@ -122,19 +208,6 @@ function setScope(next: ScheduleScope) {
   picked.value = [];
 }
 
-function toggleAccount(uid: string) {
-  const singleBefore = selected.value.length === 1 ? selected.value[0] : null;
-  selected.value = selected.value.includes(uid)
-    ? selected.value.filter((x) => x !== uid)
-    : [...selected.value, uid];
-  const singleAfter = selected.value.length === 1 ? selected.value[0] : null;
-  // 绑定账号变化后课程选择失效，一并重置
-  if (singleAfter !== singleBefore) {
-    courseMode.value = "all";
-    picked.value = [];
-  }
-}
-
 function toggleCourse(id: string) {
   picked.value = picked.value.includes(id)
     ? picked.value.filter((x) => x !== id)
@@ -142,41 +215,6 @@ function toggleCourse(id: string) {
 }
 
 // ---------- 折叠展开动效（课程范围区块与选课列表） ----------
-// 高度 + 透明度过场，避免条件渲染时的生硬顶开；reduced-motion 用户直接跳过。
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-function animateCollapse(el: Element, dir: "enter" | "leave", done: () => void, fast = false): void {
-  if (prefersReducedMotion()) {
-    done();
-    return;
-  }
-  if (dir === "enter") {
-    gsap.fromTo(
-      el,
-      { height: 0, autoAlpha: 0, overflow: "hidden" },
-      {
-        height: "auto",
-        autoAlpha: 1,
-        duration: fast ? 0.24 : 0.32,
-        ease: "power2.out",
-        clearProps: "height,overflow,transform,visibility",
-        onComplete: done,
-      },
-    );
-  } else {
-    gsap.to(el, {
-      height: 0,
-      autoAlpha: 0,
-      overflow: "hidden",
-      duration: fast ? 0.16 : 0.22,
-      ease: "power1.in",
-      onComplete: done,
-    });
-  }
-}
 
 function onSectionEnter(el: Element, done: () => void): void {
   animateCollapse(el, "enter", done);
@@ -296,21 +334,46 @@ function submit() {
       <div v-else class="grid gap-1.5">
         <Label>应用到账号（{{ selected.length }}）</Label>
         <div class="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-border p-2">
-          <button
-            v-for="a in accounts"
-            :key="a.uid"
+          <div
+            v-for="g in personGroups"
+            :key="g.key"
             :class="cn(
-              'flex items-center gap-1.5 rounded-full border px-2 py-1 text-[13.5px] transition-colors',
-              selected.includes(a.uid)
-                ? 'border-primary/40 bg-primary/10 text-primary'
-                : 'border-border text-muted-foreground hover:text-foreground',
+              'flex items-center overflow-hidden rounded-full border transition-colors',
+              personState(g) === 'none'
+                ? 'border-border text-muted-foreground hover:text-foreground'
+                : 'border-primary/40 bg-primary/10 text-primary',
             )"
-            @click="toggleAccount(a.uid)"
           >
-            <Checkbox :model-value="selected.includes(a.uid)" />
-            {{ a.label }}
-          </button>
+            <button class="flex items-center gap-1.5 py-1 pl-2 pr-1.5 text-[13.5px]" @click="togglePerson(g)">
+              <span :class="personMarkClass(personState(g))">
+                <Minus v-if="personState(g) === 'partial'" class="size-2.5" :stroke-width="3" />
+                <Check v-else-if="personState(g) === 'all'" class="size-2.5" :stroke-width="3" />
+              </span>
+              {{ g.label }}<template v-if="g.ambiguous">&nbsp;· {{ g.accounts.length }} 站点</template>
+            </button>
+            <button
+              v-if="g.ambiguous"
+              class="grid h-6 w-6 place-items-center rounded-full hover:bg-accent/50"
+              :title="expandedPerson === g.key ? '收起站点' : '按站点选择'"
+              @click.stop="togglePersonExpand(g)"
+            >
+              <ChevronDown class="size-3.5 transition-transform" :class="expandedPerson === g.key ? 'rotate-180' : ''" />
+            </button>
+          </div>
         </div>
+        <Transition :css="false" @enter="onPickerEnter" @leave="onPickerLeave">
+          <div v-if="expandedPerson" class="rounded-lg border border-border p-2">
+            <div
+              v-for="a in expandedPersonAccounts"
+              :key="a.uid"
+              class="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/40"
+            >
+              <Checkbox :model-value="selected.includes(a.uid)" @update:model-value="toggleSiteAccount(a.uid)" />
+              <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ accountDisplayLabel(a, allSiteTags.get(a.uid)) }}</span>
+              <span class="mono min-w-0 truncate text-[12px] text-muted-foreground">{{ a.baseUrl }}</span>
+            </div>
+          </div>
+        </Transition>
       </div>
 
       <Transition :css="false" @enter="onSectionEnter" @leave="onSectionLeave">
