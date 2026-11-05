@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, ref, watch } from "vue";
+import { gsap } from "gsap";
 import { toast } from "vue-sonner";
 import type { ScheduleScope, ScheduleVO } from "@yatori/shared";
 import { api } from "@/api/resources";
@@ -140,6 +141,56 @@ function toggleCourse(id: string) {
     : [...picked.value, id];
 }
 
+// ---------- 折叠展开动效（课程范围区块与选课列表） ----------
+// 高度 + 透明度过场，避免条件渲染时的生硬顶开；reduced-motion 用户直接跳过。
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function animateCollapse(el: Element, dir: "enter" | "leave", done: () => void, fast = false): void {
+  if (prefersReducedMotion()) {
+    done();
+    return;
+  }
+  if (dir === "enter") {
+    gsap.fromTo(
+      el,
+      { height: 0, autoAlpha: 0, overflow: "hidden" },
+      {
+        height: "auto",
+        autoAlpha: 1,
+        duration: fast ? 0.24 : 0.32,
+        ease: "power2.out",
+        clearProps: "height,overflow,transform,visibility",
+        onComplete: done,
+      },
+    );
+  } else {
+    gsap.to(el, {
+      height: 0,
+      autoAlpha: 0,
+      overflow: "hidden",
+      duration: fast ? 0.16 : 0.22,
+      ease: "power1.in",
+      onComplete: done,
+    });
+  }
+}
+
+function onSectionEnter(el: Element, done: () => void): void {
+  animateCollapse(el, "enter", done);
+}
+function onSectionLeave(el: Element, done: () => void): void {
+  animateCollapse(el, "leave", done);
+}
+function onPickerEnter(el: Element, done: () => void): void {
+  animateCollapse(el, "enter", done, true);
+}
+function onPickerLeave(el: Element, done: () => void): void {
+  animateCollapse(el, "leave", done, true);
+}
+
 function toggleDay(d: number) {
   days.value = days.value.includes(d)
     ? days.value.filter((x) => x !== d)
@@ -244,7 +295,7 @@ function submit() {
       </div>
       <div v-else class="grid gap-1.5">
         <Label>应用到账号（{{ selected.length }}）</Label>
-        <div class="flex flex-wrap gap-1.5 rounded-lg border border-border p-2">
+        <div class="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-border p-2">
           <button
             v-for="a in accounts"
             :key="a.uid"
@@ -262,42 +313,48 @@ function submit() {
         </div>
       </div>
 
-      <div v-if="singleAccount" class="grid gap-1.5">
-        <Label>课程范围</Label>
-        <div class="flex gap-1 rounded-lg bg-muted p-1">
-          <button
-            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
-            @click="courseMode = 'all'"
-          >全部课程</button>
-          <button
-            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'pick' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
-            @click="courseMode = 'pick'"
-          >指定课程</button>
-        </div>
-        <div v-if="courseMode === 'pick'" class="max-h-40 overflow-y-auto rounded-lg border border-border p-1.5">
-          <div v-if="coursesQuery.isLoading.value" class="space-y-1.5 p-1">
-            <Skeleton v-for="i in 3" :key="i" class="h-5 w-full" />
+      <Transition :css="false" @enter="onSectionEnter" @leave="onSectionLeave">
+        <div v-if="singleAccount" class="grid gap-1.5">
+          <Label>课程范围</Label>
+          <div class="flex gap-1 rounded-lg bg-muted p-1">
+            <button
+              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+              @click="courseMode = 'all'"
+            >全部课程</button>
+            <button
+              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'pick' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+              @click="courseMode = 'pick'"
+            >指定课程</button>
           </div>
-          <p v-else-if="coursesQuery.error.value" class="p-2 text-[13.5px] text-muted-foreground">
-            课程列表拉取失败（账号可能离线，先到账号详情检测登录）
-          </p>
-          <p v-else-if="!(coursesQuery.data.value ?? []).length" class="p-2 text-[13.5px] text-muted-foreground">
-            该账号下暂无课程（可先到详情里检测登录）
-          </p>
-          <div
-            v-for="course in coursesQuery.data.value ?? []"
-            :key="course.id"
-            class="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/40"
-          >
-            <Checkbox :model-value="picked.includes(course.id)" @update:model-value="toggleCourse(course.id)" />
-            <span class="min-w-0 flex-1 truncate text-[14px]">{{ course.name }}</span>
-            <span class="mono text-[12px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
-          </div>
+          <Transition :css="false" @enter="onPickerEnter" @leave="onPickerLeave">
+            <div v-if="courseMode === 'pick'" class="grid gap-1.5">
+              <div class="max-h-40 overflow-y-auto rounded-lg border border-border p-1.5">
+                <div v-if="coursesQuery.isLoading.value" class="space-y-1.5 p-1">
+                  <Skeleton v-for="i in 3" :key="i" class="h-5 w-full" />
+                </div>
+                <p v-else-if="coursesQuery.error.value" class="p-2 text-[13.5px] text-muted-foreground">
+                  课程列表拉取失败（账号可能离线，先到账号详情检测登录）
+                </p>
+                <p v-else-if="!(coursesQuery.data.value ?? []).length" class="p-2 text-[13.5px] text-muted-foreground">
+                  该账号下暂无课程（可先到详情里检测登录）
+                </p>
+                <div
+                  v-for="course in coursesQuery.data.value ?? []"
+                  :key="course.id"
+                  class="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/40"
+                >
+                  <Checkbox :model-value="picked.includes(course.id)" @update:model-value="toggleCourse(course.id)" />
+                  <span class="min-w-0 flex-1 truncate text-[14px]">{{ course.name }}</span>
+                  <span class="mono text-[12px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
+                </div>
+              </div>
+              <p class="text-[12px] text-muted-foreground">
+                到点只刷勾选的课程；平台重建课程后需回来重新勾选
+              </p>
+            </div>
+          </Transition>
         </div>
-        <p v-if="courseMode === 'pick'" class="text-[12px] text-muted-foreground">
-          到点只刷勾选的课程；平台重建课程后需回来重新勾选
-        </p>
-      </div>
+      </Transition>
 
       <div class="grid gap-1.5">
         <Label>重复</Label>
