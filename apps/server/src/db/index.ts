@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS schema_meta (
 // 清理已删除账号遗留的进度快照（防止假数据残留影响后续判断）
 sqlite.exec(`DELETE FROM node_cache WHERE account_uid NOT IN (SELECT uid FROM accounts);`);
 
+// 清理孤儿任务行：级联删除（feat/platform-hardening）之前删除的账号会遗留
+// jobs 行，连带其事件与进度；这些行没有结束时间，会让观测台耗时无限累加
+sqlite.exec(`DELETE FROM jobs WHERE account_uid NOT IN (SELECT uid FROM accounts);`);
+sqlite.exec(`DELETE FROM job_events WHERE job_id NOT IN (SELECT id FROM jobs);`);
+sqlite.exec(`DELETE FROM job_progress WHERE job_id NOT IN (SELECT id FROM jobs);`);
+// 已结束（done/stopped/error）却缺 finished_at 的历史脏行：补上结束时间，
+// 使「非 running 必有 finished_at」这一展示层依赖的不变量成立
+sqlite.exec(`UPDATE jobs SET finished_at = started_at WHERE finished_at IS NULL AND state != 'running';`);
+
 /**
  * 补列：先用 PRAGMA 判断列是否已存在，避免依赖 SQLite 错误文本。
  * 原先整块 try/catch 会静默吞掉错误，导致同一块内的索引与回填语句被一并跳过。
