@@ -7,13 +7,6 @@ import { sendCompletionMail } from "../mailer.ts";
 import { ensureSession } from "../sessions.ts";
 import { runJob } from "./runner.ts";
 
-function summaryHtml(state: string, summary: JobSummary): string {
-  const errors = summary.errors.length
-    ? `<p>错误：${summary.errors.map((e) => `• ${e}`).join("<br/>")}</p>`
-    : "";
-  return `<p>状态：${state}</p><p>课程 ${summary.courses} 门 · 完成视频 ${summary.videosCompleted} · 跳过 ${summary.videosSkipped} · 标红 ${summary.flagsFound}</p><p>作业 ${summary.worksDone} · 考试 ${summary.examsDone}</p>${errors}`;
-}
-
 async function notifyCompletion(
   account: AccountVO,
   state: string,
@@ -23,7 +16,8 @@ async function notifyCompletion(
   await sendCompletionMail({
     accountName: account.remark || account.username,
     state,
-    summaryHtml: summaryHtml(state, summary),
+    summary,
+    finishedAt: new Date().toISOString(),
   });
 }
 

@@ -2,7 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { sqlite } from "../db/index.ts";
 import { listAccounts } from "../db/accounts.ts";
 import { getSettings, saveSettings } from "../db/settings.ts";
-import { UpdateSettingsBody } from "../shared.ts";
+import { UpdateSettingsBody, EmailTestBody } from "../shared.ts";
+import { HttpError } from "../errors.ts";
+import { sendTestMail } from "../mailer.ts";
 import { gateway } from "../gateway.ts";
 import { refreshGatewayStatus, snapshot } from "../gateway-status.ts";
 import { failureBreakdown, listJobs } from "../db/jobs.ts";
@@ -55,6 +57,17 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     const body = parse<UpdateSettingsBody>(req.body, UpdateSettingsBody);
     saveSettings(body);
     return { ok: true };
+  });
+
+  // 邮箱通知测试发送：使用表单当前值（未保存也可测），以样例数据渲染真实模板
+  app.post("/api/v1/settings/email/test", async (req) => {
+    const { email } = parse<EmailTestBody>(req.body, EmailTestBody);
+    if (!email.smtpHost.trim()) throw new HttpError(400, "请先填写 SMTP 服务器");
+    if (!email.user.trim()) throw new HttpError(400, "请先填写发件账号");
+    if (!email.pass) throw new HttpError(400, "请先填写发件密码/授权码");
+    if (!email.to.trim()) throw new HttpError(400, "请先填写收件人");
+    const to = await sendTestMail(email);
+    return { ok: true, data: { message: `测试邮件已发送至 ${to}，请查收` } };
   });
 
   // ---------- 统计 ----------
