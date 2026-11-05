@@ -264,6 +264,7 @@ export const api = {
     ),
   schedules: (opts?: GetOpts) => get<ScheduleVO[]>("/schedules", undefined, opts),
   createSchedule: (body: CreateScheduleBody) => post<ScheduleVO>("/schedules", body),
+  updateSchedule: (id: string, body: CreateScheduleBody) => put<ScheduleVO>(`/schedules/${id}`, body),
   deleteSchedule: (id: string) => del<void>(`/schedules/${id}`),
   toggleSchedule: (id: string) => post<{ enabled: boolean }>(`/schedules/${id}/toggle`),
   preflight: (body: {

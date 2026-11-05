@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, Plus, Trash2 } from "lucide-vue-next";
+import { AlarmClock, Pencil, Plus, Trash2 } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { toast } from "vue-sonner";
 import type { ScheduleVO } from "@yatori/shared";
@@ -22,6 +22,18 @@ const schedulesQuery = useQuery({
   refetchInterval: 30_000,
 });
 const dialogOpen = ref(false);
+/** 编辑目标：null = 新建模式 */
+const editing = ref<ScheduleVO | null>(null);
+
+function openCreate() {
+  editing.value = null;
+  dialogOpen.value = true;
+}
+
+function openEdit(s: ScheduleVO) {
+  editing.value = s;
+  dialogOpen.value = true;
+}
 
 const accounts = computed(() => accountsQuery.data.value ?? []);
 const accountOptions = computed(() =>
@@ -31,6 +43,13 @@ const accountOptions = computed(() =>
 function accountLabel(uid: string): string {
   const a = accounts.value.find((x) => x.uid === uid);
   return a ? a.remark || a.username : uid.slice(0, 8);
+}
+
+/** 作用范围展示文案：全部账号 / 账号名单（空名单显示警示文案） */
+function scopeLabel(s: ScheduleVO): string {
+  if (s.scope === "all") return "全部账号";
+  if (s.accountUids.length === 0) return "未指定账号";
+  return s.accountUids.map(accountLabel).join("、");
 }
 
 const WEEK_TEXT: Record<string, string> = {
@@ -138,7 +157,7 @@ async function askDelete(s: ScheduleVO) {
           一条规则绑定多个账号，到点自动开始，到点自动停止
         </p>
       </div>
-      <Button size="sm" class="ml-auto h-8 gap-1.5 text-[13.5px]" @click="dialogOpen = true">
+      <Button size="sm" class="ml-auto h-8 gap-1.5 text-[13.5px]" @click="openCreate">
         <Plus class="size-3.5" />新建规则
       </Button>
     </header>
@@ -153,7 +172,7 @@ async function askDelete(s: ScheduleVO) {
       </div>
       <h2 class="mt-4 text-[16px] font-semibold">还没有定时规则</h2>
       <p class="mt-1 text-[14px] text-muted-foreground">例如工作日 20:30 开始刷课，22:30 自动停止</p>
-      <Button class="mt-4" @click="dialogOpen = true"><Plus class="size-4" />新建规则</Button>
+      <Button class="mt-4" @click="openCreate"><Plus class="size-4" />新建规则</Button>
     </div>
 
     <template v-else>
@@ -177,7 +196,9 @@ async function askDelete(s: ScheduleVO) {
           <template v-for="s in schedulesQuery.data.value" :key="s.id">
             <div class="min-w-0 self-center">
               <div class="truncate text-[13.5px]">{{ s.name || "未命名规则" }}</div>
-              <div class="mono truncate text-[12px] text-muted-foreground">{{ s.accountUids.length }} 个账号 · {{ daysOf(s.cron) }}</div>
+              <div class="mono truncate text-[12px] text-muted-foreground">
+                {{ s.scope === "all" ? "全部账号" : `${s.accountUids.length} 个账号` }} · {{ daysOf(s.cron) }}
+              </div>
             </div>
             <div class="relative my-1 h-6 rounded-md border border-border/60 bg-panel-2/60">
               <div
@@ -217,7 +238,11 @@ async function askDelete(s: ScheduleVO) {
             <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
               <span class="mono text-foreground/80">{{ summary(s) }}</span>
               <span class="text-border">/</span>
-              <span>{{ s.accountUids.map(accountLabel).join("、") }}</span>
+              <span>{{ scopeLabel(s) }}</span>
+              <span
+                v-if="s.scope === 'accounts' && s.accountUids.length === 0"
+                class="mono rounded-full border border-amber/40 bg-amber/10 px-1.5 py-0.5 text-[11px] text-amber"
+              >作用域为空，到点跳过</span>
               <span class="text-border">/</span>
               <span>{{ { 1: "普通", 2: "暴力", 3: "去红" }[s.videoMode] }} · {{ { off: "不答题", ai: "AI", bank: "题库" }[s.answerSource] }}</span>
               <template v-if="s.lastRunAt">
@@ -227,6 +252,13 @@ async function askDelete(s: ScheduleVO) {
           </div>
           <div class="flex items-center gap-2">
             <Switch :model-value="s.enabled" :disabled="isPending(`toggle:${s.id}`) || isPending(`delete:${s.id}`)" @update:model-value="askToggle(s)" />
+            <Button
+              variant="ghost"
+              size="icon"
+              class="size-7 text-muted-foreground hover:text-foreground"
+              :disabled="isPending(`delete:${s.id}`) || isPending(`toggle:${s.id}`)"
+              @click="openEdit(s)"
+            ><Pencil class="size-3.5" /></Button>
             <Button
               variant="ghost"
               size="icon"
@@ -242,6 +274,7 @@ async function askDelete(s: ScheduleVO) {
     <ScheduleDialog
       v-model:open="dialogOpen"
       :accounts="accountOptions"
+      :schedule="editing"
       @saved="queryClient.invalidateQueries({ queryKey: ['schedules'] })"
     />
   </div>

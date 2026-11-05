@@ -129,7 +129,7 @@ function setSchemaVersion(v: number): void {
     .run(String(v));
 }
 
-const LATEST_SCHEMA_VERSION = 2;
+const LATEST_SCHEMA_VERSION = 3;
 const currentVersion = schemaVersion();
 if (currentVersion > LATEST_SCHEMA_VERSION) {
   throw new Error(
@@ -188,6 +188,13 @@ try {
     sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_job_events_created ON job_events(created_at)`);
     sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_schedule_job_links_recent ON schedule_job_links(schedule_id, triggered_at DESC)`);
     setSchemaVersion(2);
+  }
+
+  // v3：定时规则作用域（all=全部账号 / accounts=指定账号）
+  // 存量规则回填为 accounts，触发行为与迁移前完全一致
+  if (currentVersion < 3) {
+    addColumn("schedules", "scope", "TEXT NOT NULL DEFAULT 'accounts'");
+    setSchemaVersion(3);
   }
   sqlite.exec("COMMIT");
 } catch (err) {

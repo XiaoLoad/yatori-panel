@@ -1,4 +1,4 @@
-import type { ScheduleVO, StopMode, SubmitMode } from "../shared.ts";
+import type { ScheduleScope, ScheduleVO, StopMode, SubmitMode } from "../shared.ts";
 import { newId, now, sqlite } from "./index.ts";
 
 interface ScheduleRow {
@@ -6,6 +6,7 @@ interface ScheduleRow {
   name: string;
   account_uid: string;
   account_uids: string;
+  scope: string;
   cron: string;
   end_time: string | null;
   stop_mode: string;
@@ -32,6 +33,7 @@ function toVO(r: ScheduleRow): ScheduleVO {
   return {
     id: r.id,
     name: r.name || "",
+    scope: (r.scope as ScheduleScope) === "all" ? "all" : "accounts",
     accountUids: parseUids(r.account_uids),
     cron: r.cron,
     endTime: r.end_time,
@@ -52,8 +54,9 @@ export function listSchedules(): ScheduleVO[] {
   return rows.map(toVO);
 }
 
-export function insertSchedule(input: {
+interface ScheduleConfig {
   name: string;
+  scope?: ScheduleScope;
   accountUids: string[];
   cron: string;
   endTime?: string;
@@ -61,13 +64,18 @@ export function insertSchedule(input: {
   videoMode: ScheduleVO["videoMode"];
   answerSource: ScheduleVO["answerSource"];
   submitMode: SubmitMode;
-}): ScheduleVO {
-  const row: ScheduleRow = {
-    id: newId(),
+}
+
+function configParams(id: string, input: ScheduleConfig): Record<string, string | number | null> {
+  const scope = input.scope === "all" ? "all" : "accounts";
+  // 全部账号作用域不持有名单；指定账号作用域下旧列保留首个账号，保持历史数据与旧查询兼容
+  const uids = scope === "all" ? [] : input.accountUids;
+  return {
+    id,
     name: input.name,
-    // 旧列保留首个账号，保持历史数据与旧查询兼容
-    account_uid: input.accountUids[0] ?? "",
-    account_uids: JSON.stringify(input.accountUids),
+    scope,
+    account_uid: uids[0] ?? "",
+    account_uids: JSON.stringify(uids),
     cron: input.cron,
     end_time: input.endTime || null,
     stop_mode: input.stopMode,
@@ -75,22 +83,39 @@ export function insertSchedule(input: {
     answer_source: input.answerSource,
     auto_submit: input.submitMode === "direct" ? 1 : 0,
     submit_mode: input.submitMode,
-    enabled: 1,
-    last_run_at: null,
-    created_at: now(),
   };
+}
+
+export function insertSchedule(input: ScheduleConfig): ScheduleVO {
+  const row = { ...configParams(newId(), input), enabled: 1, last_run_at: null, created_at: now() };
   sqlite
     .prepare(
-      `INSERT INTO schedules (id, name, account_uid, account_uids, cron, end_time, stop_mode, video_mode, answer_source, auto_submit, submit_mode, enabled, last_run_at, created_at)
-       VALUES (@id, @name, @account_uid, @account_uids, @cron, @end_time, @stop_mode, @video_mode, @answer_source, @auto_submit, @submit_mode, @enabled, @last_run_at, @created_at)`,
+      `INSERT INTO schedules (id, name, scope, account_uid, account_uids, cron, end_time, stop_mode, video_mode, answer_source, auto_submit, submit_mode, enabled, last_run_at, created_at)
+       VALUES (@id, @name, @scope, @account_uid, @account_uids, @cron, @end_time, @stop_mode, @video_mode, @answer_source, @auto_submit, @submit_mode, @enabled, @last_run_at, @created_at)`,
     )
     .run(row);
-  return toVO(row);
+  return toVO(row as unknown as ScheduleRow);
 }
 
 export function deleteSchedule(id: string): void {
   sqlite.prepare(`DELETE FROM schedule_job_links WHERE schedule_id = ?`).run(id);
   sqlite.prepare(`DELETE FROM schedules WHERE id = ?`).run(id);
+}
+
+/**
+ * 编辑规则：仅更新可配置字段，保留 enabled / last_run_at / created_at。
+ * 调用方负责在更新后重新注册调度（registerSchedule 的安全重注册会接管当天批次）。
+ */
+export function updateSchedule(id: string, input: ScheduleConfig): ScheduleVO | null {
+  const info = sqlite
+    .prepare(
+      `UPDATE schedules SET name = @name, scope = @scope, account_uid = @account_uid, account_uids = @account_uids,
+       cron = @cron, end_time = @end_time, stop_mode = @stop_mode, video_mode = @video_mode,
+       answer_source = @answer_source, auto_submit = @auto_submit, submit_mode = @submit_mode
+       WHERE id = @id`,
+    )
+    .run(configParams(id, input));
+  return Number(info.changes) > 0 ? getSchedule(id) : null;
 }
 
 export function setScheduleEnabled(id: string, enabled: boolean): void {
@@ -160,28 +185,24 @@ export function clearScheduleJobLinks(scheduleId: string, batchId?: string): voi
   }
 }
 
-/** 删除账号时把 uid 从所有定时规则中摘除；无剩余账号的规则直接删除 */
-export function removeAccountFromSchedules(uid: string): {
-  deletedIds: string[];
-  changed: ScheduleVO[];
-} {
+/**
+ * 删除账号时从「指定账号」规则的名单中摘除该 uid；规则不再被静默删除——
+ * 名单为空时规则保留，由触发时跳过、列表页展示「作用域为空」警示。
+ * 「全部账号」作用域现场解析账号，无需处理。
+ * 返回发生变化的规则，供调用方重新注册调度。
+ */
+export function removeAccountFromSchedules(uid: string): ScheduleVO[] {
   const rows = sqlite.prepare(`SELECT * FROM schedules`).all() as unknown as ScheduleRow[];
-  const deletedIds: string[] = [];
   const changed: ScheduleVO[] = [];
   for (const r of rows) {
+    if (r.scope === "all") continue;
     const uids = parseUids(r.account_uids);
     if (!uids.includes(uid)) continue;
     const rest = uids.filter((x) => x !== uid);
-    if (rest.length === 0) {
-      sqlite.prepare(`DELETE FROM schedule_job_links WHERE schedule_id = ?`).run(r.id);
-      sqlite.prepare(`DELETE FROM schedules WHERE id = ?`).run(r.id);
-      deletedIds.push(r.id);
-    } else {
-      sqlite
-        .prepare(`UPDATE schedules SET account_uids = ?, account_uid = ? WHERE id = ?`)
-        .run(JSON.stringify(rest), rest[0] ?? "", r.id);
-      changed.push(toVO({ ...r, account_uids: JSON.stringify(rest) }));
-    }
+    sqlite
+      .prepare(`UPDATE schedules SET account_uids = ?, account_uid = ? WHERE id = ?`)
+      .run(JSON.stringify(rest), rest[0] ?? "", r.id);
+    changed.push(toVO({ ...r, account_uids: JSON.stringify(rest) }));
   }
-  return { deletedIds, changed };
+  return changed;
 }
