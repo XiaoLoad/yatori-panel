@@ -4,6 +4,20 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+
+- **server**：定时触发跳过禁用账号并强制结束晚于开始
+- **server**：定时规则支持编辑(PUT 接口与安全重注册)
+- **web**：定时规则新建/编辑双模式对话框与规则行编辑入口
+- 定时规则支持全部账号作用域(schema v3 迁移)
+- **server**：定时触发改为事件驱动排队补位
+
+### 计划中
+
+- 上游瘦身 PR 落地后，重新锁定依赖（docs/upstream-slim-pr.md 已备实验数据）
+
 ## [v0.16.0] - 2026-11-05
 
 访问体验与部署健壮性专项发版：系统生成的初始密码登录后自动引导改密且首次更换免验旧密码；生产部署（`PANEL_AUTH_REQUIRED=true`）下访问锁由配置强制、运行时不能在设置页关闭；页面切换引入 View Transitions（账号列表 → 详情头像共享元素飞行、详情页分段双侧过渡）；修复网关状态徽章误报离线与 Docker 镜像构建失败。无破坏性变更，旧库无需迁移。
@@ -23,12 +37,6 @@
 
 - 补充 Caddy 裸 IP 部署的 SNI 限制说明（站点块应写 `:443` catch-all 配 `tls internal`）
 - 同步 README 与当前功能实现（目录结构、邮件通知、失败看板、访问锁新流程等）
-
-## [Unreleased]
-
-### 计划中
-
-- 上游瘦身 PR 落地后，重新锁定依赖（docs/upstream-slim-pr.md 已备实验数据）
 
 ## [v0.15.0] - 2026-11-05
 
