@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, Plus, Trash2 } from "lucide-vue-next";
+import { AlarmClock, Pencil, Plus, Trash2 } from "lucide-vue-next";
 import { computed, ref } from "vue";
 import { toast } from "vue-sonner";
 import type { ScheduleVO } from "@yatori/shared";
@@ -22,6 +22,18 @@ const schedulesQuery = useQuery({
   refetchInterval: 30_000,
 });
 const dialogOpen = ref(false);
+/** 编辑目标：null = 新建模式 */
+const editing = ref<ScheduleVO | null>(null);
+
+function openCreate() {
+  editing.value = null;
+  dialogOpen.value = true;
+}
+
+function openEdit(s: ScheduleVO) {
+  editing.value = s;
+  dialogOpen.value = true;
+}
 
 const accounts = computed(() => accountsQuery.data.value ?? []);
 const accountOptions = computed(() =>
@@ -138,7 +150,7 @@ async function askDelete(s: ScheduleVO) {
           一条规则绑定多个账号，到点自动开始，到点自动停止
         </p>
       </div>
-      <Button size="sm" class="ml-auto h-8 gap-1.5 text-[13.5px]" @click="dialogOpen = true">
+      <Button size="sm" class="ml-auto h-8 gap-1.5 text-[13.5px]" @click="openCreate">
         <Plus class="size-3.5" />新建规则
       </Button>
     </header>
@@ -153,7 +165,7 @@ async function askDelete(s: ScheduleVO) {
       </div>
       <h2 class="mt-4 text-[16px] font-semibold">还没有定时规则</h2>
       <p class="mt-1 text-[14px] text-muted-foreground">例如工作日 20:30 开始刷课，22:30 自动停止</p>
-      <Button class="mt-4" @click="dialogOpen = true"><Plus class="size-4" />新建规则</Button>
+      <Button class="mt-4" @click="openCreate"><Plus class="size-4" />新建规则</Button>
     </div>
 
     <template v-else>
@@ -230,6 +242,13 @@ async function askDelete(s: ScheduleVO) {
             <Button
               variant="ghost"
               size="icon"
+              class="size-7 text-muted-foreground hover:text-foreground"
+              :disabled="isPending(`delete:${s.id}`) || isPending(`toggle:${s.id}`)"
+              @click="openEdit(s)"
+            ><Pencil class="size-3.5" /></Button>
+            <Button
+              variant="ghost"
+              size="icon"
               class="size-7 text-muted-foreground hover:text-coral"
               :disabled="isPending(`delete:${s.id}`) || isPending(`toggle:${s.id}`)"
               @click="askDelete(s)"
@@ -242,6 +261,7 @@ async function askDelete(s: ScheduleVO) {
     <ScheduleDialog
       v-model:open="dialogOpen"
       :accounts="accountOptions"
+      :schedule="editing"
       @saved="queryClient.invalidateQueries({ queryKey: ['schedules'] })"
     />
   </div>

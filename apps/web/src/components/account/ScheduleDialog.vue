@@ -2,6 +2,7 @@
 import { useMutation, useQueryClient } from "@tanstack/vue-query";
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
+import type { ScheduleVO } from "@yatori/shared";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,6 +17,8 @@ const props = defineProps<{
   open: boolean;
   accounts: { uid: string; label: string }[];
   preselected?: string[];
+  /** 传入即为编辑模式，表单以该规则回填 */
+  schedule?: ScheduleVO | null;
 }>();
 
 const emit = defineEmits<{ "update:open": [boolean]; saved: [] }>();
@@ -41,21 +44,53 @@ const WEEK = [
   { value: 0, label: "日" },
 ];
 
+const isEdit = computed(() => !!props.schedule);
+
 watch(
   () => props.open,
   (open) => {
     if (!open) return;
-    name.value = "";
-    selected.value = [...(props.preselected ?? [])];
-    days.value = [1, 2, 3, 4, 5];
-    startTime.value = "20:30";
-    endTime.value = "22:30";
-    stopMode.value = "finish_current";
-    videoModeModel.value = "1";
-    answerSource.value = "off";
-    submitMode.value = "off";
+    const s = props.schedule;
+    if (s) {
+      name.value = s.name;
+      selected.value = [...s.accountUids];
+      days.value = parseDaysOfCron(s.cron);
+      const parts = s.cron.trim().split(/\s+/);
+      startTime.value = `${(parts[1] ?? "0").padStart(2, "0")}:${(parts[0] ?? "0").padStart(2, "0")}`;
+      endTime.value = s.endTime ?? "";
+      stopMode.value = s.stopMode;
+      videoModeModel.value = String(s.videoMode);
+      answerSource.value = s.answerSource;
+      submitMode.value = s.submitMode;
+    } else {
+      name.value = "";
+      selected.value = [...(props.preselected ?? [])];
+      days.value = [1, 2, 3, 4, 5];
+      startTime.value = "20:30";
+      endTime.value = "22:30";
+      stopMode.value = "finish_current";
+      videoModeModel.value = "1";
+      answerSource.value = "off";
+      submitMode.value = "off";
+    }
   },
 );
+
+/** 从 cron 周字段解析勾选的星期：支持 *（全选）、逗号列表与 a-b 区间 */
+function parseDaysOfCron(cron: string): number[] {
+  const dow = cron.trim().split(/\s+/)[4] ?? "*";
+  if (dow === "*") return [0, 1, 2, 3, 4, 5, 6];
+  const out = new Set<number>();
+  for (const seg of dow.split(",")) {
+    const range = /^(\d+)-(\d+)$/.exec(seg);
+    if (range) {
+      for (let d = Number(range[1]); d <= Number(range[2]); d += 1) out.add(d % 7);
+    } else if (/^\d+$/.test(seg)) {
+      out.add(Number(seg) % 7);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
 
 function toggleAccount(uid: string) {
   selected.value = selected.value.includes(uid)
@@ -80,9 +115,9 @@ const preview = computed(() => {
   return endTime.value ? `每天 ${start} 开始，${endTime.value} 停止` : `每天 ${start} 开始（不自动停止）`;
 });
 
-const createMutation = useMutation({
-  mutationFn: () =>
-    api.createSchedule({
+const mutation = useMutation({
+  mutationFn: () => {
+    const payload = {
       name: name.value.trim(),
       accountUids: selected.value,
       cron: cron.value,
@@ -91,14 +126,18 @@ const createMutation = useMutation({
       videoMode: Number(videoModeModel.value) as 1 | 2 | 3,
       answerSource: answerSource.value,
       submitMode: submitMode.value,
-    }),
+    };
+    return props.schedule
+      ? api.updateSchedule(props.schedule.id, payload)
+      : api.createSchedule(payload);
+  },
   onSuccess: () => {
     void queryClient.invalidateQueries({ queryKey: ["schedules"] });
-    toast.success("定时规则已创建，后台常驻生效");
+    toast.success(isEdit.value ? "定时规则已保存" : "定时规则已创建，后台常驻生效");
     emit("update:open", false);
     emit("saved");
   },
-  onError: (err) => toastError(err, "创建定时规则失败"),
+  onError: (err) => toastError(err, isEdit.value ? "保存定时规则失败" : "创建定时规则失败"),
 });
 
 function submit() {
@@ -110,14 +149,22 @@ function submit() {
     toast.error("请至少选择一天");
     return;
   }
-  createMutation.mutate();
+  if (endTime.value) {
+    const [sh, sm] = startTime.value.split(":").map(Number);
+    const [eh, em] = endTime.value.split(":").map(Number);
+    if ((eh ?? 0) * 60 + (em ?? 0) <= (sh ?? 0) * 60 + (sm ?? 0)) {
+      toast.error("结束时间必须晚于开始时间（不支持跨天，避免通宵运行）");
+      return;
+    }
+  }
+  mutation.mutate();
 }
 </script>
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogHeader>
-      <DialogTitle>新建定时规则</DialogTitle>
+      <DialogTitle>{{ isEdit ? "编辑定时规则" : "新建定时规则" }}</DialogTitle>
       <DialogDescription>一条规则可同时作用于多个账号，到点自动开始与停止</DialogDescription>
     </DialogHeader>
 
@@ -157,7 +204,7 @@ function submit() {
               'size-7 rounded-md border text-[13.5px] transition-colors',
               days.includes(d.value)
                 ? 'border-primary/40 bg-primary/10 text-primary'
-                : 'border-border text-muted-foreground',
+                : 'border-border text-muted-foreground hover:text-foreground',
             )"
             @click="toggleDay(d.value)"
           >{{ d.label }}</button>
@@ -225,8 +272,8 @@ function submit() {
 
     <DialogFooter>
       <Button variant="outline" @click="emit('update:open', false)">取消</Button>
-      <Button :disabled="createMutation.isPending.value" @click="submit">
-        {{ createMutation.isPending.value ? "创建中…" : "创建规则" }}
+      <Button :disabled="mutation.isPending.value" @click="submit">
+        {{ mutation.isPending.value ? (isEdit ? "保存中…" : "创建中…") : isEdit ? "保存修改" : "创建规则" }}
       </Button>
     </DialogFooter>
   </Dialog>
