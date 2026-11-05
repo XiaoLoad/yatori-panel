@@ -329,8 +329,15 @@ onBeforeUnmount(() => window.clearInterval(clock));
 
 function elapsedOf(job: JobVO): string {
   const start = new Date(job.startedAt).getTime();
-  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : now.value;
   if (!Number.isFinite(start)) return "—";
+  // 只有运行中的任务才用当前时间累计；已结束但缺结束时间的脏数据行显示 —，
+  // 避免耗时无限增长
+  const end = job.finishedAt
+    ? new Date(job.finishedAt).getTime()
+    : job.state === "running"
+      ? now.value
+      : NaN;
+  if (!Number.isFinite(end)) return "—";
   return formatDuration(Math.max(0, (end - start) / 1000));
 }
 function clockOf(ts: number) {
