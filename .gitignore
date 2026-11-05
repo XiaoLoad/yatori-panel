@@ -6,7 +6,6 @@ data/
 *.db-shm
 gateway/bin/
 assets/
-assets/
 gateway/assets/
 .env
 *.log
