@@ -51,10 +51,10 @@ async function main(): Promise<void> {
   // 随机密码打印到日志（仅启动时一次），登录后可在设置页改成自己的密码。
   if (env.authRequired && !authRequired()) {
     const generated = generateRandomPassword();
-    setPassword(generated);
+    setPassword(generated, { generated: true });
     touchAuthStamp();
     app.log.warn("已按 PANEL_AUTH_REQUIRED=true 强制启用访问锁");
-    app.log.warn(`初始访问密码：${generated}（仅本次启动打印，请立即登录并在设置页修改）`);
+    app.log.warn(`初始访问密码：${generated}（仅本次启动打印，请立即登录并按引导设置自己的密码）`);
   }
   // 启动恢复：上次进程遗留的 running 任务已不可能再结束，标记为中断，
   // 否则账号会永久卡在"运行中"且无法启动新任务
