@@ -1,6 +1,7 @@
 import type { AccountVO, JobSummary, StartJobBody } from "../shared.ts";
 import { bus } from "../bus.ts";
 import { finishJob, insertJob } from "../db/jobs.ts";
+import { getSettings } from "../db/settings.ts";
 import { HttpError } from "../errors.ts";
 import { sendCompletionMail } from "../mailer.ts";
 import { ensureSession } from "../sessions.ts";
@@ -41,6 +42,8 @@ interface RunningJob {
  */
 class JobManager {
   private running = new Map<string, RunningJob>();
+  /** 正在登录/建会话、尚未写入 running 的任务数，防止并发 start 绕过全局限流 */
+  private startingCount = 0;
 
   async start(
     account: AccountVO & { password: string },
@@ -53,8 +56,24 @@ class JobManager {
       throw new HttpError(409, "该账号已有运行中的任务，请先停止");
     }
 
+    // 全局账号并发上限：批量发起与定时触发都经由 start，统一在入口限流。
+    // 以在内存运行器中的任务数为准，避免重启后 DB 残留 running 行误占名额。
+    const limit = Math.max(1, Math.min(10, getSettings().maxAccountsConcurrency));
+    if (this.running.size + this.startingCount >= limit) {
+      throw new HttpError(429, `当前已有 ${this.running.size + this.startingCount} 个账号任务运行，达到全局并发上限 ${limit}`);
+    }
+
     // 先确保会话可用（登录失败会带 OCR 日志抛给前端）
-    await ensureSession(account);
+    this.startingCount += 1;
+    try {
+      await ensureSession(account);
+    } finally {
+      this.startingCount -= 1;
+    }
+    // 登录等待期间可能有其它任务占满名额，落库前再校验一次
+    if (this.running.size >= limit) {
+      throw new HttpError(429, `当前已有 ${this.running.size} 个账号任务运行，达到全局并发上限 ${limit}`);
+    }
 
     const job = insertJob(options);
     const ctrl = new AbortController();
