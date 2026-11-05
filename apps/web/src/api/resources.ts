@@ -130,6 +130,7 @@ import type {
   CreateAccountBody,
   DeleteLogsBody,
   DeleteLogsResult,
+  FailureBreakdown,
   JobEvent,
   JobVO,
   LogQuery,
@@ -278,4 +279,7 @@ export const api = {
 
   statsDaily: (days = 14, opts?: GetOpts) =>
     get<{ day: string; jobs: number; errors: number; videos: number }[]>("/stats/daily", { days }, opts),
+  /** 失败原因聚合：分类、受影响账号与最近错误 */
+  statsFailures: (days = 14, opts?: GetOpts) =>
+    get<FailureBreakdown>("/stats/failures", { days }, opts),
 };

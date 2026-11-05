@@ -33,6 +33,11 @@ const statsQuery = useQuery({
   queryFn: () => api.statsDaily(7, { silent: true }),
   refetchInterval: 60_000,
 });
+const failureQuery = useQuery({
+  queryKey: ["stats-failures", 14],
+  queryFn: () => api.statsFailures(14, { silent: true }),
+  refetchInterval: 60_000,
+});
 
 const accountFilter = ref("all");
 const stateFilter = ref<"all" | "running" | "done" | "stopped" | "error">("all");
@@ -156,6 +161,8 @@ const groups = computed(() => {
   }));
 });
 
+const failures = computed(() => failureQuery.data.value ?? null);
+const failureMax = computed(() => Math.max(1, ...(failures.value?.reasons.map((r) => r.count) ?? [1])));
 const stats = computed(() => statsQuery.data.value ?? []);
 const recentErrors = computed(() => {
   const out: { key: string; job: JobVO; message: string }[] = [];
@@ -488,6 +495,43 @@ function absoluteTime(iso: string): string {
           <div class="mt-2 h-[170px]">
             <DailyTrend v-if="stats.length" :data="stats" />
             <Skeleton v-else class="h-full w-full" />
+          </div>
+        </div>
+
+        <div class="panel px-3.5 py-3">
+          <div class="flex items-baseline justify-between">
+            <div>
+              <div class="text-[13px] font-medium">失败原因看板</div>
+              <div class="text-[12px] text-muted-foreground">近 14 天 · 按错误类型聚合</div>
+            </div>
+            <span class="mono text-[12px] text-muted-foreground">{{ failures?.total ?? 0 }} 条</span>
+          </div>
+
+          <div v-if="failures?.reasons.length" class="mt-3 space-y-2.5">
+            <div v-for="r in failures.reasons" :key="r.category">
+              <div class="flex items-baseline gap-2 text-[12.5px]">
+                <span class="min-w-0 flex-1 truncate">{{ r.label }}</span>
+                <span class="mono shrink-0 text-muted-foreground">{{ r.jobCount }} 个任务</span>
+                <span class="mono shrink-0 font-medium text-coral">{{ r.count }}</span>
+              </div>
+              <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                <div class="h-full rounded-full bg-coral" :style="{ width: `${Math.max(6, (r.count / failureMax) * 100)}%` }" />
+              </div>
+            </div>
+          </div>
+          <p v-else class="mt-2.5 text-[12.5px] text-muted-foreground">近 14 天没有归类错误</p>
+
+          <div v-if="failures?.byAccount.length" class="mt-3 border-t border-border pt-2.5">
+            <div class="text-[12px] text-muted-foreground">影响最多的账号</div>
+            <div class="mt-1.5 flex flex-wrap gap-1.5">
+              <button
+                v-for="a in failures.byAccount.slice(0, 4)"
+                :key="a.accountUid"
+                class="max-w-full truncate rounded-md border border-border px-2 py-0.5 text-[12px] text-muted-foreground transition-colors hover:border-coral/40 hover:text-coral"
+                :title="a.accountName"
+                @click="router.push(`/accounts/${a.accountUid}?from=history`)"
+              >{{ a.accountName }} · {{ a.count }}</button>
+            </div>
           </div>
         </div>
 
