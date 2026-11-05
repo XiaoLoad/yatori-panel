@@ -43,21 +43,27 @@ function syncFromServer(data: Settings) {
   draft.logLevel = snap.logLevel;
 }
 
-watch(settingsQuery.data, (data) => {
-  if (!data) return;
-  if (!loaded.value) {
-    syncFromServer(data);
-    loaded.value = true;
-    return;
-  }
-  const fresh = JSON.stringify(data);
-  const known = serverData.value ? JSON.stringify(serverData.value) : "";
-  if (fresh !== known && !dirtyKeys.value.length) {
-    syncFromServer(data);
-  } else if (fresh !== known) {
-    serverData.value = JSON.parse(JSON.stringify(data)) as Settings;
-  }
-});
+// immediate 必开：再次进入设置页时 TanStack Query 命中缓存且结构共享会让
+// data 引用不变，watcher 不触发，表单就会停留在默认空值（需刷新才回显）
+watch(
+  settingsQuery.data,
+  (data) => {
+    if (!data) return;
+    if (!loaded.value) {
+      syncFromServer(data);
+      loaded.value = true;
+      return;
+    }
+    const fresh = JSON.stringify(data);
+    const known = serverData.value ? JSON.stringify(serverData.value) : "";
+    if (fresh !== known && !dirtyKeys.value.length) {
+      syncFromServer(data);
+    } else if (fresh !== known) {
+      serverData.value = JSON.parse(JSON.stringify(data)) as Settings;
+    }
+  },
+  { immediate: true },
+);
 
 const LABELS: Record<string, string> = {
   "ai.enabled": "AI 答题开关",
@@ -171,6 +177,12 @@ const bankTestMutation = useMutation({
   mutationFn: () =>
     api.preflight({ source: "bank", questionBank: { url: draft.questionBank.url, key: draft.questionBank.key } }),
   onSuccess: (r) => (r.available ? toast.success("题库连接正常") : toast.error(`题库不可用：${r.error ?? "未知原因"}`)),
+  onError: (err) => toast.error((err as Error).message),
+});
+
+const emailTestMutation = useMutation({
+  mutationFn: () => api.testEmail({ email: JSON.parse(JSON.stringify(draft.email)) as Settings["email"] }),
+  onSuccess: (r) => toast.success(r.message),
   onError: (err) => toast.error((err as Error).message),
 });
 
@@ -375,6 +387,18 @@ async function askDisable() {
           <div class="grid gap-1">
             <Label class="text-[13px]">收件人（逗号分隔）</Label>
             <Input v-model="draft.email.to" placeholder="a@x.com, b@y.com" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
+          </div>
+          <div class="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 w-fit text-[13.5px]"
+              :disabled="emailTestMutation.isPending.value || !draft.email.enabled || !draft.email.smtpHost || !draft.email.user || !draft.email.pass || !draft.email.to"
+              @click="emailTestMutation.mutate()"
+            >
+              {{ emailTestMutation.isPending.value ? "发送中…" : "发送测试邮件" }}
+            </Button>
+            <p class="text-[12px] leading-snug text-muted-foreground">使用当前表单配置发送样例报告，无需先保存</p>
           </div>
         </div>
       </section>

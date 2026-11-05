@@ -163,6 +163,16 @@ export const CreateScheduleBody = z.object({
 });
 export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
 
+/** 任务收尾时单门课程的推进快照，供邮件通知展示课程明细 */
+export interface JobSummaryCourseResult {
+  name: string;
+  /** 0-100 整体进度（按已加载章节树的视频时长汇总） */
+  progress: number;
+  completed: boolean;
+  /** 该课程视频总时长（秒），0 表示章节树未加载 */
+  totalSeconds: number;
+}
+
 export interface JobSummary {
   courses: number;
   videosCompleted: number;
@@ -173,6 +183,8 @@ export interface JobSummary {
   /** 已提交的作业/考试得分，如 "第一章测试 85分" */
   scores: string[];
   errors: string[];
+  /** 任务收尾时每门课程的推进快照；早期失败可能没有 */
+  courseResults?: JobSummaryCourseResult[];
 }
 
 /** 任务失败原因分类：用于台账聚合排障，不改动既有 errors 文本 */
@@ -364,3 +376,7 @@ export const SettingsSchema = z.object({
 export type Settings = z.infer<typeof SettingsSchema>;
 export const UpdateSettingsBody = SettingsSchema;
 export type UpdateSettingsBody = z.infer<typeof UpdateSettingsBody>;
+
+/** 邮箱通知测试发送：使用设置页表单当前值，未保存也可测试 */
+export const EmailTestBody = z.object({ email: EmailConfigSchema });
+export type EmailTestBody = z.infer<typeof EmailTestBody>;

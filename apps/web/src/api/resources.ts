@@ -254,6 +254,8 @@ export const api = {
 
   settings: () => get<Settings>("/settings"),
   saveSettings: (body: Settings) => put<void>("/settings", body),
+  /** 邮箱通知测试发送：使用表单当前值，未保存也可测试 */
+  testEmail: (body: { email: Settings["email"] }) => post<{ message: string }>("/settings/email/test", body),
   importConfig: (yaml: string) =>
     post<{ imported: number; skipped: number; failed: { account: string; error: string }[] }>(
       "/accounts/import",

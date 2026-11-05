@@ -7,23 +7,19 @@ import { sendCompletionMail } from "../mailer.ts";
 import { ensureSession } from "../sessions.ts";
 import { runJob } from "./runner.ts";
 
-function summaryHtml(state: string, summary: JobSummary): string {
-  const errors = summary.errors.length
-    ? `<p>错误：${summary.errors.map((e) => `• ${e}`).join("<br/>")}</p>`
-    : "";
-  return `<p>状态：${state}</p><p>课程 ${summary.courses} 门 · 完成视频 ${summary.videosCompleted} · 跳过 ${summary.videosSkipped} · 标红 ${summary.flagsFound}</p><p>作业 ${summary.worksDone} · 考试 ${summary.examsDone}</p>${errors}`;
-}
-
 async function notifyCompletion(
   account: AccountVO,
   state: string,
   summary: JobSummary,
+  startedAt: string,
 ): Promise<void> {
   if (state === "stopped") return; // 手动停止不打扰
   await sendCompletionMail({
-    accountName: account.remark || account.username,
+    account: { username: account.username, remark: account.remark },
     state,
-    summaryHtml: summaryHtml(state, summary),
+    summary,
+    startedAt,
+    finishedAt: new Date().toISOString(),
   });
 }
 
@@ -100,7 +96,7 @@ class JobManager {
           state,
           summary,
         });
-        void notifyCompletion(account, state, summary).catch((err) => {
+        void notifyCompletion(account, state, summary, job.startedAt).catch((err) => {
           bus.publish({
             type: "log",
             ts: Date.now(),
@@ -144,6 +140,16 @@ class JobManager {
           state: "error",
           message: String((err as Error)?.message ?? err),
           summary,
+        });
+        void notifyCompletion(account, "error", summary, job.startedAt).catch((err) => {
+          bus.publish({
+            type: "log",
+            ts: Date.now(),
+            jobId: job.id,
+            accountId: account.uid,
+            level: "error",
+            message: `邮件通知发送失败：${(err as Error).message}`,
+          });
         });
       })
       .finally(() => {
