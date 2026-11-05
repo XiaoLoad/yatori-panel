@@ -9,6 +9,8 @@ const SESSION_TTL_MS = env.sessionTtlHours * 3600 * 1000;
 interface PanelAuth {
   hash: string;
   salt: string;
+  /** 初始密码由系统自动生成时为 true；用户主动改密后清除 */
+  generated?: boolean;
 }
 
 function readPanelAuth(): PanelAuth | null {
@@ -16,6 +18,11 @@ function readPanelAuth(): PanelAuth | null {
     .prepare(`SELECT value_json FROM settings WHERE key = 'panelAuth'`)
     .get() as { value_json: string } | undefined;
   return row ? (JSON.parse(row.value_json) as PanelAuth) : null;
+}
+
+/** 当前访问密码是否为系统自动生成的初始密码（未由用户改过） */
+export function isGeneratedPassword(): boolean {
+  return readPanelAuth()?.generated === true;
 }
 
 // authRequired 在每个请求的鉴权钩子里都会调用：缓存 5s，避免逐请求查 SQLite。
@@ -58,7 +65,7 @@ export function generateRandomPassword(): string {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]!).join("");
 }
 
-export function setPassword(password: string): void {
+export function setPassword(password: string, opts?: { generated?: boolean }): void {
   const salt = crypto.randomBytes(16);
   const hash = crypto.scryptSync(password, salt, 32);
   sqlite
@@ -66,7 +73,7 @@ export function setPassword(password: string): void {
       `INSERT INTO settings (key, value_json) VALUES ('panelAuth', ?)
        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
     )
-    .run(JSON.stringify({ hash: hash.toString("hex"), salt: salt.toString("hex") }));
+    .run(JSON.stringify({ hash: hash.toString("hex"), salt: salt.toString("hex"), generated: opts?.generated === true }));
   invalidateAuthRequiredCache();
 }
 

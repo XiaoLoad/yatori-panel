@@ -3,6 +3,7 @@ import "@fastify/cookie";
 import {
   authRequired,
   issueSession,
+  isGeneratedPassword,
   passwordPolicyError,
   revokeAllSessions,
   SESSION_COOKIE,
@@ -76,6 +77,10 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       data: {
         authRequired: required,
         authed: required ? verifySession(req.cookies[SESSION_COOKIE]) : true,
+        /** 当前密码是否为系统生成的初始密码（提示用户尽快更换） */
+        initialPassword: required ? isGeneratedPassword() : false,
+        /** 部署配置强制访问锁（生产环境不允许运行时关闭） */
+        lockEnforced: env.authRequired,
       },
     };
   });
@@ -93,7 +98,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     recordLoginSuccess(req);
     const { token, expires } = issueSession();
     reply.setCookie(SESSION_COOKIE, token, sessionCookie(expires));
-    return { ok: true };
+    // 初始密码是系统生成的随机串：登录即证明持有凭据，提示立即换成自己的密码
+    return { ok: true, data: { mustChangePassword: isGeneratedPassword() } };
   });
 
   app.post("/api/v1/auth/logout", async (_req, reply) => {
@@ -102,10 +108,15 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return { ok: true };
   });
 
-  // 关闭访问锁：吊销全部会话并清除密码（需要当前已登录）
+  // 关闭访问锁：吊销全部会话并清除密码（需要当前已登录）。
+  // 生产部署（PANEL_AUTH_REQUIRED=true）是部署者的安全承诺，运行时不得静默解除，
+  // 直接禁止关闭——需要免密访问时应修改部署配置后重启面板。
   app.delete("/api/v1/auth/password", async (req, reply) => {
     if (authRequired() && !verifySession(req.cookies[SESSION_COOKIE])) {
       throw new HttpError(401, "未登录或会话已过期");
+    }
+    if (env.authRequired) {
+      throw new HttpError(403, "生产部署（PANEL_AUTH_REQUIRED=true）不允许关闭访问锁；如需免密访问请修改部署配置后重启面板");
     }
     clearPassword();
     touchAuthStamp();
@@ -114,14 +125,17 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     return { ok: true };
   });
 
-  // 设置/修改密码：已设密码时必须验证旧密码，防止会话被劫持后直接换锁
+  // 设置/修改密码：已设密码时必须验证旧密码，防止会话被劫持后直接换锁。
+  // 例外：初始密码为系统生成的随机串时免验旧密码——用户刚用随机密码登录
+  // 已证明持有凭据，要求复述 24 位随机串纯属摩擦、无安全增量；改密后
+  // generated 标记清除，后续改密恢复旧密码校验。
   app.put("/api/v1/auth/password", async (req, reply) => {
     const body = (req.body ?? {}) as { oldPassword?: string; newPassword?: string };
     const hadPassword = authRequired();
     if (hadPassword && !verifySession(req.cookies[SESSION_COOKIE])) {
       throw new HttpError(401, "未登录或会话已过期");
     }
-    if (hadPassword) {
+    if (hadPassword && !isGeneratedPassword()) {
       if (!body.oldPassword || !verifyPassword(body.oldPassword)) {
         throw new HttpError(401, "旧密码错误");
       }
