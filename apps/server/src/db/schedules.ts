@@ -93,6 +93,48 @@ export function deleteSchedule(id: string): void {
   sqlite.prepare(`DELETE FROM schedules WHERE id = ?`).run(id);
 }
 
+/**
+ * 编辑规则：仅更新可配置字段，保留 enabled / last_run_at / created_at。
+ * 调用方负责在更新后重新注册调度（registerSchedule 的安全重注册会接管当天批次）。
+ */
+export function updateSchedule(
+  id: string,
+  input: {
+    name: string;
+    accountUids: string[];
+    cron: string;
+    endTime?: string;
+    stopMode: StopMode;
+    videoMode: ScheduleVO["videoMode"];
+    answerSource: ScheduleVO["answerSource"];
+    submitMode: SubmitMode;
+  },
+): ScheduleVO | null {
+  const params: Record<string, string | number | null> = {
+    id,
+    name: input.name,
+    // 旧列保留首个账号，保持历史数据与旧查询兼容
+    account_uid: input.accountUids[0] ?? "",
+    account_uids: JSON.stringify(input.accountUids),
+    cron: input.cron,
+    end_time: input.endTime || null,
+    stop_mode: input.stopMode,
+    video_mode: input.videoMode,
+    answer_source: input.answerSource,
+    auto_submit: input.submitMode === "direct" ? 1 : 0,
+    submit_mode: input.submitMode,
+  };
+  const info = sqlite
+    .prepare(
+      `UPDATE schedules SET name = @name, account_uid = @account_uid, account_uids = @account_uids,
+       cron = @cron, end_time = @end_time, stop_mode = @stop_mode, video_mode = @video_mode,
+       answer_source = @answer_source, auto_submit = @auto_submit, submit_mode = @submit_mode
+       WHERE id = @id`,
+    )
+    .run(params);
+  return Number(info.changes) > 0 ? getSchedule(id) : null;
+}
+
 export function setScheduleEnabled(id: string, enabled: boolean): void {
   sqlite.prepare(`UPDATE schedules SET enabled = ? WHERE id = ?`).run(enabled ? 1 : 0, id);
 }
