@@ -66,6 +66,7 @@ docker compose down             # 停止服务
 
 1. **必须启用访问锁**：`.env` 设置 `PANEL_AUTH_REQUIRED=true`。数据库无密码时首次启动会生成随机密码并打印到日志，登录后立即在设置页修改，并确认启动日志显示「访问锁：已启用」。
 2. **不要公网 HTTP 裸奔**：HTTP 下会话 cookie 与账号密码明文传输。推荐 Caddy 自动 HTTPS、Cloudflare Tunnel 或 Tailscale/WireGuard 内网访问；仅在 HTTPS 下设置 `PANEL_COOKIE_SECURE=true`。
+   - **Caddy + 裸 IP 部署**：TLS 规范不允许对 IP 发送 SNI，Caddy 站点块写 `IP:443` 会因 SNI 匹配失败握手报 `internal error`。无域名时站点块应写 `:443`（catch-all）并配 `tls internal` 自签证书（浏览器需手动信任 CA 或确认继续访问）；IP 部署无法走 ACME 自动签发。有域名时仍推荐正常的自动 HTTPS。
 3. **密钥与数据分开备份**：迁移已有数据时不要设置新的 `PANEL_SECRET_KEY`（旧密码由旧 `data/secret.key` 加密）。备份前先停面板再复制整个 data 目录，密钥文件与数据库分开保管，并实际演练一次恢复。
 4. **反代下再开 trustProxy**：只有可信代理会覆写 `X-Forwarded-For` 时才设 `PANEL_TRUST_PROXY=true`，否则登录限速可被伪造 IP 绕过。
 5. **部署选空闲时段**：重启会中断运行中的刷课任务并标记为「服务重启，任务被中断」。
