@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { Ban, BrainCircuit, ChevronDown, ChevronUp, Database, Gauge, Lock, Mail, RotateCcw, Save, ScrollText } from "lucide-vue-next";
+import { Ban, BrainCircuit, ChevronDown, ChevronUp, Database, Gauge, Lock, Mail, RotateCcw, Save, ScrollText, TriangleAlert } from "lucide-vue-next";
 import { computed, markRaw, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { Settings } from "@yatori/shared";
@@ -239,7 +239,7 @@ const oldPassword = ref("");
 /** 两次输入的新密码不一致时的本地校验提示 */
 const confirmMismatch = computed(() => confirmPassword.value !== "" && confirmPassword.value !== newPassword.value);
 const passwordMutation = useMutation({
-  mutationFn: () => api.setPassword(newPassword.value, auth.authRequired ? oldPassword.value : undefined),
+  mutationFn: () => api.setPassword(newPassword.value, auth.authRequired && !auth.initialPassword ? oldPassword.value : undefined),
   onSuccess: async () => {
     toast.success("访问密码已生效");
     newPassword.value = "";
@@ -276,6 +276,9 @@ async function askDisable() {
   });
   if (ok) disableMutation.mutate();
 }
+
+/** 初始密码未更换：显示引导提示 */
+const needsInitialChange = computed(() => auth.authRequired && auth.initialPassword);
 </script>
 
 <template>
@@ -482,9 +485,17 @@ async function askDisable() {
           <Badge :variant="auth.authRequired ? 'success' : 'outline'">{{ auth.authRequired ? "已启用" : "未启用" }}</Badge>
         </div>
 
+        <!-- 初始密码引导：系统生成密码未更换时提示 -->
+        <div v-if="needsInitialChange" class="mt-3 flex items-start gap-2 rounded-lg border border-amber/40 bg-amber/10 p-3">
+          <TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber" />
+          <p class="text-[12.5px] leading-5 text-foreground/90">
+            当前使用的是系统生成的初始密码（可在部署日志中查看）。请立即在下方设置你自己的访问密码——首次更换无需输入旧密码。
+          </p>
+        </div>
+
         <form class="mt-3.5 rounded-lg border border-border bg-panel-2/50 p-3.5" @submit.prevent="submitPassword">
           <div class="grid gap-3 sm:grid-cols-2">
-            <div v-if="auth.authRequired" class="grid gap-1.5 sm:col-span-2">
+            <div v-if="auth.authRequired && !auth.initialPassword" class="grid gap-1.5 sm:col-span-2">
               <Label class="text-[13px]">旧密码</Label>
               <Input
                 v-model="oldPassword"
@@ -528,8 +539,17 @@ async function askDisable() {
             </div>
           </div>
           <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <template v-if="auth.authRequired && auth.lockEnforced">
+              <!-- 生产部署：锁由部署配置强制，运行时不允许关闭 -->
+              <span
+                class="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md px-2 py-1 text-[12.5px] text-muted-foreground/60"
+                title="生产部署（PANEL_AUTH_REQUIRED=true）不允许关闭访问锁；如需免密访问请修改部署配置后重启面板"
+              >
+                <Ban class="size-3.5" />关闭访问锁（已被部署配置锁定）
+              </span>
+            </template>
             <Button
-              v-if="auth.authRequired"
+              v-else-if="auth.authRequired"
               type="button"
               variant="ghost"
               size="sm"

@@ -17,9 +17,15 @@ async function submit() {
   if (!password.value) return;
   pending.value = true;
   try {
-    await api.login(password.value);
+    const r = await api.login(password.value);
     await auth.refresh();
-    router.push("/");
+    // 系统生成的初始密码：登录后直接引导到设置页换自己的密码
+    if (r?.mustChangePassword) {
+      toast.info("当前为系统生成的初始密码，请立即设置你自己的访问密码");
+      router.push("/settings");
+    } else {
+      router.push("/");
+    }
   } catch (err) {
     toast.error((err as Error).message);
   } finally {

@@ -155,8 +155,9 @@ export const api = {
     (await get<PlatformMeta[]>("/platforms")).filter((p) => SUPPORTED_PLATFORMS.includes(p.key)),
 
   authStatus: () =>
-    get<{ authRequired: boolean; authed: boolean }>("/auth/status"),
-  login: (password: string) => post<void>("/auth/login", { password }),
+    get<{ authRequired: boolean; authed: boolean; initialPassword: boolean; lockEnforced: boolean }>("/auth/status"),
+  login: (password: string) =>
+    post<{ mustChangePassword?: boolean }>("/auth/login", { password }),
   logout: () => post<void>("/auth/logout"),
   setPassword: (newPassword: string, oldPassword?: string) =>
     put<void>("/auth/password", { newPassword, oldPassword }),
