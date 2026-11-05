@@ -43,21 +43,27 @@ function syncFromServer(data: Settings) {
   draft.logLevel = snap.logLevel;
 }
 
-watch(settingsQuery.data, (data) => {
-  if (!data) return;
-  if (!loaded.value) {
-    syncFromServer(data);
-    loaded.value = true;
-    return;
-  }
-  const fresh = JSON.stringify(data);
-  const known = serverData.value ? JSON.stringify(serverData.value) : "";
-  if (fresh !== known && !dirtyKeys.value.length) {
-    syncFromServer(data);
-  } else if (fresh !== known) {
-    serverData.value = JSON.parse(JSON.stringify(data)) as Settings;
-  }
-});
+// immediate 必开：再次进入设置页时 TanStack Query 命中缓存且结构共享会让
+// data 引用不变，watcher 不触发，表单就会停留在默认空值（需刷新才回显）
+watch(
+  settingsQuery.data,
+  (data) => {
+    if (!data) return;
+    if (!loaded.value) {
+      syncFromServer(data);
+      loaded.value = true;
+      return;
+    }
+    const fresh = JSON.stringify(data);
+    const known = serverData.value ? JSON.stringify(serverData.value) : "";
+    if (fresh !== known && !dirtyKeys.value.length) {
+      syncFromServer(data);
+    } else if (fresh !== known) {
+      serverData.value = JSON.parse(JSON.stringify(data)) as Settings;
+    }
+  },
+  { immediate: true },
+);
 
 const LABELS: Record<string, string> = {
   "ai.enabled": "AI 答题开关",
