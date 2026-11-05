@@ -5,7 +5,7 @@ import { getSettings, saveSettings } from "../db/settings.ts";
 import { UpdateSettingsBody } from "../shared.ts";
 import { gateway } from "../gateway.ts";
 import { refreshGatewayStatus, snapshot } from "../gateway-status.ts";
-import { listJobs } from "../db/jobs.ts";
+import { failureBreakdown, listJobs } from "../db/jobs.ts";
 import { getSessionId } from "../sessions.ts";
 import { parse } from "./shared.ts";
 
@@ -66,7 +66,7 @@ export function registerBaseRoutes(app: FastifyInstance): void {
         `SELECT substr(started_at, 1, 10) AS day,
                 COUNT(*) AS jobs,
                 SUM(CASE WHEN state = 'error' THEN 1 ELSE 0 END) AS errors,
-                COALESCE(SUM(CAST(json_extract(summary_json, '$.videosCompleted') AS INTEGER)), 0) AS videos
+                COALESCE(SUM(videos_completed), 0) AS videos
          FROM jobs
          WHERE started_at >= datetime('now', ?)
          GROUP BY day ORDER BY day`,
@@ -81,6 +81,13 @@ export function registerBaseRoutes(app: FastifyInstance): void {
       out.push({ day: d, jobs: hit?.jobs ?? 0, errors: hit?.errors ?? 0, videos: hit?.videos ?? 0 });
     }
     return { ok: true, data: out };
+  });
+
+  // ---------- 失败原因看板 ----------
+  app.get("/api/v1/stats/failures", async (req) => {
+    const q = req.query as { days?: string };
+    const days = Math.min(90, Math.max(1, Number(q.days) || 14));
+    return { ok: true, data: failureBreakdown(days) };
   });
 
   // ---------- 仪表盘 ----------

@@ -1,7 +1,8 @@
-import type { AccountVO } from "../shared.ts";
+import type { AccountVO, ScheduleVO } from "../shared.ts";
 import { normalizeBaseUrl } from "../url.ts";
 import { decryptSecret, encryptSecret } from "./crypto.ts";
 import { newId, now, sqlite } from "./index.ts";
+import { removeAccountFromSchedules } from "./schedules.ts";
 
 interface AccountRow {
   uid: string;
@@ -122,8 +123,42 @@ export function updateAccount(
   sqlite.prepare(`UPDATE accounts SET ${sets.join(", ")} WHERE uid = @uid`).run(params);
 }
 
-export function deleteAccount(uid: string): void {
-  sqlite.prepare(`DELETE FROM accounts WHERE uid = ?`).run(uid);
+/**
+ * 删除账号：级联清理该账号的任务、进度、事件、节点缓存，并从定时规则中摘除。
+ * 全程包事务，避免删到一半留下孤儿数据；返回受影响的定时规则供路由层重新注册/注销。
+ */
+export function deleteAccount(uid: string): {
+  deletedScheduleIds: string[];
+  changedSchedules: ScheduleVO[];
+} {
+  let affected: { deletedScheduleIds: string[]; changedSchedules: ScheduleVO[] } = {
+    deletedScheduleIds: [],
+    changedSchedules: [],
+  };
+  sqlite.exec("BEGIN");
+  try {
+    sqlite
+      .prepare(`DELETE FROM job_progress WHERE job_id IN (SELECT id FROM jobs WHERE account_uid = ?)`)
+      .run(uid);
+    sqlite
+      .prepare(
+        `DELETE FROM job_events WHERE job_id IN (SELECT id FROM jobs WHERE account_uid = ?) OR account_uid = ?`,
+      )
+      .run(uid, uid);
+    sqlite.prepare(`DELETE FROM jobs WHERE account_uid = ?`).run(uid);
+    sqlite.prepare(`DELETE FROM node_cache WHERE account_uid = ?`).run(uid);
+    const schedules = removeAccountFromSchedules(uid);
+    affected = {
+      deletedScheduleIds: schedules.deletedIds,
+      changedSchedules: schedules.changed,
+    };
+    sqlite.prepare(`DELETE FROM accounts WHERE uid = ?`).run(uid);
+    sqlite.exec("COMMIT");
+  } catch (err) {
+    sqlite.exec("ROLLBACK");
+    throw err;
+  }
+  return affected;
 }
 
 export function markVerify(uid: string, ok: boolean): void {

@@ -175,6 +175,44 @@ export interface JobSummary {
   errors: string[];
 }
 
+/** 任务失败原因分类：用于台账聚合排障，不改动既有 errors 文本 */
+export type FailureCategory =
+  | "login"
+  | "captcha"
+  | "video"
+  | "work"
+  | "exam"
+  | "gateway"
+  | "timeout"
+  | "interrupted"
+  | "other";
+
+export interface FailureReason {
+  category: FailureCategory;
+  label: string;
+  count: number;
+  /** 受影响任务数 */
+  jobCount: number;
+  /** 最近一条原始错误信息，供下钻时参考 */
+  sample: string;
+}
+
+export interface FailureBreakdown {
+  total: number;
+  errorJobs: number;
+  reasons: FailureReason[];
+  byAccount: { accountUid: string; accountName: string; count: number }[];
+  recent: {
+    jobId: string;
+    accountUid: string;
+    accountName: string;
+    startedAt: string;
+    category: FailureCategory;
+    label: string;
+    message: string;
+  }[];
+}
+
 export interface JobVO {
   id: string;
   accountUid: string;

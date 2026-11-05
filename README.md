@@ -6,7 +6,7 @@
 
 [yatori-go-console](https://github.com/yatori-dev/yatori-go-console) 系列的可视化操控面板：基于 [yatori-go-core](https://github.com/yatori-dev/yatori-go-core) 统一 SDK 构建，提供账号中心、观测台、单场作业/考试触发、定时调度与全链路日志，一期支持英华学堂与学习通，架构上保留任意平台的可插拔接入。
 
-![Version](https://img.shields.io/badge/version-v0.13.0-2563EB?logo=semver&logoColor=white) ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white) ![Bun](https://img.shields.io/badge/Bun-%E2%89%A51.4-F472B6?logo=bun&logoColor=white) ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A524-339933?logo=node.js&logoColor=white) ![Go](https://img.shields.io/badge/Go-%E2%89%A51.27-00ADD8?logo=go&logoColor=white) ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4-06B6D4?logo=tailwindcss&logoColor=white) ![SQLite](https://img.shields.io/badge/SQLite-node%3Asqlite-003B57?logo=sqlite&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+![Version](https://img.shields.io/badge/version-vX.Y.Z-2563EB?logo=semver&logoColor=white) ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white) ![Bun](https://img.shields.io/badge/Bun-%3E%3D1.4-F472B6?logo=bun&logoColor=white) ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A524-339933?logo=node.js&logoColor=white) ![Go](https://img.shields.io/badge/Go-%E2%89%A51.27-00ADD8?logo=go&logoColor=white) ![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4-06B6D4?logo=tailwindcss&logoColor=white) ![SQLite](https://img.shields.io/badge/SQLite-node%3Asqlite-003B57?logo=sqlite&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 
 [快速开始](#快速开始) · [核心特性](#核心特性) · [功能页面](#功能页面) · [架构与平台可插拔](#架构与平台可插拔) · [常见问题](#常见问题)
 
@@ -166,12 +166,15 @@ yatori-go-core（上游逆向资产）
 | `GATEWAY_URL` | `http://127.0.0.1:9801` | 网关地址（Docker 中为 `http://gateway:9801`） |
 | `PANEL_DATA_DIR` | 项目根目录 `data/` | 数据存储目录（Docker 中为 `/app/data`） |
 | `WEB_DIST` | `apps/web/dist` | 前端产物目录（后端静态托管） |
-| `PANEL_AUTH_REQUIRED` | `false` | 强制访问锁：无密码时启动自动生成随机密码并打印日志（线上必开） |
+| `PANEL_AUTH_REQUIRED` | Docker：`true` / 手动：`false` | 强制访问锁：无密码时启动自动生成随机密码并打印日志（线上必开） |
 | `PANEL_SESSION_TTL_HOURS` | `24` | 登录会话有效期（小时） |
 | `PANEL_COOKIE_SECURE` | `false` | 会话 cookie 的 `secure` 标志，仅 HTTPS 部署时开启 |
 | `PANEL_TRUST_PROXY` | `false` | 信任反向代理的 `X-Forwarded-*`，仅可信代理后开启 |
 | `PANEL_SECRET_KEY` | 空 | base64 32 字节加密密钥；为空时使用 `data/secret.key` |
 | `PANEL_CORS_ORIGINS` | 空 | 跨域白名单（逗号分隔），为空时仅同源 |
+| `GATEWAY_TOKEN` | 空 | 面板与网关共享密钥；Docker 部署建议设置，为空时不校验 |
+| `GATEWAY_CORS_ORIGIN` | 空 | 浏览器跨域调试网关的固定 Origin，为空时不开放 CORS |
+| `GATEWAY_DEBUG_SESSION` | `false` | 是否允许会话详情返回原始 cookie/token，生产环境必须关闭 |
 
 ## 常见问题
 
@@ -196,7 +199,7 @@ bun run dev:server         # 后端开发模式
 bun run dev:web            # 前端热更新
 ```
 
-提交信息遵循[约定式提交](https://www.conventionalcommits.org/zh-hans/)（`feat` / `fix` / `docs` / `refactor` / `chore` 等），由 commitlint 强制校验；`main` 分支每个提交必须通过三包类型检查。
+提交信息遵循[约定式提交](https://www.conventionalcommits.org/zh-hans/)（`feat` / `fix` / `docs` / `refactor` / `chore` 等），由 commitlint 强制校验；开发规范见 [docs/development-standards.md](docs/development-standards.md)，`main` 分支每个提交必须通过三包类型检查。
 
 发版流程：`bun run changelog:release vX.Y.Z` 生成版本段并人工润色 → 提交 → 打 tag 推送，流水线自动校验、构建与发布（详见 [CHANGELOG.md](CHANGELOG.md) 头部说明）。
 

@@ -2,17 +2,33 @@ import cron from "node-cron";
 import type { ScheduleVO } from "./shared.ts";
 import { bus } from "./bus.ts";
 import { getAccount } from "./db/accounts.ts";
-import { listSchedules, markScheduleRan } from "./db/schedules.ts";
+import {
+  clearScheduleJobLinks,
+  linkScheduleJob,
+  listSchedules,
+  loadScheduleJobLinks,
+  markScheduleRan,
+  pruneScheduleJobLinks,
+} from "./db/schedules.ts";
 import { jobManager } from "./jobs/manager.ts";
 
 interface Registered {
-  start: ReturnType<typeof cron.schedule>;
+  start?: ReturnType<typeof cron.schedule>;
   stop?: ReturnType<typeof cron.schedule>;
-  /** 本规则在当天启动的任务，到点停止时只作用于这些任务 */
+  /** 本规则在当天启动的任务；到点停止时只作用于这些任务 */
   jobIds: Set<string>;
+  /** 本轮触发批次 ID；与 jobIds 一起持久化，重启后可恢复 */
+  batchIds: Set<string>;
 }
 
 const tasks = new Map<string, Registered>();
+
+/** 本地零点：按「当天」恢复定时触发的任务，避免跨天误停昨天的任务 */
+function localDayStart(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
 
 /** 结束时间沿用开始 cron 的日/月/周字段，保证只在同一天收尾 */
 function stopCronOf(s: ScheduleVO): string | null {
@@ -27,7 +43,13 @@ function log(s: ScheduleVO, level: "info" | "warn" | "error", message: string, a
   bus.publish({ type: "log", ts: Date.now(), accountId, level, message });
 }
 
-async function startForAccount(s: ScheduleVO, accountUid: string, jobIds: Set<string>): Promise<void> {
+async function startForAccount(
+  s: ScheduleVO,
+  accountUid: string,
+  jobIds: Set<string>,
+  batchId: string,
+  triggeredAt: string,
+): Promise<void> {
   const account = getAccount(accountUid);
   if (!account) {
     log(s, "warn", `定时规则跳过：账号不存在（${accountUid}）`);
@@ -48,25 +70,29 @@ async function startForAccount(s: ScheduleVO, accountUid: string, jobIds: Set<st
       perCourseConcurrency: 4,
     });
     jobIds.add(job.id);
+    linkScheduleJob(s.id, batchId, job.id, triggeredAt);
     log(s, "info", `定时规则触发：${label} 开始刷全部未完成课程`, accountUid);
   } catch (err) {
     log(s, "error", `定时任务启动失败：${label} ${(err as Error).message}`, accountUid);
   }
 }
 
-function fire(s: ScheduleVO, jobIds: Set<string>): void {
+function fire(s: ScheduleVO, r: Registered): void {
+  const batchId = `${s.id}-${Date.now()}`;
+  const triggeredAt = new Date().toISOString();
+  r.batchIds.add(batchId);
   void (async () => {
     for (const uid of s.accountUids) {
-      await startForAccount(s, uid, jobIds);
+      await startForAccount(s, uid, r.jobIds, batchId, triggeredAt);
     }
     markScheduleRan(s.id);
   })();
 }
 
-function stopJobs(s: ScheduleVO, jobIds: Set<string>): void {
+function stopJobs(s: ScheduleVO, r: Registered): void {
   const graceful = s.stopMode === "finish_current";
   let count = 0;
-  for (const id of jobIds) {
+  for (const id of r.jobIds) {
     if (jobManager.isRunning(id) && jobManager.stop(id, graceful)) count += 1;
   }
   if (count > 0) {
@@ -78,11 +104,15 @@ function stopJobs(s: ScheduleVO, jobIds: Set<string>): void {
         : `定时停止：${count} 个任务已立即停止`,
     );
   }
+  // 停止指令已发出，清理当天批次；重启后不再重复接管已收尾任务
+  for (const batchId of r.batchIds) clearScheduleJobLinks(s.id, batchId);
+  r.batchIds.clear();
+  r.jobIds.clear();
 }
 
 function unregisterById(id: string): void {
   const r = tasks.get(id);
-  r?.start.stop();
+  r?.start?.stop();
   r?.stop?.stop();
   tasks.delete(id);
 }
@@ -91,13 +121,23 @@ function registerById(s: ScheduleVO): void {
   unregisterById(s.id);
   if (!s.enabled) return;
   const jobIds = new Set<string>();
-  const start = cron.schedule(s.cron, () => fire(s, jobIds));
+  const batchIds = new Set<string>();
+  // 服务重启或规则重新注册：从数据库恢复当天由本规则启动且仍在运行的任务，
+  // 避免「到点停止」因为内存 Set 丢失而失效。
+  const restored = loadScheduleJobLinks(s.id, localDayStart());
+  for (const link of restored) {
+    if (!jobManager.isRunning(link.jobId)) continue;
+    jobIds.add(link.jobId);
+    batchIds.add(link.batchId);
+  }
+  const r: Registered = { jobIds, batchIds };
+  r.start = cron.schedule(s.cron, () => fire(s, r));
   const stopCron = stopCronOf(s);
-  const stop =
+  r.stop =
     stopCron && cron.validate(stopCron)
-      ? cron.schedule(stopCron, () => stopJobs(s, jobIds))
+      ? cron.schedule(stopCron, () => stopJobs(s, r))
       : undefined;
-  tasks.set(s.id, { start, stop, jobIds });
+  tasks.set(s.id, r);
 }
 
 export function registerSchedule(schedule: ScheduleVO): void {
@@ -108,7 +148,8 @@ export function unregisterSchedule(id: string): void {
   unregisterById(id);
 }
 
-/** 启动时加载全部启用的定时任务 */
+/** 启动时加载全部启用的定时任务，并清理过期的触发关联 */
 export function startScheduler(): void {
+  pruneScheduleJobLinks();
   for (const s of listSchedules()) registerById(s);
 }

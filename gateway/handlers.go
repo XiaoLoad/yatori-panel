@@ -8,15 +8,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	yatori "github.com/yatori-dev/yatori-go-core"
 	"github.com/yatori-dev/yatori-go-core/models/ctype"
 	"github.com/yatori-dev/yatori-go-core/que-core/aiq"
 	"github.com/yatori-dev/yatori-go-core/que-core/external"
-	yatori "github.com/yatori-dev/yatori-go-core"
 )
 
 type gateway struct {
@@ -30,8 +31,8 @@ func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	// SDK 调用超时包装：上游接口卡死（如平台风控页重试循环）时，
 	// 会话互斥锁会让后续请求无限排队，最终拖垮整个网关。
 	// 每类路由限时返回 504，保证网关整体可用性。
-	const sdkTimeout = 60 * time.Second        // 列表/树等普通读取
-	const answerTimeout = 30 * time.Minute     // 作业/考试/学时：本身就是长操作
+	const sdkTimeout = 60 * time.Second    // 列表/树等普通读取
+	const answerTimeout = 30 * time.Minute // 作业/考试/学时：本身就是长操作
 
 	long := withTimeoutMiddleware(sdkTimeout)
 	xlong := withTimeoutMiddleware(answerTimeout)
@@ -53,11 +54,11 @@ func registerRoutes(mux *http.ServeMux, store *sessionStore) {
 	mux.HandleFunc("POST /api/v1/sessions/{id}/study", xlong(g.handleStudy))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/works/do", xlong(g.handleDoWork))
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/do", xlong(g.handleDoExam))
-	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/detail", g.handleExamDetail) // SSE 逐题流
+	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/detail", g.handleExamDetail)          // SSE 逐题流
 	mux.HandleFunc("POST /api/v1/sessions/{id}/exams/results", xlong(g.handleExamResults)) // 考试结果只读查询
 	mux.HandleFunc("POST /api/v1/sessions/{id}/works/results", xlong(g.handleWorkResults)) // 作业结果只读查询
 
-	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream)       // SSE 长连接，不适用
+	mux.HandleFunc("GET /api/v1/sessions/{id}/logs", g.handleLogStream) // SSE 长连接，不适用
 	mux.HandleFunc("GET /api/v1/sessions/{id}/logs/recent", long(g.handleRecentLogs))
 }
 
@@ -214,16 +215,16 @@ type bankDTO struct {
 }
 
 type createSessionRequest struct {
-	Platform            string  `json:"platform"`
-	Username            string  `json:"username"`
-	Password            string  `json:"password"`
-	URL                 string  `json:"url"`
-	School              string  `json:"school"`
-	Cookie              string  `json:"cookie"` // 支持 Cookie 登录的平台可用其代替账密
-	ProxyURL            string  `json:"proxyURL"`
-	LoginTimeoutSeconds int     `json:"loginTimeoutSeconds"`
-	AI                  *aiConfigDTO   `json:"ai"`
-	QuestionBank        *bankDTO       `json:"questionBank"`
+	Platform            string       `json:"platform"`
+	Username            string       `json:"username"`
+	Password            string       `json:"password"`
+	URL                 string       `json:"url"`
+	School              string       `json:"school"`
+	Cookie              string       `json:"cookie"` // 支持 Cookie 登录的平台可用其代替账密
+	ProxyURL            string       `json:"proxyURL"`
+	LoginTimeoutSeconds int          `json:"loginTimeoutSeconds"`
+	AI                  *aiConfigDTO `json:"ai"`
+	QuestionBank        *bankDTO     `json:"questionBank"`
 	// ConfigFingerprint 面板侧计算并透传的配置指纹，网关只存/回显不做解释。
 	// 面板复用会话时比对当前指纹与此值，不一致即重建会话。
 	ConfigFingerprint string `json:"configFingerprint,omitempty"`
@@ -370,9 +371,18 @@ func (g *gateway) handleSessionInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": map[string]any{
-		"info":    se.info,
-		"session": se.client.Session(),
+		"info": se.info,
+		// 会话快照含上游 cookie/token，默认不再外发；仅显式开启调试开关时返回。
+		"session": sessionSnapshot(se, os.Getenv("GATEWAY_DEBUG_SESSION") == "true"),
 	}})
+}
+
+// sessionSnapshot 默认只返回可读状态，避免上游登录凭据经调试接口泄露。
+func sessionSnapshot(se *session, includeRaw bool) any {
+	if !includeRaw {
+		return map[string]any{"redacted": true}
+	}
+	return se.client.Session()
 }
 
 func (g *gateway) handleCloseSession(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,6 @@
 import { bus } from "./bus.ts";
 import { env } from "./env.ts";
-import { gateway, GatewayError } from "./gateway.ts";
+import { gateway, GatewayError, gatewayAuthHeaders } from "./gateway.ts";
 
 /**
  * 网关状态机：后台心跳探测，状态变化经 SSE 广播。
@@ -34,6 +34,7 @@ const state: State = { up: false, detail: "ok", probing: false };
 async function probe(): Promise<{ up: boolean; detail: GatewayDetail }> {
   try {
     const res = await fetch(env.gatewayURL + "/api/v1/health", {
+      headers: gatewayAuthHeaders(),
       signal: AbortSignal.timeout(5_000),
     });
     await res.body?.cancel();

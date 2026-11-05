@@ -8,6 +8,8 @@ fs.mkdirSync(env.dataDir, { recursive: true });
 export const sqlite = new DatabaseSync(path.join(env.dataDir, "yatori-panel.db"));
 sqlite.exec("PRAGMA journal_mode = WAL;");
 
+// 基础表结构保持首版定义；后续新增列/索引一律走下方版本化迁移，
+// 保证旧库升级与新库初始化走同一条路径。
 sqlite.exec(`
 CREATE TABLE IF NOT EXISTS accounts (
   uid            TEXT PRIMARY KEY,
@@ -73,72 +75,115 @@ CREATE TABLE IF NOT EXISTS schedules (
   last_run_at   TEXT,
   created_at    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schedule_job_links (
+  schedule_id  TEXT NOT NULL,
+  batch_id     TEXT NOT NULL,
+  job_id       TEXT NOT NULL,
+  triggered_at TEXT NOT NULL,
+  PRIMARY KEY (schedule_id, batch_id, job_id)
+);
+CREATE TABLE IF NOT EXISTS schema_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `);
 
 // 清理已删除账号遗留的进度快照（防止假数据残留影响后续判断）
 sqlite.exec(`DELETE FROM node_cache WHERE account_uid NOT IN (SELECT uid FROM accounts);`);
 
-try {
-  sqlite.exec("ALTER TABLE accounts ADD COLUMN proxy_url TEXT NOT NULL DEFAULT ''");
-} catch {
-  // 列已存在
+/**
+ * 补列：先用 PRAGMA 判断列是否已存在，避免依赖 SQLite 错误文本。
+ * 原先整块 try/catch 会静默吞掉错误，导致同一块内的索引与回填语句被一并跳过。
+ * 返回是否真的新增了列，供「仅新建时回填」判断使用。
+ */
+function addColumn(table: string, column: string, definition: string): boolean {
+  const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (cols.some((c) => c.name === column)) return false;
+  sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  return true;
 }
 
-// auto_submit(0/1) → submit_mode(off/direct/smart)：迁移旧布尔值，off 兼容旧数据
-try {
-  sqlite.exec(`ALTER TABLE schedules ADD COLUMN submit_mode TEXT NOT NULL DEFAULT 'off'`);
-  sqlite.exec(`UPDATE schedules SET submit_mode = CASE WHEN auto_submit = 1 THEN 'direct' ELSE 'off' END`);
-} catch {
-  // 列已存在
+function schemaVersion(): number {
+  const row = sqlite
+    .prepare(`SELECT value FROM schema_meta WHERE key = 'schema_version'`)
+    .get() as { value: string } | undefined;
+  const n = row ? Number(row.value) : 0;
+  return Number.isFinite(n) ? n : 0;
 }
 
-// 定时规则升级：单账号 → 多账号；新增结束时间与到点停止行为
+function setSchemaVersion(v: number): void {
+  sqlite
+    .prepare(
+      `INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    )
+    .run(String(v));
+}
+
+const LATEST_SCHEMA_VERSION = 2;
+const currentVersion = schemaVersion();
+if (currentVersion > LATEST_SCHEMA_VERSION) {
+  throw new Error(
+    `数据库 schema 版本 ${currentVersion} 高于当前程序支持的 ${LATEST_SCHEMA_VERSION}，请升级程序后再启动`,
+  );
+}
+
+// 迁移整体包事务：任一步失败全部回滚，不会留下半迁移的库
+sqlite.exec("BEGIN");
 try {
-  sqlite.exec(`ALTER TABLE schedules ADD COLUMN account_uids TEXT NOT NULL DEFAULT '[]'`);
-  const rows = sqlite
-    .prepare(`SELECT id, account_uid, account_uids FROM schedules`)
-    .all() as { id: string; account_uid: string; account_uids: string }[];
-  const update = sqlite.prepare(`UPDATE schedules SET account_uids = ? WHERE id = ?`);
-  for (const r of rows) {
-    if (r.account_uids === "[]" || !r.account_uids) {
-      update.run(JSON.stringify([r.account_uid]), r.id);
+  // v1：首版之后陆续补充的列与日志筛选列回填
+  if (currentVersion < 1) {
+    addColumn("accounts", "proxy_url", "TEXT NOT NULL DEFAULT ''");
+
+    if (addColumn("schedules", "submit_mode", "TEXT NOT NULL DEFAULT 'off'")) {
+      sqlite.exec(`UPDATE schedules SET submit_mode = CASE WHEN auto_submit = 1 THEN 'direct' ELSE 'off' END`);
     }
-  }
-} catch {
-  // 列已存在
-}
-try {
-  sqlite.exec(`ALTER TABLE schedules ADD COLUMN end_time TEXT`);
-} catch {
-  // 列已存在
-}
-try {
-  sqlite.exec(`ALTER TABLE schedules ADD COLUMN stop_mode TEXT NOT NULL DEFAULT 'finish_current'`);
-} catch {
-  // 列已存在
-}
-try {
-  sqlite.exec(`ALTER TABLE schedules ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
-} catch {
-  // 列已存在
-}
+    addColumn("schedules", "account_uids", "TEXT NOT NULL DEFAULT '[]'");
+    const scheduleRows = sqlite
+      .prepare(`SELECT id, account_uid, account_uids FROM schedules`)
+      .all() as { id: string; account_uid: string; account_uids: string }[];
+    const fillUids = sqlite.prepare(`UPDATE schedules SET account_uids = ? WHERE id = ?`);
+    for (const r of scheduleRows) {
+      if (r.account_uids === "[]" || !r.account_uids) {
+        fillUids.run(JSON.stringify([r.account_uid]), r.id);
+      }
+    }
+    addColumn("schedules", "end_time", "TEXT");
+    addColumn("schedules", "stop_mode", "TEXT NOT NULL DEFAULT 'finish_current'");
+    addColumn("schedules", "name", "TEXT NOT NULL DEFAULT ''");
 
-// 日志筛选列提升：level/account/message 从 payload JSON 提升为独立列并建索引，
-// 避免日志分页对 job_events 全表 json_extract 扫描；旧数据按 payload 回填一次
-try {
-  sqlite.exec(`ALTER TABLE job_events ADD COLUMN log_level TEXT NOT NULL DEFAULT ''`);
-  sqlite.exec(`ALTER TABLE job_events ADD COLUMN account_uid TEXT NOT NULL DEFAULT ''`);
-  sqlite.exec(`ALTER TABLE job_events ADD COLUMN message TEXT NOT NULL DEFAULT ''`);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_job_events_log_filter ON job_events(type, log_level, account_uid, id DESC)`);
-  sqlite.exec(`
-    UPDATE job_events
-    SET log_level = COALESCE(json_extract(payload_json, '$.level'), 'info'),
-        account_uid = COALESCE(json_extract(payload_json, '$.accountId'), ''),
-        message = COALESCE(json_extract(payload_json, '$.message'), '')
-    WHERE type = 'log' AND log_level = ''
-  `);
-} catch {
-  // 列已存在
+    addColumn("job_events", "log_level", "TEXT NOT NULL DEFAULT ''");
+    addColumn("job_events", "account_uid", "TEXT NOT NULL DEFAULT ''");
+    addColumn("job_events", "message", "TEXT NOT NULL DEFAULT ''");
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_job_events_log_filter ON job_events(type, log_level, account_uid, id DESC)`);
+    sqlite.exec(`
+      UPDATE job_events
+      SET log_level = COALESCE(json_extract(payload_json, '$.level'), 'info'),
+          account_uid = COALESCE(json_extract(payload_json, '$.accountId'), ''),
+          message = COALESCE(json_extract(payload_json, '$.message'), '')
+      WHERE type = 'log' AND log_level = ''
+    `);
+    setSchemaVersion(1);
+  }
+
+  // v2：任务产出列 + 查询索引 + 定时任务批次索引
+  if (currentVersion < 2) {
+    addColumn("jobs", "videos_completed", "INTEGER NOT NULL DEFAULT 0");
+    sqlite.exec(`
+      UPDATE jobs
+      SET videos_completed = COALESCE(CAST(json_extract(summary_json, '$.videosCompleted') AS INTEGER), 0)
+      WHERE videos_completed = 0 AND summary_json IS NOT NULL
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_started_at ON jobs(started_at)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state, started_at DESC)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_job_events_created ON job_events(created_at)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_schedule_job_links_recent ON schedule_job_links(schedule_id, triggered_at DESC)`);
+    setSchemaVersion(2);
+  }
+  sqlite.exec("COMMIT");
+} catch (err) {
+  sqlite.exec("ROLLBACK");
+  throw err;
 }
 
 export function now(): string {

@@ -13,6 +13,7 @@ import { gateway } from "../gateway.ts";
 import { HttpError } from "../errors.ts";
 import { dropSession, ensureSession, getSessionId, getSessionState } from "../sessions.ts";
 import { jobManager } from "../jobs/manager.ts";
+import { registerSchedule, unregisterSchedule } from "../scheduler.ts";
 import { parse } from "./shared.ts";
 import { CreateAccountBody, UpdateAccountBody } from "../shared.ts";
 
@@ -141,7 +142,9 @@ export function registerAccountRoutes(app: FastifyInstance): void {
     const { uid } = req.params as { uid: string };
     jobManager.stopByAccount(uid);
     await dropSession(uid);
-    deleteAccount(uid);
+    const affected = deleteAccount(uid);
+    for (const id of affected.deletedScheduleIds) unregisterSchedule(id);
+    for (const schedule of affected.changedSchedules) registerSchedule(schedule);
     return { ok: true };
   });
 
