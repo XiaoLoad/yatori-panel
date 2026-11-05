@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useMutation, useQueryClient } from "@tanstack/vue-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { ScheduleScope, ScheduleVO } from "@yatori/shared";
@@ -10,6 +10,7 @@ import { Dialog, DialogBody, DialogDescription, DialogFooter, DialogHeader, Dial
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toastError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
@@ -47,6 +48,19 @@ const WEEK = [
 
 const isEdit = computed(() => !!props.schedule);
 
+/** 指定课程仅对「绑定单个账号」的规则开放 */
+const singleAccount = computed(() => scope.value === "accounts" && selected.value.length === 1);
+const selectedUid = computed(() => (singleAccount.value ? selected.value[0]! : ""));
+const courseMode = ref<"all" | "pick">("all");
+const picked = ref<string[]>([]);
+
+const coursesQuery = useQuery({
+  queryKey: computed(() => ["schedule-courses", selectedUid.value]),
+  queryFn: () => api.courses(selectedUid.value),
+  enabled: computed(() => props.open && singleAccount.value && courseMode.value === "pick"),
+  staleTime: 30_000,
+});
+
 watch(
   () => props.open,
   (open) => {
@@ -56,6 +70,8 @@ watch(
       scope.value = s.scope;
       name.value = s.name;
       selected.value = [...s.accountUids];
+      courseMode.value = s.courseIds.length > 0 && s.accountUids.length === 1 && s.scope === "accounts" ? "pick" : "all";
+      picked.value = courseMode.value === "pick" ? [...s.courseIds] : [];
       days.value = parseDaysOfCron(s.cron);
       const parts = s.cron.trim().split(/\s+/);
       startTime.value = `${(parts[1] ?? "0").padStart(2, "0")}:${(parts[0] ?? "0").padStart(2, "0")}`;
@@ -68,6 +84,8 @@ watch(
       scope.value = "accounts";
       name.value = "";
       selected.value = [...(props.preselected ?? [])];
+      courseMode.value = "all";
+      picked.value = [];
       days.value = [1, 2, 3, 4, 5];
       startTime.value = "20:30";
       endTime.value = "22:30";
@@ -95,10 +113,31 @@ function parseDaysOfCron(cron: string): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
+function setScope(next: ScheduleScope) {
+  if (scope.value === next) return;
+  scope.value = next;
+  // 作用域变化后课程选择失效，一并重置
+  courseMode.value = "all";
+  picked.value = [];
+}
+
 function toggleAccount(uid: string) {
+  const singleBefore = selected.value.length === 1 ? selected.value[0] : null;
   selected.value = selected.value.includes(uid)
     ? selected.value.filter((x) => x !== uid)
     : [...selected.value, uid];
+  const singleAfter = selected.value.length === 1 ? selected.value[0] : null;
+  // 绑定账号变化后课程选择失效，一并重置
+  if (singleAfter !== singleBefore) {
+    courseMode.value = "all";
+    picked.value = [];
+  }
+}
+
+function toggleCourse(id: string) {
+  picked.value = picked.value.includes(id)
+    ? picked.value.filter((x) => x !== id)
+    : [...picked.value, id];
 }
 
 function toggleDay(d: number) {
@@ -124,6 +163,7 @@ const mutation = useMutation({
       name: name.value.trim(),
       scope: scope.value,
       accountUids: scope.value === "all" ? [] : selected.value,
+      courseIds: courseMode.value === "pick" ? picked.value : [],
       cron: cron.value,
       endTime: endTime.value || undefined,
       stopMode: stopMode.value,
@@ -147,6 +187,10 @@ const mutation = useMutation({
 function submit() {
   if (scope.value === "accounts" && selected.value.length === 0) {
     toast.error("请至少选择一个账号");
+    return;
+  }
+  if (singleAccount.value && courseMode.value === "pick" && picked.value.length === 0) {
+    toast.error("请至少选择一门课程");
     return;
   }
   if (days.value.length === 0) {
@@ -183,11 +227,11 @@ function submit() {
         <div class="flex gap-1 rounded-lg bg-muted p-1">
           <button
             :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
-            @click="scope = 'all'"
+            @click="setScope('all')"
           >全部账号</button>
           <button
             :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'accounts' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
-            @click="scope = 'accounts'"
+            @click="setScope('accounts')"
           >指定账号</button>
         </div>
       </div>
@@ -216,6 +260,43 @@ function submit() {
             {{ a.label }}
           </button>
         </div>
+      </div>
+
+      <div v-if="singleAccount" class="grid gap-1.5">
+        <Label>课程范围</Label>
+        <div class="flex gap-1 rounded-lg bg-muted p-1">
+          <button
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            @click="courseMode = 'all'"
+          >全部课程</button>
+          <button
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'pick' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            @click="courseMode = 'pick'"
+          >指定课程</button>
+        </div>
+        <div v-if="courseMode === 'pick'" class="max-h-40 overflow-y-auto rounded-lg border border-border p-1.5">
+          <div v-if="coursesQuery.isLoading.value" class="space-y-1.5 p-1">
+            <Skeleton v-for="i in 3" :key="i" class="h-5 w-full" />
+          </div>
+          <p v-else-if="coursesQuery.error.value" class="p-2 text-[13.5px] text-muted-foreground">
+            课程列表拉取失败（账号可能离线，先到账号详情检测登录）
+          </p>
+          <p v-else-if="!(coursesQuery.data.value ?? []).length" class="p-2 text-[13.5px] text-muted-foreground">
+            该账号下暂无课程（可先到详情里检测登录）
+          </p>
+          <div
+            v-for="course in coursesQuery.data.value ?? []"
+            :key="course.id"
+            class="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/40"
+          >
+            <Checkbox :model-value="picked.includes(course.id)" @update:model-value="toggleCourse(course.id)" />
+            <span class="min-w-0 flex-1 truncate text-[14px]">{{ course.name }}</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ Math.round(course.progress) }}%</span>
+          </div>
+        </div>
+        <p v-if="courseMode === 'pick'" class="text-[12px] text-muted-foreground">
+          到点只刷勾选的课程；平台重建课程后需回来重新勾选
+        </p>
       </div>
 
       <div class="grid gap-1.5">
