@@ -80,3 +80,36 @@ describe("CreateScheduleBody 作用域校验", () => {
     if (r.success) expect(r.data.scope).toBeUndefined();
   });
 });
+
+describe("CreateScheduleBody 指定课程校验", () => {
+  test("单账号规则：可指定课程", () => {
+    const r = CreateScheduleBody.safeParse(base({ accountUids: ["uid-1"], courseIds: ["c1", "c2"] }));
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.courseIds).toEqual(["c1", "c2"]);
+  });
+
+  test("全部账号作用域：不允许指定课程", () => {
+    const r = CreateScheduleBody.safeParse(base({ scope: "all", accountUids: [], courseIds: ["c1"] }));
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find((i) => i.path.includes("courseIds"));
+      expect(issue?.message).toContain("指定课程仅支持");
+    }
+  });
+
+  test("多账号规则：不允许指定课程", () => {
+    const r = CreateScheduleBody.safeParse(base({ accountUids: ["uid-1", "uid-2"], courseIds: ["c1"] }));
+    expect(r.success).toBe(false);
+  });
+
+  test("单账号但课程名单为空：视为全部课程，通过", () => {
+    const r = CreateScheduleBody.safeParse(base({ courseIds: [] }));
+    expect(r.success).toBe(true);
+  });
+
+  test("缺省课程名单：通过", () => {
+    const r = CreateScheduleBody.safeParse(base());
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.courseIds).toBeUndefined();
+  });
+});

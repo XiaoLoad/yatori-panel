@@ -141,6 +141,11 @@ export interface ScheduleVO {
   scope: ScheduleScope;
   /** 指定账号作用域下的账号名单；all 作用域下为空数组 */
   accountUids: string[];
+  /**
+   * 指定课程 ID 名单：仅当 scope=accounts 且只绑定一个账号时可非空，
+   * 非空时到点只刷这些课程；空数组 = 全部未完成课程
+   */
+  courseIds: string[];
   /** 开始时间（cron：分 时 日 月 周） */
   cron: string;
   /** 结束时间 HH:MM；为空表示不自动停止 */
@@ -158,6 +163,7 @@ export const CreateScheduleBody = z.object({
   name: z.string().optional().default(""),
   scope: ScheduleScopeEnum.optional(),
   accountUids: z.array(z.string().min(1)),
+  courseIds: z.array(z.string().min(1)).optional(),
   cron: z
     .string({ required_error: "请填写 cron 表达式", invalid_type_error: "请填写 cron 表达式" })
     .min(1, "请填写 cron 表达式"),
@@ -170,13 +176,21 @@ export const CreateScheduleBody = z.object({
   answerSource: AnswerSourceEnum.optional().default("off"),
   submitMode: SubmitModeEnum.optional().default("off"),
 })
-  // 指定账号作用域至少要有一个账号；全部账号作用域不需要名单
+  // 指定账号作用域至少要有一个账号；全部账号作用域不需要名单；
+  // 指定课程是"高度定制"配置，只允许绑定单个账号的规则使用
   .superRefine((v, ctx) => {
     if ((v.scope ?? "accounts") === "accounts" && v.accountUids.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["accountUids"],
         message: "请至少选择一个账号",
+      });
+    }
+    if ((v.courseIds?.length ?? 0) > 0 && ((v.scope ?? "accounts") !== "accounts" || v.accountUids.length !== 1)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["courseIds"],
+        message: "指定课程仅支持只绑定一个账号的规则",
       });
     }
   })
