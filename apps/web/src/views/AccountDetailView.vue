@@ -35,6 +35,7 @@ import ProgressRing from "@/components/charts/ProgressRing.vue";
 import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
+import { withViewTransition, accountSharedStyle } from "@/lib/view-transition";
 import { isPending, runPending } from "@/lib/pending";
 import { useExamStatus } from "@/composables/useExamStatus";
 import {
@@ -186,6 +187,13 @@ const treeTotalSeconds = computed(() =>
 
 // ---------- 标签 ----------
 const tab = ref<"courses" | "works" | "exams" | "logs" | "history">("courses");
+/** 分段切换：VT 双侧交叉过渡（旧内容淡出 + 新内容淡入）；不支持时直切 */
+function switchTab(next: (typeof TABS)[number]["key"]) {
+  if (next === tab.value) return;
+  void withViewTransition(() => {
+    tab.value = next;
+  });
+}
 const TABS = [
   { key: "courses", label: "课程进度", icon: BookOpen },
   { key: "works", label: "作业", icon: FileEdit },
@@ -227,27 +235,6 @@ watch(tabButtonsRef, (el) => el && nextTick(() => moveSlider(false)));
 if (typeof window !== "undefined") {
   window.addEventListener("resize", () => moveSlider(false));
 }
-
-/** 分段内容切换：GSAP 高度自适应过渡（旧内容淡出收起 → 新内容淡入展开） */
-const tabContentRef = ref<HTMLElement | null>(null);
-let firstTabRender = true;
-watch(tab, async () => {
-  const el = tabContentRef.value;
-  if (!el) return;
-  // 首次渲染不播动画，避免页面进入时的多余位移
-  if (firstTabRender) {
-    firstTabRender = false;
-    return;
-  }
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  if (reduceMotion) return;
-  gsap.killTweensOf(el);
-  await gsap.fromTo(
-    el,
-    { autoAlpha: 0, y: 8 },
-    { autoAlpha: 1, y: 0, duration: 0.26, ease: "power2.out" },
-  );
-});
 
 /** 课程标签下的考试节点状态：仅英华加载，考试标签与章节树共用同一份缓存 */
 const examStatus = useExamStatus({
@@ -480,7 +467,10 @@ const taskCourses = computed(() => {
     <!-- 账号头部：状态强调线 + 身份信息 + 操作 -->
     <section class="panel overflow-hidden border-l-[3px] py-4 pl-4 pr-4 md:py-5 md:pl-5" :class="statusAccent">
       <div class="flex flex-wrap items-start gap-4">
-        <div class="grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-panel-2 text-[19px] font-semibold text-primary">
+        <div
+          class="grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-panel-2 text-[19px] font-semibold text-primary"
+          :style="accountSharedStyle(uid)"
+        >
           {{ (account?.remark || account?.username || "?").slice(0, 1) }}
         </div>
         <div class="min-w-0 flex-1">
@@ -697,7 +687,7 @@ const taskCourses = computed(() => {
             'relative flex items-center gap-1.5 rounded-t-md px-3 py-2.5 text-[13.5px] transition-colors',
             tab === t.key ? 'bg-accent/40 text-foreground' : 'text-muted-foreground hover:bg-accent/40 hover:text-foreground',
           )"
-          @click="tab = t.key"
+          @click="switchTab(t.key)"
         >
           <component :is="t.icon" class="size-4" />{{ t.label }}
         </button>
@@ -720,8 +710,8 @@ const taskCourses = computed(() => {
         </div>
       </div>
 
-      <!-- 分段内容过渡容器：切换时由 GSAP 播放淡入动画 -->
-      <div ref="tabContentRef">
+      <!-- 分段内容：切换经 withViewTransition 包裹，播放双侧交叉过渡 -->
+      <div class="tab-stage">
         <!-- 课程进度 -->
         <div v-if="tab === 'courses'" class="grid gap-0 lg:grid-cols-[280px_minmax(0,1fr)]">
           <div class="border-b border-border lg:border-b-0 lg:border-r">
@@ -889,3 +879,32 @@ const taskCourses = computed(() => {
     />
   </div>
 </template>
+
+<style>
+/* 分段切换的 VT 双侧过渡：旧内容轻移淡出，新内容自下方轻移淡入；
+   与滑块指示器（GSAP）共同构成切换动效。不支持 VT 的浏览器不解析、无影响。 */
+.tab-stage {
+  view-transition-name: account-tab-stage;
+}
+::view-transition-old(account-tab-stage) {
+  animation: vt-tab-out 0.16s ease-in both;
+}
+::view-transition-new(account-tab-stage) {
+  animation: vt-tab-in 0.24s ease-out both;
+}
+@keyframes vt-tab-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes vt-tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* 头像共享元素飞行：浏览器默认几何形变 + 0.25s 交叉淡入即可，
+   VT 伪元素选择器不支持通配名，无需额外规则 */
+</style>
