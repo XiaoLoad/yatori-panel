@@ -8,6 +8,6 @@ gateway/bin/
 assets/
 assets/
 gateway/assets/
-docs/
 .env
 *.log
+docs/upstream-slim-pr.md
