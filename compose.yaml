@@ -3,6 +3,16 @@ services:
     build: ./gateway
     restart: unless-stopped
     # 仅在容器网络内监听，面板后端经服务名访问，不对外发布端口
+    environment:
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:-}
+      GATEWAY_CORS_ORIGIN: ${GATEWAY_CORS_ORIGIN:-}
+      GATEWAY_DEBUG_SESSION: "false"
+    healthcheck:
+      test: ["CMD", "./gateway", "-health-check"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
 
   panel:
     build:
@@ -14,8 +24,8 @@ services:
       PANEL_HOST: 0.0.0.0
       GATEWAY_URL: http://gateway:9801
       PANEL_DATA_DIR: /app/data
-      # 访问锁与安全配置：从 .env 读取；线上务必设置 PANEL_AUTH_REQUIRED=true
-      PANEL_AUTH_REQUIRED: ${PANEL_AUTH_REQUIRED:-false}
+      # 访问锁与安全配置：从 .env 读取；线上务必保持 true
+      PANEL_AUTH_REQUIRED: ${PANEL_AUTH_REQUIRED:-true}
       PANEL_SESSION_TTL_HOURS: ${PANEL_SESSION_TTL_HOURS:-24}
       PANEL_COOKIE_SECURE: ${PANEL_COOKIE_SECURE:-false}
       PANEL_TRUST_PROXY: ${PANEL_TRUST_PROXY:-false}
@@ -23,10 +33,15 @@ services:
       PANEL_SECRET_KEY: ${PANEL_SECRET_KEY:-}
       # 可选：跨域白名单（逗号分隔），默认仅同源
       PANEL_CORS_ORIGINS: ${PANEL_CORS_ORIGINS:-}
+      # 面板 ↔ 网关共享密钥；两侧必须一致
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:-}
+      # 可选：浏览器跨域调试网关时的固定 Origin，默认不开放 CORS
+      GATEWAY_CORS_ORIGIN: ${GATEWAY_CORS_ORIGIN:-}
     volumes:
       - panel-data:/app/data
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
