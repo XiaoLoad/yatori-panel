@@ -23,9 +23,10 @@
 * **账号中心** —— 账号列表与详情页：课程进度章节树（节点状态/考试徽标）、作业、考试、实时日志、任务记录五个分段；登录凭据 AES-GCM 加密存储，支持一键打开平台并复制登录信息。
 * **观测台** —— 全站任务与多课程进度一屏总览：运行卡片、批量暂停/停止、节点级进度、运行中日志实时流。
 * **单场作业/考试触发** —— 作业批量完成与提交模式选择；考试逐题作答、三态交卷（不交卷/智能/直接）；答题源可选 AI 或外置题库；英华作业/考试支持只读查分（不消耗做题次数）。
-* **定时调度** —— 按窗口自动为多个账号发起任务，配合任务三模式（普通/暴力/去红）调度执行。
-* **日志与台账** —— 全站日志页按级别/账号/任务/关键字分页检索，按时间段删除（保护近 7 天）；台账按天归档、可展开、服务端分页。
-* **操作安全** —— 面板访问锁（可选密码）、关键操作二次确认、进行中按钮上锁防重复点击、全局加载条与切换动效。
+* **定时调度** —— 按窗口自动为多个账号发起任务，配合任务三模式（普通/暴力/去红）调度执行；触发批次持久化，服务重启后自动恢复当天仍在运行的任务。
+* **日志与台账** —— 全站日志页按级别/账号/任务/关键字分页检索，按时间段删除（保护近 7 天，30 天前自动归档清理）；台账按天归档、可展开、服务端分页，附失败原因看板。
+* **邮件通知** —— 任务完成/出错时推送 HTML 报告（课程明细、进度条、任务耗时、学号姓名）；设置页支持测试发送，任务出错同样触发。
+* **操作安全** —— 面板访问锁（可选密码）、关键操作二次确认、进行中按钮上锁防重复点击、全局加载条与页面切换动效（GSAP 编排 + View Transitions 共享元素）。
 * **平台可插拔** —— 新平台接入 = 上游 core 增加 driver → 网关自动暴露平台元数据 → 前端动态表单与调度自动可用，业务代码零改动。
 * **多种部署** —— Windows 一键脚本 / Docker Compose / 手动构建，任选其一。
 
@@ -64,7 +65,7 @@ docker compose down             # 停止服务
 
 > 公网暴露前请逐项确认。本项目不建议直接以 HTTP 开放在公网。
 
-1. **必须启用访问锁**：`.env` 设置 `PANEL_AUTH_REQUIRED=true`。数据库无密码时首次启动会生成随机密码并打印到日志，登录后立即在设置页修改，并确认启动日志显示「访问锁：已启用」。
+1. **必须启用访问锁**：`.env` 设置 `PANEL_AUTH_REQUIRED=true`。数据库无密码时首次启动会生成随机密码并打印到日志；用初始密码登录后面板会自动引导到设置页设置自己的密码（首次更换无需输入旧密码）。注意：生产部署下访问锁由配置强制，**运行时不能在设置页关闭**——需要免密访问请把 `PANEL_AUTH_REQUIRED` 改为 `false` 后重启面板。
 2. **不要公网 HTTP 裸奔**：HTTP 下会话 cookie 与账号密码明文传输。推荐 Caddy 自动 HTTPS、Cloudflare Tunnel 或 Tailscale/WireGuard 内网访问；仅在 HTTPS 下设置 `PANEL_COOKIE_SECURE=true`。
    - **Caddy + 裸 IP 部署**：TLS 规范不允许对 IP 发送 SNI，Caddy 站点块写 `IP:443` 会因 SNI 匹配失败握手报 `internal error`。无域名时站点块应写 `:443`（catch-all）并配 `tls internal` 自签证书（浏览器需手动信任 CA 或确认继续访问）；IP 部署无法走 ACME 自动签发。有域名时仍推荐正常的自动 HTTPS。
 3. **密钥与数据分开备份**：迁移已有数据时不要设置新的 `PANEL_SECRET_KEY`（旧密码由旧 `data/secret.key` 加密）。备份前先停面板再复制整个 data 目录，密钥文件与数据库分开保管，并实际演练一次恢复。
@@ -103,14 +104,17 @@ yatori-panel/
 │   │   └── src/
 │   │       ├── views/      #   页面（观测台、账号、台账、日志等）
 │   │       ├── components/ #   业务组件与 UI 组件
-│   │       ├── composables/#   组合式函数（考试/作业状态轮询）
+│   │       ├── composables/#   组合式函数（事件流、考试/作业状态）
 │   │       ├── stores/     #   Pinia 状态（SSE 事件总线、认证）
 │   │       └── api/        #   axios 客户端与资源封装
 │   └── server/             # 业务后端（Node 24 原生 TypeScript）
 │       └── src/
-│           ├── routes.ts   #   REST API 路由
-│           ├── services/   #   JobManager 任务调度
-│           └── db/         #   SQLite 持久化（node:sqlite）
+│           ├── routes/     #   REST API 路由（按领域拆分：auth/accounts/jobs/courses/schedules/events/base）
+│           ├── jobs/       #   JobManager 与任务运行器（三模式调度）
+│           ├── scheduler.ts#   定时调度（node-cron，批次持久化恢复）
+│           ├── gateway.ts  #   网关 HTTP 客户端
+│           ├── mailer.ts   #   任务报告邮件（SMTP，HTML 模板）
+│           └── db/         #   SQLite 持久化（node:sqlite，版本化迁移）
 ├── packages/shared/        # 前后端共享类型与 zod 校验 schema
 ├── gateway/                # Go 网关（core.Client → REST 薄包装）
 │   └── README.md           #   网关设计说明与平台接入指南
@@ -124,10 +128,10 @@ yatori-panel/
 | `/` | 观测台 | 全站任务总览、多课程进度、批量暂停/停止、运行中日志 |
 | `/accounts` | 账号列表 | 账号增删改、批量导入（YAML）、登录检测、发起任务 |
 | `/accounts/:uid` | 账号详情 | 课程进度/作业/考试/实时日志/任务记录五分段 |
-| `/history` | 台账 | 任务记录按天归档、筛选与分页、产出统计 |
+| `/history` | 台账 | 任务记录按天归档、筛选与分页、产出统计、失败原因看板 |
 | `/logs` | 日志 | 全站日志检索（级别/账号/任务/关键字）、按时间段删除 |
 | `/schedules` | 定时任务 | 调度窗口与账号组配置、启停切换 |
-| `/settings` | 设置 | 答题源（AI/题库）配置、连通性预检、访问锁 |
+| `/settings` | 设置 | 答题源（AI/题库）配置、连通性预检、邮箱通知（含测试发送）、全局并发、访问锁 |
 | `/login` | 登录 | 面板访问锁解锁页（设置了密码时） |
 
 ## 架构与平台可插拔
@@ -152,8 +156,8 @@ yatori-go-core（上游逆向资产）
 
 | 层级 | 技术 |
 |------|------|
-| 前端 | Vue 3 + TypeScript + Vite + Vue Router + Pinia + TanStack Query + TailwindCSS 4 + ECharts + GSAP |
-| 后端 | Node.js 24（原生运行 TS）+ node:sqlite + SSE |
+| 前端 | Vue 3 + TypeScript + Vite + Vue Router + Pinia + TanStack Query + TailwindCSS 4 + ECharts + GSAP + View Transitions |
+| 后端 | Node.js 24（原生运行 TS）+ node:sqlite + SSE + nodemailer（邮件通知） |
 | 网关 | Go + CGO + ddddocr-go（OCR） |
 | 工程 | Bun monorepo + commitlint + simple-git-hooks + git-cliff |
 | 部署 | Docker Compose / Windows 脚本 / 手动构建 |
@@ -183,7 +187,7 @@ yatori-go-core（上游逆向资产）
 
 **任务日志里出现"服务重启，任务被中断"？**服务进程重启时，启动例程会把数据库中遗留的 running 状态任务标记为中断（详见文首[提示](#yatori-panel)）——这是保护机制而非程序错误，重新发起任务即可。
 
-**网关显示离线？**面板后端依赖网关 sidecar。本地部署先执行 `bun run gateway:build && bun run gateway:start`；修改过 Go 代码后必须重新构建并重启网关。
+**网关显示离线？**面板后端依赖网关 sidecar。本地部署先执行 `bun run gateway:build && bun run gateway:start`；修改过 Go 代码后必须重新构建并重启网关。状态徽章有迟滞设计：连续 3 次心跳探测失败（约 30 秒）才判定离线，单次网络抖动不会误报。
 
 **登录英华时提示验证码？**网关内嵌 ddddocr OCR 自动识别，无需人工干预；若识别失败可重试或检测登录。
 
