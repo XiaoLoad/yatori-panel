@@ -174,6 +174,12 @@ const bankTestMutation = useMutation({
   onError: (err) => toast.error((err as Error).message),
 });
 
+const emailTestMutation = useMutation({
+  mutationFn: () => api.testEmail({ email: JSON.parse(JSON.stringify(draft.email)) as Settings["email"] }),
+  onSuccess: (r) => toast.success(r.message),
+  onError: (err) => toast.error((err as Error).message),
+});
+
 const aiTypeModel = computed({
   get: () => draft.ai.type,
   set: (v: string) => {
@@ -375,6 +381,18 @@ async function askDisable() {
           <div class="grid gap-1">
             <Label class="text-[13px]">收件人（逗号分隔）</Label>
             <Input v-model="draft.email.to" placeholder="a@x.com, b@y.com" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
+          </div>
+          <div class="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 w-fit text-[13.5px]"
+              :disabled="emailTestMutation.isPending.value || !draft.email.enabled || !draft.email.smtpHost || !draft.email.user || !draft.email.pass || !draft.email.to"
+              @click="emailTestMutation.mutate()"
+            >
+              {{ emailTestMutation.isPending.value ? "发送中…" : "发送测试邮件" }}
+            </Button>
+            <p class="text-[12px] leading-snug text-muted-foreground">使用当前表单配置发送样例报告，无需先保存</p>
           </div>
         </div>
       </section>
