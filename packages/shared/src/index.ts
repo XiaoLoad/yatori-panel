@@ -364,3 +364,7 @@ export const SettingsSchema = z.object({
 export type Settings = z.infer<typeof SettingsSchema>;
 export const UpdateSettingsBody = SettingsSchema;
 export type UpdateSettingsBody = z.infer<typeof UpdateSettingsBody>;
+
+/** 邮箱通知测试发送：使用设置页表单当前值，未保存也可测试 */
+export const EmailTestBody = z.object({ email: EmailConfigSchema });
+export type EmailTestBody = z.infer<typeof EmailTestBody>;
