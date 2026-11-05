@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { AlarmClock, ChevronRight, Plus, Search, SquarePlay, Users } from "lucide-vue-next";
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import type { JobEvent, JobVO, ScheduleVO } from "@yatori/shared";
@@ -18,6 +18,7 @@ import { useEventStore } from "@/stores/events";
 import { toastError } from "@/lib/errors";
 import { confirmAction } from "@/lib/confirm";
 import { isPending, runPending } from "@/lib/pending";
+import { withViewTransition, markSharedElement, accountSharedStyle } from "@/lib/view-transition";
 import { accountStatus, overallPercent, phaseLabel, progressDetail, scheduleWindow, statusMeta } from "@/lib/account";
 import { cn } from "@/lib/utils";
 
@@ -116,6 +117,16 @@ const filtered = computed(() => {
 function liveProgress(uid: string): JobEvent | null {
   const job = runningByAccount.value[uid];
   return job ? events.jobLive[job.id]?.lastProgress ?? job.progress ?? null : null;
+}
+
+/** 行点击 → 详情页：经 VT 共享元素过渡（头像从行内飞到详情头部） */
+async function openAccount(uid: string) {
+  markSharedElement(uid); // 瞬态命名：仅本次导航窗口内头像参与共享过渡
+  await withViewTransition(async () => {
+    await router.push(`/accounts/${uid}`);
+    // 等 Vue 完成组件切换（DOM 更新落盘）后再让 VT 拍新快照
+    await nextTick();
+  });
 }
 
 function percentOf(uid: string): number {
@@ -325,12 +336,15 @@ async function stopSelected() {
               'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]',
               selectedUids.includes(account.uid) ? 'bg-primary/5' : 'hover:bg-accent/60',
             )"
-            @click="router.push(`/accounts/${account.uid}`)"
+            @click="openAccount(account.uid)"
           >
             <span @click.stop><Checkbox :model-value="selectedUids.includes(account.uid)" @update:model-value="toggle(account.uid)" /></span>
 
             <div class="flex min-w-0 items-center gap-2.5">
-              <div class="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-panel-2 text-[13.5px] font-semibold text-primary">
+              <div
+                class="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-panel-2 text-[13.5px] font-semibold text-primary"
+                :style="accountSharedStyle(account.uid)"
+              >
                 {{ (account.remark || account.username).slice(0, 1) }}
               </div>
               <div class="min-w-0">

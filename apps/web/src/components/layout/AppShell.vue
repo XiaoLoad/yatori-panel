@@ -4,6 +4,7 @@ import { onBeforeUnmount } from "vue";
 import { gsap } from "gsap";
 import TopBar from "./TopBar.vue";
 import { useEventStream } from "@/composables/useEventStream";
+import { isViewTransitionActive } from "@/lib/view-transition";
 
 useEventStream();
 
@@ -13,6 +14,18 @@ let enterDone: (() => void) | null = null;
 const reduceMotion = () =>
   typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+/**
+ * VT 导航不走 Vue Transition 的 out-in 排队：out-in 会把新组件挂载
+ * 推迟到 leave 完成之后，而 VT 的 update 回调需要导航与 DOM 更新
+ * 在同一次回调内完成，排队会让 VT 新快照拍不到新页面 → 动画丢失。
+ * VT 期间改为默认 mode（同时进出），页面切换动画完全由 VT 快照承担。
+ * 注意：vtActive 是普通变量（非响应式），必须用函数调用（每次渲染
+ * 重新求值）而非 computed（依赖不变会命中缓存返回旧值）。
+ */
+function transitionMode(): "default" | "out-in" {
+  return isViewTransitionActive() ? "default" : "out-in";
+}
+
 function finishEnter() {
   enterDone?.();
   enterDone = null;
@@ -21,6 +34,12 @@ function finishEnter() {
 /** 页面进入：整页轻移 + 区块错峰上浮，形成有层次的切换动效 */
 function onEnter(el: Element, done: () => void) {
   enterDone = done;
+  // VT 共享元素过渡接管本次页面切换：跳过 GSAP 编排避免双层动画竞争
+  // （VT 会把 view-transition-name 元素提升到根层渲染快照，叠加 GSAP 会闪烁）
+  if (isViewTransitionActive()) {
+    finishEnter();
+    return;
+  }
   if (reduceMotion()) {
     finishEnter();
     return;
@@ -59,8 +78,17 @@ function onLeave(el: Element, done: () => void) {
   finishEnter();
   timeline?.kill();
   timeline = null;
-  if (reduceMotion()) {
+  // VT 接管：真实 DOM 立即离场（同步 done），VT 快照负责全部视觉过渡。
+  // 默认 mode 下新旧组件共存，此时同步移除旧组件不会触发
+  // afterLeave 二次移除（该问题只在 out-in 的延迟卸载中出现）
+  if (isViewTransitionActive()) {
     done();
+    return;
+  }
+  // 非 VT 路径（含 reduced-motion）：reduced-motion 异步释放避免
+  // afterLeave 对已卸载元素二次移除（parentNode null 报错）
+  if (reduceMotion()) {
+    requestAnimationFrame(() => done());
     return;
   }
   gsap.to(el, {
@@ -84,7 +112,7 @@ onBeforeUnmount(() => {
     <TopBar />
     <main class="mx-auto w-full max-w-[1480px] px-4 pb-20 pt-6 md:px-8">
       <RouterView v-slot="{ Component, route }">
-        <Transition :css="false" mode="out-in" @enter="onEnter" @leave="onLeave">
+        <Transition :css="false" :mode="transitionMode()" @enter="onEnter" @leave="onLeave">
           <component :is="Component" :key="route.path" />
         </Transition>
       </RouterView>
