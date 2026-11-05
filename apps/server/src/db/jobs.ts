@@ -1,4 +1,4 @@
-import type { JobEvent, JobState, JobSummary, JobVO, StartJobBody } from "../shared.ts";
+import type { FailureBreakdown, FailureCategory, FailureReason, JobEvent, JobState, JobSummary, JobVO, StartJobBody } from "../shared.ts";
 import { newId, now, sqlite } from "./index.ts";
 
 interface JobRow {
@@ -9,6 +9,7 @@ interface JobRow {
   started_at: string;
   finished_at: string | null;
   summary_json: string | null;
+  videos_completed: number;
   [k: string]: string | number | null;
 }
 
@@ -35,11 +36,12 @@ export function insertJob(options: StartJobBody): JobVO {
     started_at: now(),
     finished_at: null,
     summary_json: null,
+    videos_completed: 0,
   };
   sqlite
     .prepare(
-      `INSERT INTO jobs (id, account_uid, options_json, state, started_at, finished_at, summary_json)
-       VALUES (@id, @account_uid, @options_json, @state, @started_at, @finished_at, @summary_json)`,
+      `INSERT INTO jobs (id, account_uid, options_json, state, started_at, finished_at, summary_json, videos_completed)
+       VALUES (@id, @account_uid, @options_json, @state, @started_at, @finished_at, @summary_json, @videos_completed)`,
     )
     .run(row);
   return toVO(row);
@@ -47,8 +49,125 @@ export function insertJob(options: StartJobBody): JobVO {
 
 export function finishJob(id: string, state: JobState, summary: JobSummary): void {
   sqlite
-    .prepare(`UPDATE jobs SET state = ?, finished_at = ?, summary_json = ? WHERE id = ?`)
-    .run(state, now(), JSON.stringify(summary), id);
+    .prepare(
+      `UPDATE jobs SET state = ?, finished_at = ?, summary_json = ?, videos_completed = ? WHERE id = ?`,
+    )
+    .run(state, now(), JSON.stringify(summary), summary.videosCompleted, id);
+}
+
+// ---------- 失败原因看板 ----------
+// 既有 summary.errors 只存文本；这里按关键字做轻量归类，不改动运行器产出的原始信息。
+
+const FAILURE_LABELS: Record<FailureCategory, string> = {
+  login: "登录失效",
+  captcha: "验证码识别",
+  video: "视频提交",
+  work: "作业异常",
+  exam: "考试异常",
+  gateway: "网关连接",
+  timeout: "请求超时",
+  interrupted: "服务中断",
+  other: "其它错误",
+};
+
+export function classifyFailure(message: string): { category: FailureCategory; label: string } {
+  const s = message.toLowerCase();
+  let category: FailureCategory = "other";
+  if (/超时|timeout|timed out/.test(s)) category = "timeout";
+  else if (/验证码|captcha|ocr/.test(s)) category = "captcha";
+  else if (/登录|login|密码|会话|登录态|cookie/.test(s)) category = "login";
+  else if (/网关|gateway|econnrefused|连接|不可达/.test(s)) category = "gateway";
+  else if (/视频|学时|study|提交进度/.test(s)) category = "video";
+  else if (/作业|work|homework/.test(s)) category = "work";
+  else if (/考试|exam|答题|交卷/.test(s)) category = "exam";
+  else if (/重启|中断|abort|停止/.test(s)) category = "interrupted";
+  return { category, label: FAILURE_LABELS[category] };
+}
+
+interface FailureRow {
+  id: string;
+  account_uid: string;
+  account_name: string | null;
+  started_at: string;
+  summary_json: string;
+}
+
+/** 统计指定天数内任务的错误分类、受影响账号与最近错误明细 */
+export function failureBreakdown(days: number): FailureBreakdown {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const rows = sqlite
+    .prepare(
+      `SELECT j.id, j.account_uid, a.username || CASE WHEN a.remark != '' THEN ' · ' || a.remark ELSE '' END AS account_name,
+              j.started_at, j.summary_json
+       FROM jobs j LEFT JOIN accounts a ON a.uid = j.account_uid
+       WHERE j.started_at >= ? AND j.summary_json IS NOT NULL
+       ORDER BY j.started_at DESC`,
+    )
+    .all(since) as unknown as FailureRow[];
+
+  const reasonMap = new Map<FailureCategory, FailureReason>();
+  const jobCategory = new Set<string>();
+  const accountMap = new Map<string, { accountUid: string; accountName: string; count: number }>();
+  const recent: FailureBreakdown["recent"] = [];
+  let total = 0;
+  let errorJobs = 0;
+
+  for (const row of rows) {
+    let messages: string[];
+    try {
+      messages = (JSON.parse(row.summary_json) as JobSummary).errors ?? [];
+    } catch {
+      continue;
+    }
+    if (!messages.length) continue;
+    total += messages.length;
+    errorJobs += 1;
+    const accountName = row.account_name || row.account_uid.slice(0, 8);
+    const account = accountMap.get(row.account_uid) ?? { accountUid: row.account_uid, accountName, count: 0 };
+    account.count += messages.length;
+    accountMap.set(row.account_uid, account);
+
+    for (const message of messages) {
+      const { category, label } = classifyFailure(message);
+      const reason = reasonMap.get(category) ?? { category, label, count: 0, jobCount: 0, sample: message };
+      reason.count += 1;
+      const key = `${row.id}|${category}`;
+      if (!jobCategory.has(key)) {
+        jobCategory.add(key);
+        reason.jobCount += 1;
+      }
+      reasonMap.set(category, reason);
+      if (recent.length < 8) {
+        recent.push({
+          jobId: row.id,
+          accountUid: row.account_uid,
+          accountName,
+          startedAt: row.started_at,
+          category,
+          label,
+          message,
+        });
+      }
+    }
+  }
+
+  return {
+    total,
+    errorJobs,
+    reasons: [...reasonMap.values()].sort((a, b) => b.count - a.count),
+    byAccount: [...accountMap.values()].sort((a, b) => b.count - a.count).slice(0, 6),
+    recent,
+  };
+}
+
+/** 删除超出保留期的日志；近 7 天强制保护，与手动删除规则一致 */
+export const LOG_AUTO_RETENTION_DAYS = 30;
+export function pruneOldLogEvents(retentionDays = LOG_AUTO_RETENTION_DAYS): number {
+  const cutoff = new Date(Date.now() - Math.max(LOG_RETENTION_MS, retentionDays * 86_400_000)).toISOString();
+  const info = sqlite
+    .prepare(`DELETE FROM job_events WHERE type = 'log' AND created_at < ?`)
+    .run(cutoff);
+  return Number(info.changes);
 }
 
 /**

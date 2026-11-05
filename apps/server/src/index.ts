@@ -5,7 +5,7 @@ import Fastify from "fastify";
 import fs from "node:fs";
 import path from "node:path";
 import { sqlite } from "./db/index.ts";
-import { recoverStaleRunningJobs } from "./db/jobs.ts";
+import { pruneOldLogEvents, recoverStaleRunningJobs } from "./db/jobs.ts";
 import { authRequired, generateRandomPassword, SESSION_COOKIE, setPassword, touchAuthStamp, verifySession } from "./db/auth.ts";
 import { env } from "./env.ts";
 import { gateway } from "./gateway.ts";
@@ -65,6 +65,9 @@ async function main(): Promise<void> {
   startScheduler();
   // 网关状态机：后台心跳探测，up/down 变化经 SSE 广播（health 接口直接读快照，不再逐次探测）
   startGatewayWatch();
+  // 日志自动归档：仅清理超过保留期且已超出 7 天强制保护窗口的数据
+  const pruned = pruneOldLogEvents();
+  if (pruned > 0) app.log.info(`已清理 ${pruned} 条过期日志`);
 
   // 前端构建产物存在时同源托管（生产模式单端口，开发模式走 Vite 代理）
   const indexHtml = path.join(env.webDist, "index.html");
