@@ -11,12 +11,14 @@ async function notifyCompletion(
   account: AccountVO,
   state: string,
   summary: JobSummary,
+  startedAt: string,
 ): Promise<void> {
   if (state === "stopped") return; // 手动停止不打扰
   await sendCompletionMail({
-    accountName: account.remark || account.username,
+    account: { username: account.username, remark: account.remark },
     state,
     summary,
+    startedAt,
     finishedAt: new Date().toISOString(),
   });
 }
@@ -94,7 +96,7 @@ class JobManager {
           state,
           summary,
         });
-        void notifyCompletion(account, state, summary).catch((err) => {
+        void notifyCompletion(account, state, summary, job.startedAt).catch((err) => {
           bus.publish({
             type: "log",
             ts: Date.now(),
@@ -138,6 +140,16 @@ class JobManager {
           state: "error",
           message: String((err as Error)?.message ?? err),
           summary,
+        });
+        void notifyCompletion(account, "error", summary, job.startedAt).catch((err) => {
+          bus.publish({
+            type: "log",
+            ts: Date.now(),
+            jobId: job.id,
+            accountId: account.uid,
+            level: "error",
+            message: `邮件通知发送失败：${(err as Error).message}`,
+          });
         });
       })
       .finally(() => {

@@ -887,6 +887,13 @@ export async function runJob(
   if (stopRequested()) {
     emitLog("info", "任务已停止（当前节点已保存进度）");
   }
+  // 收尾课程快照：邮件通知按课程展示名称/进度/总时长，页面详情也能看到
+  summary.courseResults = jobOverview().coursesProgress.map((c) => ({
+    name: c.courseName,
+    progress: c.progress,
+    completed: c.completed,
+    totalSeconds: c.totalSeconds,
+  }));
   emitLog(
     "info",
     `任务结束：完成视频 ${summary.videosCompleted}，跳过 ${summary.videosSkipped}，标红 ${summary.flagsFound}，错误 ${summary.errors.length}`,
