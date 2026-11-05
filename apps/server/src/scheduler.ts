@@ -56,6 +56,11 @@ async function startForAccount(
     return;
   }
   const label = account.remark || account.username;
+  // 与手动发起行为对齐：被禁用的账号不参与定时触发
+  if (!account.enabled) {
+    log(s, "warn", `定时规则跳过：${label} 已被禁用`, accountUid);
+    return;
+  }
   if (jobManager.isAccountBusy(accountUid)) {
     log(s, "warn", `定时规则跳过：${label} 已有运行中的任务`, accountUid);
     return;

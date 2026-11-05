@@ -160,8 +160,33 @@ export const CreateScheduleBody = z.object({
   videoMode: VideoModeEnum.optional().default(1),
   answerSource: AnswerSourceEnum.optional().default("off"),
   submitMode: SubmitModeEnum.optional().default("off"),
-});
+})
+  // 结束时间必须晚于开始时间：调度器的到点停止沿用开始 cron 的日/月/周字段，
+  // 若结束早于开始，停止会落空、任务将一直跑到下周同一时刻（不支持跨天窗口，避免通宵运行）
+  .superRefine((v, ctx) => {
+    if (!v.endTime) return;
+    const start = startMinutesOfCron(v.cron);
+    if (start === null) return; // cron 分钟/小时字段非纯数字（如 */10）时无法比较，交由 cron 校验兜底
+    const [h, m] = v.endTime.split(":").map(Number);
+    const end = (h ?? 0) * 60 + (m ?? 0);
+    if (end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endTime"],
+        message: "结束时间必须晚于开始时间（不支持跨天，避免通宵运行）",
+      });
+    }
+  });
 export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
+
+/** 从 cron 提取当天开始时间（分钟数）；分/时字段均为纯数字时才可比较，否则返回 null */
+export function startMinutesOfCron(cron: string): number | null {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [minute, hour] = parts;
+  if (!minute || !hour || !/^\d+$/.test(minute) || !/^\d+$/.test(hour)) return null;
+  return Number(hour) * 60 + Number(minute);
+}
 
 /** 任务收尾时单门课程的推进快照，供邮件通知展示课程明细 */
 export interface JobSummaryCourseResult {
