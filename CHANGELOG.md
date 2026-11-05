@@ -4,6 +4,32 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [v0.16.0] - 2026-11-05
+
+访问体验与部署健壮性专项发版：系统生成的初始密码登录后自动引导改密且首次更换免验旧密码；生产部署（`PANEL_AUTH_REQUIRED=true`）下访问锁由配置强制、运行时不能在设置页关闭；页面切换引入 View Transitions（账号列表 → 详情头像共享元素飞行、详情页分段双侧过渡）；修复网关状态徽章误报离线与 Docker 镜像构建失败。无破坏性变更，旧库无需迁移。
+
+### Added
+
+- **web**：View Transitions 页面动效——账号列表行头像经共享元素几何形变飞入详情页头部，详情页五分段切换为双侧过渡（旧内容淡出 + 新内容淡入）；不支持的浏览器（Safari 18 以下）与 reduced-motion 用户自动降级直切，VT 导航期间页面切换交由 VT 快照承担、其余页面维持 GSAP 编排
+- **server/web**：初始密码流程——`panelAuth` 记录来源标记，用系统生成的随机初始密码登录后自动跳转设置页并显示引导卡片，首次更换免输入旧密码（改密后标记清除，后续改密恢复旧密码校验，防会话劫持的原防线不变）
+- **server/web**：生产部署锁定访问锁——`PANEL_AUTH_REQUIRED=true` 时关锁接口返回 403 并提示修改部署配置，设置页关锁按钮显示锁定态与原因；`auth/status` 暴露 `initialPassword` 与 `lockEnforced` 供前端渲染
+
+### Fixed
+
+- **server**：网关状态探测增加迟滞——连续 3 次心跳失败（约 30 秒）才判定离线，单次网络抖动不再触发误报翻红；探测超时 5s 放宽至 10s 吸收事件循环阻塞导致的假超时；探测进行中「重新检测」复用同一次探测的真实结果
+- **deploy**：`.dockerignore` 通配排除任意深度 `assets` 目录会连同 `apps/web/src/assets`（Tailwind 设计令牌）一并剔除，导致镜像内 `vite build` 报 `Could not resolve "./assets/main.css"`——改为仅排除网关运行时释放目录 `gateway/assets`，并补充网关构建上下文忽略
+
+### Docs
+
+- 补充 Caddy 裸 IP 部署的 SNI 限制说明（站点块应写 `:443` catch-all 配 `tls internal`）
+- 同步 README 与当前功能实现（目录结构、邮件通知、失败看板、访问锁新流程等）
+
+## [Unreleased]
+
+### 计划中
+
+- 上游瘦身 PR 落地后，重新锁定依赖（docs/upstream-slim-pr.md 已备实验数据）
+
 ## [v0.15.0] - 2026-11-05
 
 通知与数据健康专项发版：邮件通知新增测试发送，任务报告模板重绘为课程明细视图（课程名/视频总长/进度条/完成状态，附任务耗时与学号姓名），任务出错时同样推送；启动时自动清理孤儿任务行等历史脏数据，修复观测台耗时无限累加与设置页偶发不回显。无破坏性变更，旧库启动即自动完成数据修复，无需手动操作。
@@ -24,12 +50,6 @@
 ### Verified
 
 - 全量类型检查（shared / server / web）通过；数据修复逻辑已在数据库副本实测（孤儿行全部清除、真实任务保留）；邮件模板经样例数据渲染核验完成态与出错态两种版式
-
-## [Unreleased]
-
-### 计划中
-
-- 上游瘦身 PR 落地后，重新锁定依赖（docs/upstream-slim-pr.md 已备实验数据）
 
 ## [v0.14.0] - 2026-11-05
 
