@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import type { ScheduleVO } from "./shared.ts";
 import { bus } from "./bus.ts";
-import { getAccount } from "./db/accounts.ts";
+import { getAccount, listAccounts } from "./db/accounts.ts";
 import {
   clearScheduleJobLinks,
   linkScheduleJob,
@@ -82,12 +82,31 @@ async function startForAccount(
   }
 }
 
+/**
+ * 触发时解析规则作用的目标账号：
+ * - all：现场取「当时全部启用账号」——规则建好后新增/删除账号无需修改规则；
+ * - accounts：固定名单（存在性/禁用/占用在启动时逐个校验）。
+ */
+function resolveTargets(s: ScheduleVO): string[] {
+  if (s.scope === "all") {
+    return listAccounts()
+      .filter((a) => a.enabled)
+      .map((a) => a.uid);
+  }
+  return s.accountUids;
+}
+
 function fire(s: ScheduleVO, r: Registered): void {
+  const targets = resolveTargets(s);
+  if (targets.length === 0) {
+    log(s, "warn", "定时规则跳过：作用域为空（指定账号名单已空，或没有启用中的账号）");
+    return;
+  }
   const batchId = `${s.id}-${Date.now()}`;
   const triggeredAt = new Date().toISOString();
   r.batchIds.add(batchId);
   void (async () => {
-    for (const uid of s.accountUids) {
+    for (const uid of targets) {
       await startForAccount(s, uid, r.jobIds, batchId, triggeredAt);
     }
     markScheduleRan(s.id);

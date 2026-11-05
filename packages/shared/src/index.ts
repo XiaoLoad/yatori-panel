@@ -125,11 +125,21 @@ export type JobState = "running" | "stopped" | "done" | "error";
 export const StopModeEnum = z.enum(["finish_current", "immediate"]);
 export type StopMode = z.infer<typeof StopModeEnum>;
 
+/**
+ * 规则作用域：
+ * all      = 全部账号（触发时现场解析当时所有启用账号，新增/删除账号无需改规则）
+ * accounts = 指定账号（固定名单；名单为空时到点跳过并在列表标注警示）
+ */
+export const ScheduleScopeEnum = z.enum(["all", "accounts"]);
+export type ScheduleScope = z.infer<typeof ScheduleScopeEnum>;
+
 export interface ScheduleVO {
   id: string;
   /** 规则名称，便于多规则区分 */
   name: string;
-  /** 一条规则可同时作用于多个账号 */
+  /** 作用域，见 ScheduleScopeEnum；旧数据迁移后恒有值 */
+  scope: ScheduleScope;
+  /** 指定账号作用域下的账号名单；all 作用域下为空数组 */
   accountUids: string[];
   /** 开始时间（cron：分 时 日 月 周） */
   cron: string;
@@ -146,9 +156,8 @@ export interface ScheduleVO {
 
 export const CreateScheduleBody = z.object({
   name: z.string().optional().default(""),
-  accountUids: z
-    .array(z.string().min(1))
-    .min(1, "请至少选择一个账号"),
+  scope: ScheduleScopeEnum.optional(),
+  accountUids: z.array(z.string().min(1)),
   cron: z
     .string({ required_error: "请填写 cron 表达式", invalid_type_error: "请填写 cron 表达式" })
     .min(1, "请填写 cron 表达式"),
@@ -161,6 +170,16 @@ export const CreateScheduleBody = z.object({
   answerSource: AnswerSourceEnum.optional().default("off"),
   submitMode: SubmitModeEnum.optional().default("off"),
 })
+  // 指定账号作用域至少要有一个账号；全部账号作用域不需要名单
+  .superRefine((v, ctx) => {
+    if ((v.scope ?? "accounts") === "accounts" && v.accountUids.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["accountUids"],
+        message: "请至少选择一个账号",
+      });
+    }
+  })
   // 结束时间必须晚于开始时间：调度器的到点停止沿用开始 cron 的日/月/周字段，
   // 若结束早于开始，停止会落空、任务将一直跑到下周同一时刻（不支持跨天窗口，避免通宵运行）
   .superRefine((v, ctx) => {

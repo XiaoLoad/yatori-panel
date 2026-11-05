@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from "@tanstack/vue-query";
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
-import type { ScheduleVO } from "@yatori/shared";
+import type { ScheduleScope, ScheduleVO } from "@yatori/shared";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -24,6 +24,7 @@ const props = defineProps<{
 const emit = defineEmits<{ "update:open": [boolean]; saved: [] }>();
 
 const queryClient = useQueryClient();
+const scope = ref<ScheduleScope>("accounts");
 const name = ref("");
 const selected = ref<string[]>([]);
 const days = ref<number[]>([1, 2, 3, 4, 5]);
@@ -52,6 +53,7 @@ watch(
     if (!open) return;
     const s = props.schedule;
     if (s) {
+      scope.value = s.scope;
       name.value = s.name;
       selected.value = [...s.accountUids];
       days.value = parseDaysOfCron(s.cron);
@@ -63,6 +65,7 @@ watch(
       answerSource.value = s.answerSource;
       submitMode.value = s.submitMode;
     } else {
+      scope.value = "accounts";
       name.value = "";
       selected.value = [...(props.preselected ?? [])];
       days.value = [1, 2, 3, 4, 5];
@@ -119,7 +122,8 @@ const mutation = useMutation({
   mutationFn: () => {
     const payload = {
       name: name.value.trim(),
-      accountUids: selected.value,
+      scope: scope.value,
+      accountUids: scope.value === "all" ? [] : selected.value,
       cron: cron.value,
       endTime: endTime.value || undefined,
       stopMode: stopMode.value,
@@ -141,7 +145,7 @@ const mutation = useMutation({
 });
 
 function submit() {
-  if (selected.value.length === 0) {
+  if (scope.value === "accounts" && selected.value.length === 0) {
     toast.error("请至少选择一个账号");
     return;
   }
@@ -175,6 +179,26 @@ function submit() {
       </div>
 
       <div class="grid gap-1.5">
+        <Label>作用范围</Label>
+        <div class="flex gap-1 rounded-lg bg-muted p-1">
+          <button
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            @click="scope = 'all'"
+          >全部账号</button>
+          <button
+            :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'accounts' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+            @click="scope = 'accounts'"
+          >指定账号</button>
+        </div>
+      </div>
+
+      <div v-if="scope === 'all'" class="grid gap-1.5">
+        <Label>应用到账号</Label>
+        <div class="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-[13px] text-muted-foreground">
+          到点时自动作用于当时<strong class="text-foreground">所有启用中</strong>的账号——之后新增账号无需修改本规则，删除账号自动排除
+        </div>
+      </div>
+      <div v-else class="grid gap-1.5">
         <Label>应用到账号（{{ selected.length }}）</Label>
         <div class="flex flex-wrap gap-1.5 rounded-lg border border-border p-2">
           <button

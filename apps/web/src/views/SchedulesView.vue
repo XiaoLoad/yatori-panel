@@ -45,6 +45,13 @@ function accountLabel(uid: string): string {
   return a ? a.remark || a.username : uid.slice(0, 8);
 }
 
+/** 作用范围展示文案：全部账号 / 账号名单（空名单显示警示文案） */
+function scopeLabel(s: ScheduleVO): string {
+  if (s.scope === "all") return "全部账号";
+  if (s.accountUids.length === 0) return "未指定账号";
+  return s.accountUids.map(accountLabel).join("、");
+}
+
 const WEEK_TEXT: Record<string, string> = {
   "*": "每天",
   "0,1,2,3,4,5,6": "每天",
@@ -189,7 +196,9 @@ async function askDelete(s: ScheduleVO) {
           <template v-for="s in schedulesQuery.data.value" :key="s.id">
             <div class="min-w-0 self-center">
               <div class="truncate text-[13.5px]">{{ s.name || "未命名规则" }}</div>
-              <div class="mono truncate text-[12px] text-muted-foreground">{{ s.accountUids.length }} 个账号 · {{ daysOf(s.cron) }}</div>
+              <div class="mono truncate text-[12px] text-muted-foreground">
+                {{ s.scope === "all" ? "全部账号" : `${s.accountUids.length} 个账号` }} · {{ daysOf(s.cron) }}
+              </div>
             </div>
             <div class="relative my-1 h-6 rounded-md border border-border/60 bg-panel-2/60">
               <div
@@ -229,7 +238,11 @@ async function askDelete(s: ScheduleVO) {
             <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
               <span class="mono text-foreground/80">{{ summary(s) }}</span>
               <span class="text-border">/</span>
-              <span>{{ s.accountUids.map(accountLabel).join("、") }}</span>
+              <span>{{ scopeLabel(s) }}</span>
+              <span
+                v-if="s.scope === 'accounts' && s.accountUids.length === 0"
+                class="mono rounded-full border border-amber/40 bg-amber/10 px-1.5 py-0.5 text-[11px] text-amber"
+              >作用域为空，到点跳过</span>
               <span class="text-border">/</span>
               <span>{{ { 1: "普通", 2: "暴力", 3: "去红" }[s.videoMode] }} · {{ { off: "不答题", ai: "AI", bank: "题库" }[s.answerSource] }}</span>
               <template v-if="s.lastRunAt">

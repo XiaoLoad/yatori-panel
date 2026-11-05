@@ -124,17 +124,14 @@ export function updateAccount(
 }
 
 /**
- * 删除账号：级联清理该账号的任务、进度、事件、节点缓存，并从定时规则中摘除。
- * 全程包事务，避免删到一半留下孤儿数据；返回受影响的定时规则供路由层重新注册/注销。
+ * 删除账号：级联清理该账号的任务、进度、事件、节点缓存，并从「指定账号」定时规则中摘除
+ * （规则不会被删除，名单为空时保留并警示）。全程包事务，避免删到一半留下孤儿数据；
+ * 返回受影响的定时规则供路由层重新注册。
  */
 export function deleteAccount(uid: string): {
-  deletedScheduleIds: string[];
   changedSchedules: ScheduleVO[];
 } {
-  let affected: { deletedScheduleIds: string[]; changedSchedules: ScheduleVO[] } = {
-    deletedScheduleIds: [],
-    changedSchedules: [],
-  };
+  let affected: { changedSchedules: ScheduleVO[] } = { changedSchedules: [] };
   sqlite.exec("BEGIN");
   try {
     sqlite
@@ -147,11 +144,7 @@ export function deleteAccount(uid: string): {
       .run(uid, uid);
     sqlite.prepare(`DELETE FROM jobs WHERE account_uid = ?`).run(uid);
     sqlite.prepare(`DELETE FROM node_cache WHERE account_uid = ?`).run(uid);
-    const schedules = removeAccountFromSchedules(uid);
-    affected = {
-      deletedScheduleIds: schedules.deletedIds,
-      changedSchedules: schedules.changed,
-    };
+    affected = { changedSchedules: removeAccountFromSchedules(uid) };
     sqlite.prepare(`DELETE FROM accounts WHERE uid = ?`).run(uid);
     sqlite.exec("COMMIT");
   } catch (err) {

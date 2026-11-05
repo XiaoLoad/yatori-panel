@@ -58,3 +58,25 @@ describe("CreateScheduleBody 结束时间校验", () => {
     expect(r.success).toBe(true);
   });
 });
+
+describe("CreateScheduleBody 作用域校验", () => {
+  test("指定账号作用域：名单为空拒绝", () => {
+    const r = CreateScheduleBody.safeParse(base({ accountUids: [] }));
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find((i) => i.path.includes("accountUids"));
+      expect(issue?.message).toContain("请至少选择一个账号");
+    }
+  });
+
+  test("全部账号作用域：不需要名单", () => {
+    const r = CreateScheduleBody.safeParse(base({ scope: "all", accountUids: [] }));
+    expect(r.success).toBe(true);
+  });
+
+  test("缺省作用域视为指定账号", () => {
+    const r = CreateScheduleBody.safeParse(base());
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.scope).toBeUndefined();
+  });
+});

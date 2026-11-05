@@ -35,6 +35,7 @@ export function registerScheduleRoutes(app: FastifyInstance): void {
     assertScheduleBody(body);
     const job = insertSchedule({
       name: body.name,
+      scope: body.scope,
       accountUids: body.accountUids,
       cron: body.cron,
       endTime: body.endTime,
@@ -54,6 +55,7 @@ export function registerScheduleRoutes(app: FastifyInstance): void {
     assertScheduleBody(body);
     const updated = updateSchedule(id, {
       name: body.name,
+      scope: body.scope,
       accountUids: body.accountUids,
       cron: body.cron,
       endTime: body.endTime,
