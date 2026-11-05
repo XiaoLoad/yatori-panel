@@ -13,6 +13,7 @@ import { getAccount } from "../db/accounts.ts";
 import { rebuildSession } from "../sessions.ts";
 import { ensureSessionForUid } from "../sessions.ts";
 import type { JobSummary, StartJobBody } from "../shared.ts";
+import { examWindowState } from "./exam-window.ts";
 
 /** 英华"标红"（并行播放检测）的响应文案 */
 const RED_MESSAGES = ["检测到可能使用并行播放刷课", "检测到并行播放刷课"];
@@ -81,6 +82,15 @@ function abortable<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
 
 function isSessionLost(err: unknown): boolean {
   return SESSION_LOST_RE.test((err as Error)?.message ?? "");
+}
+
+/** 考试时间展示：MM-DD HH:mm；平台未给或非法时显示"时间未定" */
+function formatExamTime(iso: string | null | undefined): string {
+  if (!iso) return "时间未定";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "时间未定";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function emptySummary(): JobSummary {
@@ -523,6 +533,56 @@ export async function runJob(
       const m = `考试列表拉取失败 ${course.name}: ${(err as Error).message}`;
       summary.errors.push(m);
       emitLog("error", m);
+    }
+
+    // 未到开始时间/已结束的考试不进待办：时间平台本就随列表下发（RFC3339），
+    // 此前每晚盲试只会收到平台拒绝并计入失败看板；跳过记 info，
+    // 「到点自动接上」不受影响——过了开始时间后下一轮自然纳入。
+    const now = new Date();
+    const deferred: string[] = [];
+    const expired: string[] = [];
+    exams = exams.filter((x) => {
+      const w = examWindowState(x.startAt, x.endAt, now);
+      if (w === "not_started") {
+        deferred.push(`${course.name}/${x.name}（${formatExamTime(x.startAt)} 开考）`);
+        return false;
+      }
+      if (w === "ended") {
+        expired.push(`${course.name}/${x.name}`);
+        return false;
+      }
+      return true;
+    });
+    if (deferred.length > 0) emitLog("info", `跳过未到考试时间的考试：${deferred.join("、")}`);
+    if (expired.length > 0) emitLog("info", `跳过已结束的考试：${expired.join("、")}`);
+
+    // 已参加过的考试跳过：英华只读查分（不进考试流程、不消耗做题次数）；
+    // 查询失败降级为现行行为（照常尝试，由平台裁决），检查失败不能挡住考试。
+    if (exams.length > 0 && account?.platform === "YINGHUA") {
+      try {
+        const takenIds = new Set<string>();
+        for (let i = 0; i < exams.length; i += 30) {
+          const chunk = exams.slice(i, i + 30); // 网关单次最多查询 30 场
+          const results = await withSession((s) =>
+            gateway.examResults(
+              s,
+              {
+                courseId: course.id,
+                exams: chunk.map((x) => ({ examId: x.id, nodeId: x.extra?.["nodeId"] ?? "" })),
+              },
+              { signal },
+            ),
+          );
+          for (const r of results) if (r.taken) takenIds.add(r.examId);
+        }
+        if (takenIds.size > 0) {
+          const names = exams.filter((x) => takenIds.has(x.id)).map((x) => `${course.name}/${x.name}`);
+          exams = exams.filter((x) => !takenIds.has(x.id));
+          emitLog("info", `跳过已参加过的考试：${names.join("、")}`);
+        }
+      } catch (err) {
+        emitLog("warn", `考试状态查询失败，按未考过继续：${(err as Error).message}`);
+      }
     }
 
     for (const w of works) {
