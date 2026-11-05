@@ -62,6 +62,67 @@ export const UpdateAccountBody = z.object({
 });
 export type UpdateAccountBody = z.infer<typeof UpdateAccountBody>;
 
+// ---------- 账号展示身份（人 → 站点） ----------
+
+function urlHost(baseUrl: string | null | undefined): string {
+  if (!baseUrl) return "";
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return "";
+  }
+}
+
+/** 站点短标签：域名首段（cqcst.tuozhikj.com → cqcst）；无有效地址返回空串 */
+export function siteTagOf(baseUrl: string | null | undefined): string {
+  const host = urlHost(baseUrl);
+  if (!host) return "";
+  return host.split(".")[0] ?? host;
+}
+
+export interface SiteTaggedAccount {
+  uid: string;
+  platform: string;
+  username: string;
+  baseUrl?: string | null;
+}
+
+/**
+ * 计算「同平台同学号多站点」歧义账号的站点标签：uid → 站点标签。
+ * 仅当同名组内存在多个不同站点时才产生标签（无歧义不出现在结果中）；
+ * 组内短标签（域名首段）撞车时整组回退完整域名，保证组内两两可区分。
+ */
+export function siteTagsFor(accounts: SiteTaggedAccount[]): Map<string, string> {
+  const groups = new Map<string, SiteTaggedAccount[]>();
+  for (const a of accounts) {
+    const key = `${a.platform}|${a.username}`;
+    const g = groups.get(key);
+    if (g) g.push(a);
+    else groups.set(key, [a]);
+  }
+  const out = new Map<string, string>();
+  for (const g of groups.values()) {
+    const sites = new Set(g.map((a) => a.baseUrl ?? ""));
+    if (sites.size <= 1) continue;
+    const shortTags = g.map((a) => siteTagOf(a.baseUrl));
+    const useFullHost = new Set(shortTags).size !== shortTags.length;
+    g.forEach((a, i) => {
+      const host = urlHost(a.baseUrl);
+      out.set(a.uid, useFullHost ? host || "未知站点" : shortTags[i] || "未知站点");
+    });
+  }
+  return out;
+}
+
+/** 账号展示标签：备注（或学号）；有站点歧义时追加「 · 站点标签」 */
+export function accountDisplayLabel(
+  a: { remark?: string | null; username: string },
+  siteTag?: string,
+): string {
+  const base = a.remark || a.username;
+  return siteTag ? `${base} · ${siteTag}` : base;
+}
+
 // ---------- 任务 ----------
 
 export const AnswerSourceEnum = z.enum(["off", "ai", "bank"]);
