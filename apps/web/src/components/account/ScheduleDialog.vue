@@ -378,7 +378,7 @@ function submit() {
               >
                 <Checkbox :model-value="selected.includes(a.uid)" @update:model-value="toggleSiteAccount(a.uid)" />
                 <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ accountDisplayLabel(a, allSiteTags.get(a.uid)) }}</span>
-                <span class="mono min-w-0 truncate text-[12px] text-muted-foreground">{{ a.baseUrl }}</span>
+                <span class="mono max-w-[130px] truncate text-[12px] text-muted-foreground" :title="a.baseUrl">{{ allSiteTags.get(a.uid) }}</span>
               </div>
             </div>
           </Transition>

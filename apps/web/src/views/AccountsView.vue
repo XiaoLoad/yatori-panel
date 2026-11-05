@@ -413,7 +413,7 @@ async function stopSelected() {
           <template v-for="group in grouped" :key="group.key">
             <div
               v-if="group.ambiguous"
-              class="grid min-w-[1060px] cursor-pointer select-none items-center gap-3 border-b border-border/70 bg-panel-2/50 px-4 py-2 transition-colors hover:bg-accent/40"
+              class="grid min-w-[1060px] cursor-pointer select-none items-center gap-3 border-b border-border/70 px-4 py-2.5 transition-colors hover:bg-accent/60"
               :class="'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]'"
               @click="toggleGroup(group.key)"
             >
@@ -424,17 +424,31 @@ async function stopSelected() {
                   @update:model-value="toggleGroupSelection(group)"
                 />
               </span>
-              <div class="flex min-w-0 items-center gap-1.5">
-                <ChevronRight class="size-3.5 shrink-0 text-muted-foreground transition-transform" :class="expandedGroups.has(group.key) ? 'rotate-90' : ''" />
-                <span class="truncate text-[14px] font-medium">{{ group.accounts[0]?.remark || group.username }}</span>
-                <span class="mono shrink-0 rounded border border-border px-1 text-[12px] text-muted-foreground">{{ platformName[group.platform] ?? group.platform }} · {{ group.accounts.length }} 个站点</span>
+              <div class="flex min-w-0 items-center gap-2.5">
+                <div class="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-panel-2 text-[13.5px] font-semibold text-primary">
+                  {{ (group.accounts[0]?.remark || group.username).slice(0, 1) }}
+                </div>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <span class="truncate text-[14.5px] font-medium">{{ group.accounts[0]?.remark || group.username }}</span>
+                    <span class="mono shrink-0 rounded border border-primary/30 bg-primary/10 px-1 text-[12px] text-primary">{{ platformName[group.platform] ?? group.platform }} · {{ group.accounts.length }} 个站点</span>
+                  </div>
+                  <div class="mono mt-0.5 truncate text-[12px] text-muted-foreground">{{ group.username }}</div>
+                </div>
               </div>
-              <div class="truncate text-[13px] text-muted-foreground">{{ groupStatusSummary(group) }}</div>
+              <div class="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+                <span class="size-1.5 rounded-full bg-muted-foreground/50" />
+                {{ groupStatusSummary(group) }}
+              </div>
               <span />
               <span />
               <span />
               <span />
-              <div class="mono text-right text-[12px] text-muted-foreground">{{ expandedGroups.has(group.key) ? "收起" : "展开" }}</div>
+              <div class="flex items-center justify-end gap-1">
+                <span class="mono rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors group-hover:border-primary/40 group-hover:text-primary">
+                  {{ expandedGroups.has(group.key) ? "收起" : "展开" }}
+                </span>
+              </div>
             </div>
 
             <Transition :css="false" @enter="onGroupEnter" @leave="onGroupLeave">
@@ -445,12 +459,11 @@ async function stopSelected() {
                   :class="cn(
                     'group grid min-w-[1060px] cursor-pointer items-center gap-3 border-b border-border/70 px-4 py-2.5 transition-colors last:border-b-0',
                     'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]',
-                    group.ambiguous && 'ml-6 border-l-2 border-l-primary/15',
                     selectedUids.includes(account.uid) ? 'bg-primary/5' : 'hover:bg-accent/60',
                   )"
                   @click="openAccount(account.uid)"
                 >
-            <span @click.stop><Checkbox :model-value="selectedUids.includes(account.uid)" @update:model-value="toggle(account.uid)" /></span>
+            <span @click.stop :class="group.ambiguous && 'pl-6'"><Checkbox :model-value="selectedUids.includes(account.uid)" @update:model-value="toggle(account.uid)" /></span>
 
             <div class="flex min-w-0 items-center gap-2.5">
               <div
@@ -465,7 +478,8 @@ async function stopSelected() {
                   <span class="mono shrink-0 rounded border border-border px-1 text-[12px] text-muted-foreground">{{ platformName[account.platform] ?? account.platform }}</span>
                   <span
                     v-if="group.ambiguous"
-                    class="mono shrink-0 rounded border border-primary/30 bg-primary/10 px-1 text-[12px] text-primary"
+                    class="mono max-w-[110px] shrink-0 truncate rounded border border-primary/30 bg-primary/10 px-1 text-[12px] text-primary"
+                    :title="group.siteTags.get(account.uid)"
                   >{{ group.siteTags.get(account.uid) }}</span>
                   <span v-if="!account.enabled" class="shrink-0 rounded bg-muted px-1 text-[12px] text-muted-foreground">已停用</span>
                 </div>
