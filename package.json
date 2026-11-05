@@ -1,6 +1,7 @@
 {
   "name": "yatori-panel",
   "private": true,
+  "packageManager": "bun@1.4.0",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev:server": "bun --filter @yatori/server dev",
