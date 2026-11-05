@@ -551,8 +551,10 @@ async function stopSelected() {
               </RouterLink>
             </div>
                 </div>
-              </Transition>
+              </div>
+            </Transition>
           </template>
+        </template>
       </div>
     </section>
 
