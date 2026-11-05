@@ -30,6 +30,8 @@ export const env = {
   host: process.env.PANEL_HOST ?? "127.0.0.1",
   port: int(process.env.PANEL_PORT, 8080),
   gatewayURL: process.env.GATEWAY_URL ?? "http://127.0.0.1:9801",
+  /** 面板 ↔ 网关共享密钥；为空时网关不校验（仅本地回环部署可留空） */
+  gatewayToken: process.env.GATEWAY_TOKEN ?? "",
   dataDir: process.env.PANEL_DATA_DIR ?? path.join(repoRoot, "data"),
   webDist: process.env.WEB_DIST ?? path.join(repoRoot, "apps", "web", "dist"),
   corsOrigins: origins(process.env.PANEL_CORS_ORIGINS),

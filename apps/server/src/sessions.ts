@@ -5,7 +5,7 @@ import { bus } from "./bus.ts";
 import { getAccount } from "./db/accounts.ts";
 import { getSettings } from "./db/settings.ts";
 import { env } from "./env.ts";
-import { GatewayError, gateway } from "./gateway.ts";
+import { GatewayError, gateway, gatewayAuthHeaders } from "./gateway.ts";
 import { HttpError } from "./errors.ts";
 
 interface LiveSession {
@@ -50,7 +50,7 @@ async function attachLogForwarder(
     try {
       const res = await fetch(
         `${env.gatewayURL}/api/v1/sessions/${sessionId}/logs`,
-        { signal: ac.signal },
+        { headers: gatewayAuthHeaders(), signal: ac.signal },
       );
       if (!res.body) return;
       const reader = res.body.getReader();

@@ -185,6 +185,11 @@ interface Envelope<T> {
 /** 单次网关请求的默认超时：防止网关侧挂起把调用方无限拖住 */
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/** 面板 ↔ 网关共享密钥；网关配置 GATEWAY_TOKEN 后所有请求必须携带 */
+export function gatewayAuthHeaders(): Record<string, string> {
+  return env.gatewayToken ? { Authorization: `Bearer ${env.gatewayToken}` } : {};
+}
+
 interface RequestOptions {
   /** 调用方中断信号（如任务停止）；与超时取并集，任一触发即中断 */
   signal?: AbortSignal;
@@ -206,7 +211,10 @@ async function request<T>(
   try {
     res = await fetch(env.gatewayURL + apiPath, {
       method,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      headers: {
+        ...gatewayAuthHeaders(),
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
     });
@@ -246,7 +254,8 @@ export const gateway = {
   sessionInfo: (sid: string) =>
     request<{
       info: GatewaySessionInfo;
-      session: Record<string, unknown>;
+      /** 默认脱敏；仅网关显式开启 GATEWAY_DEBUG_SESSION 时返回原始会话 */
+      session: Record<string, unknown> | { redacted: true };
     }>(`/api/v1/sessions/${sid}`, "GET"),
   preflight: (body: {
     source: "ai" | "bank";
@@ -364,7 +373,7 @@ export const gateway = {
         try {
           res = await fetch(`${env.gatewayURL}/api/v1/sessions/${sid}/exams/detail`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...gatewayAuthHeaders() },
             body: JSON.stringify(body),
             // SSE 长连接：跟随调用方 signal，超时只做极端兜底（30 分钟）
             signal: AbortSignal.any([
