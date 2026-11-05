@@ -109,7 +109,8 @@ async function startForAccount(
   try {
     const job = await jobManager.start(account, {
       accountUid,
-      courseIds: [],
+      // 指定课程仅"绑定单个账号"的规则可配置（建库与 zod 双重保证）；空数组 = 全部未完成课程
+      courseIds: s.courseIds,
       videoMode: s.videoMode,
       answerSource: s.answerSource,
       submitMode: s.submitMode,
@@ -118,7 +119,8 @@ async function startForAccount(
     });
     jobIds.add(job.id);
     linkScheduleJob(s.id, batchId, job.id, triggeredAt);
-    log(s, "info", `定时规则触发：${label} 开始刷全部未完成课程`, accountUid);
+    const rangeText = s.courseIds.length > 0 ? `指定的 ${s.courseIds.length} 门课程` : "全部未完成课程";
+    log(s, "info", `定时规则触发：${label} 开始刷${rangeText}`, accountUid);
     return "started";
   } catch (err) {
     // 全局并发名额不足：不判失败，交给候补队列在任务结束腾出名额后补位

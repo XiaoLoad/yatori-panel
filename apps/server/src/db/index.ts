@@ -129,7 +129,7 @@ function setSchemaVersion(v: number): void {
     .run(String(v));
 }
 
-const LATEST_SCHEMA_VERSION = 3;
+const LATEST_SCHEMA_VERSION = 4;
 const currentVersion = schemaVersion();
 if (currentVersion > LATEST_SCHEMA_VERSION) {
   throw new Error(
@@ -195,6 +195,12 @@ try {
   if (currentVersion < 3) {
     addColumn("schedules", "scope", "TEXT NOT NULL DEFAULT 'accounts'");
     setSchemaVersion(3);
+  }
+
+  // v4：定时规则指定课程（仅"绑定单个账号"的规则可非空；空数组 = 全部课程）
+  if (currentVersion < 4) {
+    addColumn("schedules", "course_ids", "TEXT NOT NULL DEFAULT '[]'");
+    setSchemaVersion(4);
   }
   sqlite.exec("COMMIT");
 } catch (err) {

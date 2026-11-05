@@ -243,6 +243,10 @@ async function askDelete(s: ScheduleVO) {
                 v-if="s.scope === 'accounts' && s.accountUids.length === 0"
                 class="mono rounded-full border border-amber/40 bg-amber/10 px-1.5 py-0.5 text-[11px] text-amber"
               >作用域为空，到点跳过</span>
+              <template v-if="s.courseIds.length > 0">
+                <span class="text-border">/</span>
+                <span>指定 {{ s.courseIds.length }} 门课程</span>
+              </template>
               <span class="text-border">/</span>
               <span>{{ { 1: "普通", 2: "暴力", 3: "去红" }[s.videoMode] }} · {{ { off: "不答题", ai: "AI", bank: "题库" }[s.answerSource] }}</span>
               <template v-if="s.lastRunAt">
