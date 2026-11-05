@@ -310,6 +310,7 @@ func (g *gateway) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := client.Session()
 	se.baseURL = sess.Extra["url"]
+	se.info.BaseURL = se.baseURL
 	se.token = sess.Token
 	se.cookieHeader = sess.Cookie
 	if se.cookieHeader == "" && sess.Token != "" {
