@@ -164,7 +164,10 @@ async function doEnsureSession(
       (s) =>
         s.state === "online" &&
         s.platform === account.platform &&
-        s.account === account.username,
+        s.account === account.username &&
+        // 同平台同学号可能存在于多个英华站点部署（baseUrl 不同），站点不一致绝不认领，
+        // 否则登录检测与刷课会跑到错误的站点上
+        (s.baseUrl ?? "") === (account.baseUrl ?? ""),
     );
     if (match) {
       if ((match.configFingerprint ?? "") !== wantFp) {

@@ -1,11 +1,18 @@
 import type { AccountVO, JobSummary, StartJobBody } from "../shared.ts";
+import { siteTagsFor } from "../shared.ts";
 import { bus } from "../bus.ts";
+import { listAccounts } from "../db/accounts.ts";
 import { finishJob, insertJob } from "../db/jobs.ts";
 import { getSettings } from "../db/settings.ts";
 import { HttpError } from "../errors.ts";
 import { sendCompletionMail } from "../mailer.ts";
 import { ensureSession } from "../sessions.ts";
 import { runJob } from "./runner.ts";
+
+/** 同学号多站点的账号在邮件中追加站点标签，两份报告可区分 */
+function siteTagOfAccount(uid: string): string {
+  return siteTagsFor(listAccounts()).get(uid) ?? "";
+}
 
 async function notifyCompletion(
   account: AccountVO,
@@ -15,7 +22,7 @@ async function notifyCompletion(
 ): Promise<void> {
   if (state === "stopped") return; // 手动停止不打扰
   await sendCompletionMail({
-    account: { username: account.username, remark: account.remark },
+    account: { username: account.username, remark: account.remark, siteTag: siteTagOfAccount(account.uid) },
     state,
     summary,
     startedAt,

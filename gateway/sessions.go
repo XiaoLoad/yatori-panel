@@ -22,6 +22,9 @@ type sessionInfo struct {
 	Platform     string   `json:"platform"`
 	PlatformName string   `json:"platformName"`
 	Account      string   `json:"account"`
+	// BaseURL 站点地址:同平台同学号可能存在于多个站点部署(英华套壳),
+	// 面板认领会话时按站点比对,杜绝跨站串用。
+	BaseURL      string   `json:"baseUrl,omitempty"`
 	Capabilities []string `json:"capabilities"`
 	CreatedAt    string   `json:"createdAt"`
 	State        string   `json:"state"` // logging_in / online / error

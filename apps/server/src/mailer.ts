@@ -20,7 +20,7 @@ export interface EmailConfig {
 }
 
 export interface CompletionMailOptions {
-  account: { username: string; remark: string };
+  account: { username: string; remark: string; siteTag?: string };
   state: string;
   summary: JobSummary;
   startedAt: string;
@@ -90,12 +90,15 @@ function fmtClock(totalSeconds: number): string {
   return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
 }
 
-/** 账号展示：名称 · 学号（无备注时只显示学号） */
+/** 账号展示：名称 · 学号（无备注时只显示学号）；同学号多站点时追加站点标签 */
 function accountLabel(account: CompletionMailOptions["account"]): string {
   const name = account.remark?.trim();
   const uid = account.username?.trim();
-  if (name && uid) return `${esc(name)}<span style="color:#9a9484;"> · 学号 ${esc(uid)}</span>`;
-  return esc(uid || name || "未知账号");
+  const site = account.siteTag?.trim()
+    ? `<span style="color:#9a9484;"> · 站点 ${esc(account.siteTag.trim())}</span>`
+    : "";
+  if (name && uid) return `${esc(name)}${site}<span style="color:#9a9484;"> · 学号 ${esc(uid)}</span>`;
+  return `${esc(uid || name || "未知账号")}${site}`;
 }
 
 /** 统计格：大号等宽数字 + 小标签 */

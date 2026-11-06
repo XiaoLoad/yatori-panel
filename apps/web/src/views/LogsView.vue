@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, ServerCog, ShieldCheck, Search, Trash2 } fro
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import { api } from "@/api/resources";
+import { accountDisplayLabel, siteTagsFor } from "@yatori/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,17 +18,21 @@ import { logRank, useLogLevelSetting } from "@/composables/useLogLevel";
 const queryClient = useQueryClient();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 const accounts = computed(() => accountsQuery.data.value ?? []);
+const allSiteTags = computed(() => siteTagsFor(accounts.value));
+const withSite = (a: { uid: string; remark: string; username: string }): string => {
+  const base = a.remark ? `${a.remark}（${a.username}）` : a.username;
+  const tag = allSiteTags.value.get(a.uid);
+  return tag ? `${base} · ${tag}` : base;
+};
 const accountOptions = computed(() => [
   { value: "all", label: "全部账号" },
-  ...accounts.value.map((a) => ({
-    value: a.uid,
-    label: a.remark ? `${a.remark} · ${a.username}` : a.username,
-  })),
+  ...accounts.value.map((a) => ({ value: a.uid, label: withSite(a) })),
 ]);
 function accountLabel(uid?: string): string {
   if (!uid) return "系统";
   const a = accounts.value.find((x) => x.uid === uid);
-  return a ? a.remark || a.username : uid.slice(0, 8);
+  // 同学号多站点的账号在标签中追加站点，避免日志条目无法区分
+  return a ? accountDisplayLabel(a, siteTagsFor(accounts.value).get(uid)) : uid.slice(0, 8);
 }
 
 // ---------- 检索 ----------

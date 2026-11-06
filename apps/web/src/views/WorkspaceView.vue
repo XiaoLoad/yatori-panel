@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import type { JobEvent, JobState, JobVO } from "@yatori/shared";
+import { accountDisplayLabel, siteTagsFor } from "@yatori/shared";
 import type { AccountWithSession } from "@/api/resources";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
@@ -65,7 +66,8 @@ const accountByUid = computed<Record<string, AccountWithSession>>(() => {
 const accountLabel = (uid?: string) => {
   if (!uid) return "系统";
   const a = accountByUid.value[uid];
-  return a ? a.remark || a.username : uid.slice(0, 6);
+  // 同学号多站点的账号在标签中追加站点，避免观测台卡片无法区分
+  return a ? accountDisplayLabel(a, siteTagsFor(accountsQuery.data.value ?? []).get(uid)) : uid.slice(0, 6);
 };
 
 function liveProgress(job: JobVO): JobEvent | null {

@@ -106,6 +106,8 @@ export interface GatewaySessionInfo {
   platform: string;
   platformName: string;
   account: string;
+  /** 站点地址:同平台同学号跨站点部署时用于认领比对 */
+  baseUrl?: string;
   capabilities: string[];
   createdAt: string;
   state: string; // logging_in / online / error
