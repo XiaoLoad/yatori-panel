@@ -307,99 +307,123 @@ function submit() {
       <DialogDescription>作用于哪些账号、什么时间运行、以什么策略刷课</DialogDescription>
     </DialogHeader>
 
-    <DialogBody class="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-      <!-- 左列：作用于谁 -->
-      <div class="grid content-start gap-3">
-        <div class="flex items-center gap-2">
-          <span class="text-[12px] font-medium tracking-wide text-muted-foreground">作用于谁</span>
+    <!-- 单列分区流：各区块独立成段，展开内容只向下推挤，不会与相邻栏串位 -->
+    <DialogBody class="grid gap-5">
+      <!-- 01 作用于谁 -->
+      <section class="grid gap-3">
+        <div class="flex items-center gap-2.5">
+          <span class="mono grid size-5 shrink-0 place-items-center rounded-[5px] border border-primary/20 bg-primary/10 text-[10px] font-medium text-primary">01</span>
+          <span class="shrink-0 text-[12.5px] font-medium tracking-wide text-foreground/80">作用于谁</span>
           <span class="h-px flex-1 bg-border" />
         </div>
 
-        <div class="grid gap-1.5">
-          <Label>规则名称</Label>
-          <Input v-model="name" placeholder="如：晚间批量刷课（留空则按时间命名）" />
-        </div>
-
-        <div class="grid gap-1.5">
-          <Label>作用范围</Label>
-          <div class="flex gap-1 rounded-lg bg-muted p-1">
-            <button
-              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
-              @click="setScope('all')"
-            >全部账号</button>
-            <button
-              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', scope === 'accounts' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
-              @click="setScope('accounts')"
-            >指定账号</button>
+        <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_232px]">
+          <div class="grid gap-1.5">
+            <Label>规则名称</Label>
+            <Input v-model="name" placeholder="如：晚间批量刷课（留空则按时间命名）" />
           </div>
-        </div>
-
-        <div v-if="scope === 'all'" class="grid gap-1.5">
-          <div class="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-[13px] text-muted-foreground">
-            到点时自动作用于当时<strong class="text-foreground">所有启用中</strong>的账号——之后新增账号无需修改本规则，删除账号自动排除
-          </div>
-        </div>
-        <div v-else class="grid gap-1.5">
-          <Label>应用到账号（{{ selected.length }}）</Label>
-          <div class="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-border p-2">
-            <div
-              v-for="g in personGroups"
-              :key="g.key"
-              :class="cn(
-                'flex items-center overflow-hidden rounded-full border transition-colors',
-                personState(g) === 'none'
-                  ? 'border-border text-muted-foreground hover:text-foreground'
-                  : 'border-primary/40 bg-primary/10 text-primary',
-              )"
-            >
-              <button class="flex items-center gap-1.5 py-1 pl-2 pr-1.5 text-[13.5px]" @click="togglePerson(g)">
-                <span :class="personMarkClass(personState(g))">
-                  <Minus v-if="personState(g) === 'partial'" class="size-2.5" :stroke-width="3" />
-                  <Check v-else-if="personState(g) === 'all'" class="size-2.5" :stroke-width="3" />
-                </span>
-                {{ g.label }}<template v-if="g.ambiguous">&nbsp;· {{ g.accounts.length }} 站点</template>
-              </button>
+          <div class="grid content-start gap-1.5">
+            <Label>作用范围</Label>
+            <div class="flex gap-1 rounded-lg border border-border bg-muted/60 p-1">
               <button
-                v-if="g.ambiguous"
-                class="grid h-6 w-6 place-items-center rounded-full hover:bg-accent/50"
-                :title="expandedPerson === g.key ? '收起站点' : '按站点选择'"
-                @click.stop="togglePersonExpand(g)"
-              >
-                <ChevronDown class="size-3.5 transition-transform" :class="expandedPerson === g.key ? 'rotate-180' : ''" />
-              </button>
+                :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', scope === 'all' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
+                @click="setScope('all')"
+              >全部账号</button>
+              <button
+                :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', scope === 'accounts' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
+                @click="setScope('accounts')"
+              >指定账号</button>
             </div>
           </div>
-          <Transition :css="false" @enter="onPickerEnter" @leave="onPickerLeave">
-            <div v-if="expandedPerson" class="rounded-lg border border-border p-2">
+        </div>
+
+        <div v-if="scope === 'all'" class="flex items-start gap-2.5 rounded-xl border border-border bg-panel-2/60 px-3.5 py-3 text-[13px] leading-relaxed text-muted-foreground">
+          <span class="mt-[7px] size-1.5 shrink-0 rounded-full bg-primary/50" />
+          <span>到点时自动作用于当时<strong class="font-medium text-foreground">所有启用中</strong>的账号——之后新增账号无需修改本规则，删除账号自动排除</span>
+        </div>
+
+        <div v-else class="grid gap-1.5">
+          <div class="flex items-baseline justify-between gap-3">
+            <Label>应用到账号</Label>
+            <span class="mono text-[11.5px] text-muted-foreground">
+              已选 <span class="text-foreground">{{ selected.length }}</span> / {{ accounts.length }}
+            </span>
+          </div>
+
+          <!-- 账号芯片与站点精调都收进同一个容器，展开时只在该容器内向下生长 -->
+          <div class="rounded-xl border border-border bg-panel-2/50 p-2.5">
+            <div class="flex max-h-[152px] flex-wrap gap-1.5 overflow-y-auto pr-0.5">
               <div
-                v-for="a in expandedPersonAccounts"
-                :key="a.uid"
-                class="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/40"
+                v-for="g in personGroups"
+                :key="g.key"
+                :class="cn(
+                  'flex items-center rounded-full border pl-[3px] pr-1 transition-colors',
+                  personState(g) === 'none'
+                    ? 'border-border bg-card text-muted-foreground hover:border-primary/35 hover:text-foreground'
+                    : 'border-primary/35 bg-primary/10 text-primary',
+                )"
               >
-                <Checkbox :model-value="selected.includes(a.uid)" @update:model-value="toggleSiteAccount(a.uid)" />
-                <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ accountDisplayLabel(a, allSiteTags.get(a.uid)) }}</span>
-                <span class="mono max-w-[130px] truncate text-[12px] text-muted-foreground" :title="a.baseUrl">{{ allSiteTags.get(a.uid) }}</span>
+                <button class="flex min-w-0 items-center gap-1.5 py-1 pl-1 pr-1.5 text-[13px]" @click="togglePerson(g)">
+                  <span :class="personMarkClass(personState(g))">
+                    <Minus v-if="personState(g) === 'partial'" class="size-2.5" :stroke-width="3" />
+                    <Check v-else-if="personState(g) === 'all'" class="size-2.5" :stroke-width="3" />
+                  </span>
+                  <span class="max-w-[160px] truncate">{{ g.label }}</span>
+                  <span v-if="g.ambiguous" class="mono shrink-0 text-[11px] tabular-nums opacity-80">{{ g.accounts.length }} 站</span>
+                </button>
+                <button
+                  v-if="g.ambiguous"
+                  class="grid size-6 shrink-0 place-items-center rounded-full transition-colors hover:bg-primary/15"
+                  :class="expandedPerson === g.key && 'bg-primary/15'"
+                  :title="expandedPerson === g.key ? '收起站点' : '按站点选择'"
+                  @click.stop="togglePersonExpand(g)"
+                >
+                  <ChevronDown class="size-3.5 transition-transform duration-200" :class="expandedPerson === g.key ? 'rotate-180' : ''" />
+                </button>
               </div>
             </div>
-          </Transition>
+
+            <Transition :css="false" @enter="onPickerEnter" @leave="onPickerLeave">
+              <div v-if="expandedPerson" class="mt-2.5 overflow-hidden rounded-lg border border-border bg-card">
+                <div class="flex items-center justify-between gap-2 border-b border-border/70 bg-panel-2/50 px-2.5 py-1.5">
+                  <span class="text-[11.5px] text-muted-foreground">按站点精调，未勾选的站点不会应用本规则</span>
+                  <button class="text-[11.5px] text-muted-foreground transition-colors hover:text-foreground" @click="expandedPerson = null">收起</button>
+                </div>
+                <div class="max-h-56 overflow-y-auto">
+                  <div
+                    v-for="a in expandedPersonAccounts"
+                    :key="a.uid"
+                    class="flex items-center gap-2.5 border-b border-border/50 px-2.5 py-1.5 last:border-b-0"
+                  >
+                    <Checkbox :model-value="selected.includes(a.uid)" @update:model-value="toggleSiteAccount(a.uid)" />
+                    <span class="min-w-0 flex-1 truncate text-[13px]">{{ accountDisplayLabel(a, allSiteTags.get(a.uid)) }}</span>
+                    <span class="mono max-w-[150px] shrink-0 truncate rounded border border-border bg-panel-2 px-1.5 text-[11px] leading-[17px] text-muted-foreground" :title="a.baseUrl">{{ allSiteTags.get(a.uid) }}</span>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
         </div>
 
         <Transition :css="false" @enter="onSectionEnter" @leave="onSectionLeave">
           <div v-if="singleAccount" class="grid gap-1.5">
-            <Label>课程范围</Label>
-            <div class="flex gap-1 rounded-lg bg-muted p-1">
+            <div class="flex items-baseline justify-between gap-3">
+              <Label>课程范围</Label>
+              <span class="text-[11.5px] text-muted-foreground">仅绑定单个账号时可指定课程</span>
+            </div>
+            <div class="flex gap-1 rounded-lg border border-border bg-muted/60 p-1 sm:w-[264px]">
               <button
-                :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'all' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+                :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', courseMode === 'all' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
                 @click="courseMode = 'all'"
               >全部课程</button>
               <button
-                :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', courseMode === 'pick' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+                :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', courseMode === 'pick' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
                 @click="courseMode = 'pick'"
               >指定课程</button>
             </div>
             <Transition :css="false" @enter="onPickerEnter" @leave="onPickerLeave">
               <div v-if="courseMode === 'pick'" class="grid gap-1.5">
-                <div class="max-h-40 overflow-y-auto rounded-lg border border-border p-1.5">
+                <div class="max-h-40 overflow-y-auto rounded-lg border border-border bg-panel-2/50 p-1.5">
                   <div v-if="coursesQuery.isLoading.value" class="space-y-1.5 p-1">
                     <Skeleton v-for="i in 3" :key="i" class="h-5 w-full" />
                   </div>
@@ -426,63 +450,74 @@ function submit() {
             </Transition>
           </div>
         </Transition>
-      </div>
+      </section>
 
-      <!-- 右列：什么时候 + 怎么刷 -->
-      <div class="grid content-start gap-3">
-        <div class="flex items-center gap-2">
-          <span class="text-[12px] font-medium tracking-wide text-muted-foreground">什么时候</span>
+      <!-- 02 什么时候 -->
+      <section class="grid gap-3">
+        <div class="flex items-center gap-2.5">
+          <span class="mono grid size-5 shrink-0 place-items-center rounded-[5px] border border-primary/20 bg-primary/10 text-[10px] font-medium text-primary">02</span>
+          <span class="shrink-0 text-[12.5px] font-medium tracking-wide text-foreground/80">什么时候</span>
           <span class="h-px flex-1 bg-border" />
         </div>
 
         <div class="grid gap-1.5">
-          <Label>重复</Label>
-          <div class="flex gap-1.5">
+          <div class="flex items-baseline justify-between gap-3">
+            <Label>重复</Label>
+            <span class="mono text-[11.5px] text-muted-foreground">{{ days.length }} / 7 天</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
             <button
               v-for="d in WEEK"
               :key="d.value"
               :class="cn(
-                'size-7 rounded-md border text-[13.5px] transition-colors',
+                'grid size-9 place-items-center rounded-lg border text-[13.5px] transition-colors',
                 days.includes(d.value)
-                  ? 'border-primary/40 bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:text-foreground',
+                  ? 'border-primary/40 bg-primary/10 font-medium text-primary'
+                  : 'border-border text-muted-foreground hover:border-primary/30 hover:text-foreground',
               )"
               @click="toggleDay(d.value)"
             >{{ d.label }}</button>
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid gap-3 sm:grid-cols-2">
           <div class="grid gap-1.5">
-            <Label>开始时间</Label>
+            <Label class="flex h-4 items-center">开始时间</Label>
             <Input v-model="startTime" type="time" />
           </div>
           <div class="grid gap-1.5">
-            <Label>结束时间（留空则不停止）</Label>
+            <Label class="flex h-4 items-center gap-1.5">
+              结束时间
+              <span class="text-[11px] font-normal text-muted-foreground">留空则不停止</span>
+            </Label>
             <Input v-model="endTime" type="time" />
           </div>
         </div>
 
         <div class="grid gap-1.5">
           <Label>到点停止行为</Label>
-          <div class="flex gap-1 rounded-lg bg-muted p-1">
+          <div class="flex gap-1 rounded-lg border border-border bg-muted/60 p-1">
             <button
-              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', stopMode === 'finish_current' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', stopMode === 'finish_current' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
               @click="stopMode = 'finish_current'"
             >看完当前节点再停</button>
             <button
-              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13.5px] transition-colors', stopMode === 'immediate' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground')"
+              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', stopMode === 'immediate' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
               @click="stopMode = 'immediate'"
             >立即停止</button>
           </div>
         </div>
+      </section>
 
-        <div class="flex items-center gap-2 pt-1">
-          <span class="text-[12px] font-medium tracking-wide text-muted-foreground">怎么刷</span>
+      <!-- 03 怎么刷 -->
+      <section class="grid gap-3">
+        <div class="flex items-center gap-2.5">
+          <span class="mono grid size-5 shrink-0 place-items-center rounded-[5px] border border-primary/20 bg-primary/10 text-[10px] font-medium text-primary">03</span>
+          <span class="shrink-0 text-[12.5px] font-medium tracking-wide text-foreground/80">怎么刷</span>
           <span class="h-px flex-1 bg-border" />
         </div>
 
-        <div class="grid grid-cols-3 gap-2">
+        <div class="grid grid-cols-3 gap-3">
           <div class="grid gap-1.5">
             <Label>模式</Label>
             <Select
@@ -507,16 +542,16 @@ function submit() {
         </div>
 
         <button
-          class="justify-self-start text-[12.5px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          class="justify-self-start text-[12.5px] text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
           @click="showModeHelp = !showModeHelp"
         >{{ showModeHelp ? "收起模式说明" : "模式说明" }}</button>
         <Transition :css="false" @enter="onPickerEnter" @leave="onPickerLeave">
-          <p v-if="showModeHelp" class="text-[12.5px] leading-relaxed text-muted-foreground">
+          <p v-if="showModeHelp" class="rounded-xl border border-border bg-panel-2/50 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
             普通 = 课内视频逐个刷；暴力+去红 = 课内并发刷完后自动清理标红节点；仅去红 = 只做补救不刷课。
             作业/考试随节点触发；同一账号同时刷几门课由“设置 → 单账号课程并发数”统一控制。
           </p>
         </Transition>
-      </div>
+      </section>
     </DialogBody>
 
     <DialogFooter class="items-center gap-3 sm:justify-between">

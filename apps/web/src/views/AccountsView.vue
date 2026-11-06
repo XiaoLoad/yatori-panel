@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, ChevronRight, Plus, Search, SquarePlay, Users } from "lucide-vue-next";
+import { AlarmClock, ChevronDown, ChevronRight, Plus, Search, SquarePlay, Users } from "lucide-vue-next";
 import { computed, nextTick, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
@@ -181,17 +181,30 @@ function toggleGroupSelection(g: AccountGroup) {
     : selectedUids.value.filter((u) => !uids.includes(u));
 }
 
+function groupCounts(g: AccountGroup) {
+  const c = { running: 0, online: 0, error: 0, idle: 0 };
+  for (const a of g.accounts) c[statusOf(a)] += 1;
+  return c;
+}
+
+/** 分组摘要：按数量列出各状态，运行中优先 */
 function groupStatusSummary(g: AccountGroup): string {
-  let running = 0;
-  let online = 0;
-  for (const a of g.accounts) {
-    const s = statusOf(a);
-    if (s === "running") running += 1;
-    else if (s === "online") online += 1;
-  }
-  if (running > 0) return `${running} 个运行中`;
-  if (online > 0) return `${online} 个在线`;
-  return "—";
+  const c = groupCounts(g);
+  const parts: string[] = [];
+  if (c.running) parts.push(`${c.running} 运行中`);
+  if (c.error) parts.push(`${c.error} 异常`);
+  if (c.online) parts.push(`${c.online} 在线`);
+  if (c.idle) parts.push(`${c.idle} 待登录`);
+  return parts.join(" · ") || "—";
+}
+
+/** 分组状态点的颜色：运行中 > 异常 > 在线 > 待登录 */
+function groupTone(g: AccountGroup) {
+  const c = groupCounts(g);
+  if (c.running) return statusMeta("running");
+  if (c.error) return statusMeta("error");
+  if (c.online) return statusMeta("online");
+  return statusMeta("idle");
 }
 
 function onGroupEnter(el: Element, done: () => void): void {
@@ -410,11 +423,12 @@ async function stopSelected() {
           没有符合筛选条件的账号
         </div>
         <template v-else>
-          <template v-for="group in grouped" :key="group.key">
+          <div v-for="group in grouped" :key="group.key" class="border-b border-border/70 last:border-b-0">
+            <!-- 分组头：同一同学号的多个站点收敛为一行摘要 -->
             <div
               v-if="group.ambiguous"
-              class="grid min-w-[1060px] cursor-pointer select-none items-center gap-3 border-b border-border/70 px-4 py-2.5 transition-colors hover:bg-accent/60"
-              :class="'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]'"
+              class="grid min-w-[1060px] cursor-pointer select-none grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors"
+              :class="expandedGroups.has(group.key) ? 'bg-panel-2/60' : 'hover:bg-accent/50'"
               @click="toggleGroup(group.key)"
             >
               <span @click.stop>
@@ -424,66 +438,88 @@ async function stopSelected() {
                   @update:model-value="toggleGroupSelection(group)"
                 />
               </span>
-              <div class="flex min-w-0 items-center gap-2.5">
-                <div class="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-panel-2 text-[13.5px] font-semibold text-primary">
-                  {{ (group.accounts[0]?.remark || group.username).slice(0, 1) }}
-                </div>
-                <div class="min-w-0">
-                  <div class="flex items-center gap-1.5">
-                    <span class="truncate text-[14.5px] font-medium">{{ group.accounts[0]?.remark || group.username }}</span>
-                    <span class="mono shrink-0 rounded border border-primary/30 bg-primary/10 px-1 text-[12px] text-primary">{{ platformName[group.platform] ?? group.platform }} · {{ group.accounts.length }} 个站点</span>
+
+              <div class="flex min-w-0 items-center gap-3">
+                <!-- 叠层头像：暗示该行下挂多个站点 -->
+                <div class="relative shrink-0">
+                  <span class="absolute left-[3px] top-[3px] size-8 rounded-md border border-border bg-panel-2" />
+                  <div class="relative grid size-8 place-items-center rounded-md border border-border bg-card text-[13.5px] font-semibold text-primary shadow-sm">
+                    {{ (group.accounts[0]?.remark || group.username).slice(0, 1) }}
                   </div>
-                  <div class="mono mt-0.5 truncate text-[12px] text-muted-foreground">{{ group.username }}</div>
+                </div>
+
+                <div class="min-w-0">
+                  <div class="flex min-w-0 items-center gap-1.5">
+                    <span class="truncate text-[14.5px] font-medium">{{ group.accounts[0]?.remark || group.username }}</span>
+                    <span class="mono shrink-0 rounded border border-border px-1 text-[11.5px] leading-[17px] text-muted-foreground">
+                      {{ platformName[group.platform] ?? group.platform }}
+                    </span>
+                    <span class="mono inline-flex shrink-0 items-center rounded-full border border-primary/25 bg-primary/10 px-1.5 text-[11.5px] leading-[17px] text-primary">
+                      {{ group.accounts.length }} 个站点
+                    </span>
+                  </div>
+                  <div class="mt-1 flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
+                    <span class="mono truncate">{{ group.username }}</span>
+                    <span class="h-3 w-px shrink-0 bg-border" />
+                    <span class="flex shrink-0 items-center gap-1.5">
+                      <span
+                        class="size-1.5 rounded-full"
+                        :class="[groupTone(group).dot, groupCounts(group).running > 0 && 'animate-breathe']"
+                      />
+                      {{ groupStatusSummary(group) }}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div class="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-                <span class="size-1.5 rounded-full bg-muted-foreground/50" />
-                {{ groupStatusSummary(group) }}
-              </div>
-              <span />
-              <span />
-              <span />
-              <span />
-              <div class="flex items-center justify-end gap-1">
-                <span class="mono rounded border border-border px-2 py-1 text-[12.5px] text-muted-foreground transition-colors group-hover:border-primary/40 group-hover:text-primary">
-                  {{ expandedGroups.has(group.key) ? "收起" : "展开" }}
+
+              <div class="flex items-center gap-2 pr-0.5">
+                <span class="text-[12px] text-muted-foreground">{{ expandedGroups.has(group.key) ? "收起站点" : "展开站点" }}</span>
+                <span class="grid size-6 place-items-center rounded-md border border-border bg-card text-muted-foreground">
+                  <ChevronDown
+                    class="size-3.5 transition-transform duration-200"
+                    :class="expandedGroups.has(group.key) ? 'rotate-180' : ''"
+                  />
                 </span>
               </div>
             </div>
 
             <Transition :css="false" @enter="onGroupEnter" @leave="onGroupLeave">
-              <div v-if="!group.ambiguous || expandedGroups.has(group.key)">
+              <div
+                v-if="!group.ambiguous || expandedGroups.has(group.key)"
+                class="relative min-w-[1060px]"
+                :class="group.ambiguous && 'bg-panel-2/45 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-primary/20'"
+              >
                 <div
                   v-for="account in group.accounts"
                   :key="account.uid"
                   :class="cn(
-                    'group grid min-w-[1060px] cursor-pointer items-center gap-3 border-b border-border/70 px-4 py-2.5 transition-colors last:border-b-0',
+                    'group grid min-w-[1060px] cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors',
                     'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]',
+                    group.ambiguous && 'border-t border-border/50',
                     selectedUids.includes(account.uid) ? 'bg-primary/5' : 'hover:bg-accent/60',
                   )"
                   @click="openAccount(account.uid)"
                 >
-            <span @click.stop :class="group.ambiguous && 'pl-6'"><Checkbox :model-value="selectedUids.includes(account.uid)" @update:model-value="toggle(account.uid)" /></span>
+            <span @click.stop><Checkbox :model-value="selectedUids.includes(account.uid)" @update:model-value="toggle(account.uid)" /></span>
 
             <div class="flex min-w-0 items-center gap-2.5">
               <div
-                class="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-panel-2 text-[13.5px] font-semibold text-primary"
+                class="grid size-8 shrink-0 place-items-center rounded-md border border-border bg-card text-[13.5px] font-semibold text-primary"
                 :style="accountSharedStyle(account.uid)"
               >
                 {{ (account.remark || account.username).slice(0, 1) }}
               </div>
               <div class="min-w-0">
-                <div class="flex items-center gap-1.5">
+                <div class="flex min-w-0 items-center gap-1.5">
                   <span class="truncate text-[14.5px] font-medium">{{ account.remark || account.username }}</span>
-                  <span class="mono shrink-0 rounded border border-border px-1 text-[12px] text-muted-foreground">{{ platformName[account.platform] ?? account.platform }}</span>
-                  <span
-                    v-if="group.ambiguous"
-                    class="mono max-w-[110px] shrink-0 truncate rounded border border-primary/30 bg-primary/10 px-1 text-[12px] text-primary"
-                    :title="group.siteTags.get(account.uid)"
-                  >{{ group.siteTags.get(account.uid) }}</span>
-                  <span v-if="!account.enabled" class="shrink-0 rounded bg-muted px-1 text-[12px] text-muted-foreground">已停用</span>
+                  <span v-if="!group.ambiguous" class="mono shrink-0 rounded border border-border px-1 text-[11.5px] leading-[17px] text-muted-foreground">{{ platformName[account.platform] ?? account.platform }}</span>
+                  <span v-if="!account.enabled" class="shrink-0 rounded bg-muted px-1 text-[11.5px] leading-[17px] text-muted-foreground">已停用</span>
                 </div>
-                <div class="mono mt-0.5 truncate text-[12px] text-muted-foreground">{{ account.username }}</div>
+                <!-- 分组内站点行以站点为区分：站点标签独占第二行，姓名占满第一行 -->
+                <div class="mono mt-1 flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+                  <span v-if="group.ambiguous" class="max-w-[150px] shrink-0 truncate rounded border border-primary/25 bg-primary/10 px-1.5 text-[11px] leading-[18px] text-primary" :title="group.siteTags.get(account.uid)">{{ group.siteTags.get(account.uid) }}</span>
+                  <span v-else class="truncate">{{ account.username }}</span>
+                </div>
               </div>
             </div>
 
@@ -567,7 +603,7 @@ async function stopSelected() {
                 </div>
               </div>
             </Transition>
-          </template>
+          </div>
         </template>
       </div>
     </section>
