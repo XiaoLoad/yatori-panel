@@ -24,7 +24,7 @@ const forwarded = useForwardPropsEmits(props, emit);
       />
       <DialogContent
         :class="cn(
-          'fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border border-border bg-card p-0 shadow-[0_0_80px_-20px_rgba(0,0,0,0.85)]',
+          'fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[calc(100vw-1.5rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border border-border bg-card p-0 shadow-[0_0_80px_-20px_rgba(0,0,0,0.85)] sm:w-full',
           props.class,
         )"
       >

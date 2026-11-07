@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Search, Square, Video } from "lucide-vue-next";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Loader2, Search, Square, Video } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { toast } from "vue-sonner";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import DailyTrend from "@/components/charts/DailyTrend.vue";
+import { useInfinitePage, useIsMobile } from "@/composables/useInfinitePage";
 import { formatDuration } from "@/lib/account";
 import { relativeTime } from "@/lib/utils";
 import { toastError } from "@/lib/errors";
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 const router = useRouter();
 const queryClient = useQueryClient();
+const isMobile = useIsMobile();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 // 汇总卡片与侧栏仍使用最近一批记录，避免每页数据影响统计口径
 const jobsQuery = useQuery({
@@ -106,6 +108,29 @@ watch(pageSize, () => {
   page.value = 1;
 });
 
+// ---------- 移动端无限滚动（与服务端分页同一接口） ----------
+const historyFilters = computed(() => ({
+  accountUid: accountFilter.value === "all" ? undefined : accountFilter.value,
+  state: stateFilter.value === "all" ? undefined : stateFilter.value,
+  search: debouncedSearch.value || undefined,
+}));
+const infinite = useInfinitePage<JobVO>({
+  key: "jobs-history-infinite",
+  filters: historyFilters,
+  pageSize: 20,
+  fetch: (f, page, pageSize) =>
+    api.jobsPage(
+      {
+        accountUid: f.accountUid as string | undefined,
+        state: f.state as string | undefined,
+        search: f.search as string | undefined,
+        page,
+        pageSize,
+      },
+      { silent: true },
+    ),
+});
+
 const allJobs = computed(() => jobsQuery.data.value ?? []);
 const stateCounts = computed(() => {
   const c = { running: 0, done: 0, stopped: 0, error: 0 };
@@ -147,8 +172,10 @@ function dayLabel(key: string): string {
   return `${key} ${week}`;
 }
 const groups = computed(() => {
+  // 移动端吃无限滚动累积数据；桌面吃传统分页数据
+  const source = isMobile.value ? infinite.items.value : pageJobs.value;
   const map = new Map<string, JobVO[]>();
-  for (const j of pageJobs.value) {
+  for (const j of source) {
     const key = dayKey(j.startedAt);
     map.set(key, [...(map.get(key) ?? []), j]);
   }
@@ -281,18 +308,18 @@ function absoluteTime(iso: string): string {
     </section>
 
     <section class="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
-      <!-- 记录 -->
-      <div class="panel min-w-0 overflow-hidden">
+      <!-- 记录：overflow 仅在桌面裁剪表格圆角，移动端保持可见溢出以启用日期分隔条吸顶 -->
+      <div class="panel min-w-0 md:overflow-hidden">
         <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <div>
             <h2 class="text-[16px] font-semibold">任务记录</h2>
-            <span class="mono text-[12px] text-muted-foreground">{{ total }} 条</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ isMobile ? infinite.total.value : total }} 条</span>
           </div>
-          <div class="relative ml-auto">
+          <div class="relative ml-auto w-full sm:w-auto">
             <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input v-model="search" placeholder="搜索账号 / 任务 ID" class="h-8 w-48 pl-8 text-[13px]" />
+            <Input v-model="search" placeholder="搜索账号 / 任务 ID" class="h-9 w-full pl-8 text-[13px] sm:h-8 sm:w-48" />
           </div>
-          <Select v-model="accountFilter" :options="accountOptions" class="h-8 w-48 text-[13px]" />
+          <Select v-model="accountFilter" :options="accountOptions" class="h-9 w-full text-[13px] sm:h-8 sm:w-48" />
         </div>
 
         <div class="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
@@ -315,10 +342,16 @@ function absoluteTime(iso: string): string {
           </span>
         </div>
 
-        <div v-if="recordsQuery.isLoading.value" class="h-[520px] space-y-2 overflow-hidden p-4">
+        <div v-if="isMobile && infinite.initialLoading.value" class="space-y-2 p-4">
+          <Skeleton v-for="i in 6" :key="i" class="h-16 w-full" />
+        </div>
+        <div v-else-if="!isMobile && recordsQuery.isLoading.value" class="h-[520px] space-y-2 overflow-hidden p-4">
           <Skeleton v-for="i in 6" :key="i" class="h-10 w-full" />
         </div>
-        <div v-else-if="!pageJobs.length" class="flex h-[520px] flex-col items-center justify-center px-6 text-center">
+        <div
+          v-else-if="!(isMobile ? infinite.items.value.length : pageJobs.length)"
+          class="flex flex-col items-center justify-center px-6 py-16 text-center md:h-[520px]"
+        >
           <div class="mx-auto grid size-12 place-items-center rounded-lg border border-border bg-panel-2 text-muted-foreground">
             <History class="size-5" />
           </div>
@@ -326,7 +359,8 @@ function absoluteTime(iso: string): string {
           <p class="mt-1 text-[14px] text-muted-foreground">调整筛选条件，或到观测台发起新任务</p>
         </div>
 
-        <div v-else class="h-[520px] overflow-y-auto overflow-x-auto overscroll-contain">
+        <!-- 桌面表格形态（≥md）：内部滚动 + 列网格 -->
+        <div v-else-if="!isMobile" class="h-[520px] overflow-y-auto overflow-x-auto overscroll-contain">
           <div class="sticky top-0 z-10 hidden min-w-[1000px] grid-cols-[84px_minmax(0,1.2fr)_112px_72px_minmax(0,1.05fr)_minmax(0,1.15fr)_28px_72px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
             <span>状态</span>
             <span>账号</span>
@@ -452,9 +486,125 @@ function absoluteTime(iso: string): string {
           </template>
         </div>
 
-        <!-- 分页 -->
+        <!-- 移动卡片形态（<md）：自然高度流式列表 + 无限滚动，无横向滚动 -->
+        <div v-else class="pb-2">
+          <template v-for="group in groups" :key="group.key">
+            <!-- 日期分隔 -->
+            <div class="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-panel-2/95 px-3.5 py-1.5 backdrop-blur-sm">
+              <span class="text-[13px] font-medium">{{ group.label }}</span>
+              <span class="mono text-[12px] text-muted-foreground">{{ group.items.length }} 条</span>
+              <span class="h-px flex-1 bg-border" />
+              <span class="mono text-[12px] text-mint">完成 {{ group.done }}</span>
+              <span v-if="group.error" class="mono text-[12px] text-coral">出错 {{ group.error }}</span>
+            </div>
+
+            <div
+              v-for="job in group.items"
+              :key="job.id"
+              class="border-b border-border/60 px-3.5 py-3 transition-colors last:border-b-0"
+              @click="expanded = expanded === job.id ? null : job.id"
+            >
+              <!-- 头行：状态 + 账号 + 相对时间 -->
+              <div class="flex items-center gap-2">
+                <span
+                  :class="cn(
+                    'shrink-0 rounded px-1.5 py-0.5 text-[12px]',
+                    job.state === 'running'
+                      ? 'bg-primary/10 text-primary'
+                      : job.state === 'error'
+                        ? 'bg-coral/10 text-coral'
+                        : job.state === 'done'
+                          ? 'bg-mint/10 text-mint'
+                          : 'bg-muted text-muted-foreground',
+                  )"
+                >{{ stateLabel(job.state) }}</span>
+                <span class="min-w-0 flex-1 truncate text-[14px] font-medium">{{ label(job.accountUid) }}</span>
+                <span class="mono shrink-0 text-[12px] text-muted-foreground">{{ relativeTime(job.startedAt) }}</span>
+                <ChevronDown v-if="expanded !== job.id" class="size-4 shrink-0 text-muted-foreground" />
+                <ChevronUp v-else class="size-4 shrink-0 text-muted-foreground" />
+              </div>
+
+              <!-- 元信息行 -->
+              <div class="mono mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-muted-foreground">
+                <span>{{ durationOf(job) }}</span>
+                <span>{{ modeText(job.options.videoMode) }} · {{ sourceText(job.options.answerSource) }} · {{ submitText(job.options.submitMode) }}</span>
+                <template v-if="outputOf(job)">
+                  <span v-if="outputOf(job)!.videos" class="rounded bg-muted px-1.5">视频 {{ outputOf(job)!.videos }}</span>
+                  <span v-if="outputOf(job)!.works" class="rounded bg-muted px-1.5">作业 {{ outputOf(job)!.works }}</span>
+                  <span v-if="outputOf(job)!.exams" class="rounded bg-muted px-1.5">考试 {{ outputOf(job)!.exams }}</span>
+                  <span v-if="outputOf(job)!.flags" class="rounded bg-amber/10 px-1.5 text-amber">标红 {{ outputOf(job)!.flags }}</span>
+                  <span v-if="outputOf(job)!.errors" class="text-coral">错误 {{ outputOf(job)!.errors }}</span>
+                </template>
+              </div>
+
+              <!-- 展开明细（与桌面同一区块，宽度自适应） -->
+              <div v-if="expanded === job.id" class="mt-2.5 border-t border-border/60 pt-2.5" @click.stop>
+                <div class="grid gap-3">
+                  <div>
+                    <div class="text-[12px] text-muted-foreground">运行配置</div>
+                    <div class="mono mt-1 space-y-0.5 text-[12.5px]">
+                      <div>刷课模式 {{ modeText(job.options.videoMode) }} · 答题 {{ sourceText(job.options.answerSource) }} · 交卷 {{ submitText(job.options.submitMode) }}</div>
+                      <div>课程范围 {{ job.options.courseIds.length ? `${job.options.courseIds.length} 门勾选` : "全部课程" }} · 课程并发 {{ job.options.perCourseConcurrency }}</div>
+                      <div class="text-muted-foreground">任务 ID {{ job.id.slice(0, 8) }}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-[12px] text-muted-foreground">时间</div>
+                    <div class="mono mt-1 space-y-0.5 text-[12.5px]">
+                      <div>开始 {{ absoluteTime(job.startedAt) }}</div>
+                      <div>结束 {{ job.finishedAt ? absoluteTime(job.finishedAt) : "—" }}</div>
+                      <div>耗时 {{ durationOf(job) }}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-[12px] text-muted-foreground">错误明细</span>
+                      <span v-if="job.summary?.errors.length" class="mono rounded bg-coral/10 px-1.5 text-[12px] text-coral">{{ job.summary.errors.length }}</span>
+                    </div>
+                    <div v-if="job.summary?.errors.length" class="mt-1 max-h-32 space-y-1 overflow-y-auto">
+                      <div v-for="(err, i) in job.summary.errors" :key="i" class="flex items-start gap-1.5 text-[12.5px] text-coral">
+                        <AlertTriangle class="mt-0.5 size-3.5 shrink-0" />
+                        <span>{{ err }}</span>
+                      </div>
+                    </div>
+                    <div v-else class="mt-1 text-[12.5px] text-muted-foreground">无错误</div>
+                    <div v-if="job.summary?.scores.length" class="mt-2">
+                      <div class="text-[12px] text-muted-foreground">得分记录</div>
+                      <div v-for="(s, i) in job.summary.scores" :key="i" class="text-[12.5px] text-muted-foreground">{{ s }}</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <button class="text-[12.5px] text-primary hover:underline" @click="router.push(`/accounts/${job.accountUid}?from=history`)">
+                    查看账号详情 →
+                  </button>
+                  <Button
+                    v-if="job.state === 'running'"
+                    variant="outline"
+                    size="sm"
+                    class="h-9 gap-1 px-3 text-[12.5px]"
+                    :disabled="isPending(`stop:${job.id}`)"
+                    @click="askStop(job)"
+                  ><Square class="size-3" />停止</Button>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- 无限滚动哨兵 + 加载态 -->
+          <div ref="infinite.sentinel" class="flex items-center justify-center gap-2 py-4 text-[12.5px] text-muted-foreground">
+            <template v-if="infinite.loadingMore.value">
+              <Loader2 class="size-4 animate-spin" />正在加载更多…
+            </template>
+            <template v-else-if="!infinite.hasMore.value && infinite.total.value > 0">
+              已加载全部 {{ infinite.total.value }} 条
+            </template>
+          </div>
+        </div>
+
+        <!-- 分页（仅桌面）：移动端由无限滚动承接 -->
         <div
-          v-if="!recordsQuery.isLoading.value && total > 0"
+          v-if="!isMobile && !recordsQuery.isLoading.value && total > 0"
           class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5"
         >
           <span class="mono text-[12px] text-muted-foreground">共 {{ total }} 条 · 第 {{ page }}/{{ pageCount }} 页</span>

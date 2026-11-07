@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { ChevronLeft, ChevronRight, ServerCog, ShieldCheck, Search, Trash2 } from "lucide-vue-next";
+import { ChevronLeft, ChevronRight, Loader2, ServerCog, ShieldCheck, Search, Trash2 } from "lucide-vue-next";
 import { computed, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import { api } from "@/api/resources";
@@ -10,12 +10,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useInfinitePage, useIsMobile } from "@/composables/useInfinitePage";
 import { confirmAction } from "@/lib/confirm";
 import { toastError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import { logRank, useLogLevelSetting } from "@/composables/useLogLevel";
 
 const queryClient = useQueryClient();
+const isMobile = useIsMobile();
 const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: () => api.accounts() });
 const accounts = computed(() => accountsQuery.data.value ?? []);
 const allSiteTags = computed(() => siteTagsFor(accounts.value));
@@ -130,6 +132,33 @@ watch(pageSize, () => {
   page.value = 1;
 });
 
+// ---------- 移动端无限滚动（与服务端分页同一接口） ----------
+const logFilters = computed(() => ({
+  level: level.value,
+  minLevel: minLevel.value,
+  accountUid: accountFilter.value,
+  jobId: jobFilter.value,
+  search: debouncedSearch.value,
+}));
+const infinite = useInfinitePage<import("@yatori/shared").JobEvent>({
+  key: "logs-infinite",
+  filters: logFilters,
+  pageSize: 30,
+  fetch: (f, page, pageSize) =>
+    api.logsPage(
+      {
+        level: f.level as "all" | "info" | "warn" | "error",
+        minLevel: f.minLevel as import("@yatori/shared").LogQuery["minLevel"],
+        accountUid: f.accountUid === "all" ? undefined : (f.accountUid as string),
+        jobId: f.jobId === "all" ? undefined : (f.jobId as string),
+        search: (f.search as string) || undefined,
+        page,
+        pageSize,
+      },
+      { silent: true },
+    ),
+});
+
 const LEVEL_TABS = [
   { key: "all", label: "全部" },
   { key: "info", label: "信息" },
@@ -240,14 +269,14 @@ async function askDeleteLogs() {
         <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <div>
             <h2 class="text-[16px] font-semibold">日志检索</h2>
-            <span class="mono text-[12px] text-muted-foreground">匹配 {{ total }} 条</span>
+            <span class="mono text-[12px] text-muted-foreground">匹配 {{ isMobile ? infinite.total.value : total }} 条</span>
           </div>
-          <div class="relative ml-auto">
+          <div class="relative ml-auto w-full sm:w-auto">
             <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input v-model="search" placeholder="搜索日志内容" class="h-8 w-56 pl-8 text-[13px]" />
+            <Input v-model="search" placeholder="搜索日志内容" class="h-9 w-full pl-8 text-[13px] sm:h-8 sm:w-56" />
           </div>
-          <Select v-model="accountFilter" :options="accountOptions" class="h-8 w-48 text-[13px]" />
-          <Select v-model="jobFilter" :options="jobOptions" class="h-8 w-56 text-[13px]" />
+          <Select v-model="accountFilter" :options="accountOptions" class="h-9 w-full text-[13px] sm:h-8 sm:w-48" />
+          <Select v-model="jobFilter" :options="jobOptions" class="h-9 w-full text-[13px] sm:h-8 sm:w-56" />
         </div>
 
         <div class="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
@@ -268,17 +297,24 @@ async function askDeleteLogs() {
           </span>
         </div>
 
-        <div v-if="logsQuery.isLoading.value" class="h-[520px] space-y-2 overflow-hidden p-4">
+        <div v-if="isMobile && infinite.initialLoading.value" class="space-y-2 p-4">
           <Skeleton v-for="i in 10" :key="i" class="h-8 w-full" />
         </div>
-        <div v-else-if="!logs.length" class="flex h-[520px] flex-col items-center justify-center px-6 text-center">
+        <div v-else-if="!isMobile && logsQuery.isLoading.value" class="h-[520px] space-y-2 overflow-hidden p-4">
+          <Skeleton v-for="i in 10" :key="i" class="h-8 w-full" />
+        </div>
+        <div
+          v-else-if="!(isMobile ? infinite.items.value.length : logs.length)"
+          class="flex flex-col items-center justify-center px-6 py-16 text-center md:h-[520px]"
+        >
           <div class="mx-auto grid size-12 place-items-center rounded-lg border border-border bg-panel-2 text-muted-foreground">
             <ServerCog class="size-5" />
           </div>
           <h2 class="mt-4 text-[16px] font-semibold">该条件下没有日志</h2>
           <p class="mt-1 text-[14px] text-muted-foreground">调整级别、账号、任务或关键字后再试</p>
         </div>
-        <div v-else class="h-[520px] overflow-y-auto overscroll-contain">
+        <!-- 桌面：内部滚动列表 -->
+        <div v-else-if="!isMobile" class="h-[520px] overflow-y-auto overscroll-contain">
           <div
             v-for="(log, i) in logs"
             :key="`${log.ts}-${i}`"
@@ -292,8 +328,39 @@ async function askDeleteLogs() {
             <span class="min-w-0 flex-1 break-words text-[13px] text-foreground/85">{{ log.message }}</span>
           </div>
         </div>
+        <!-- 移动：自然高度流式列表 + 无限滚动 -->
+        <div v-else class="pb-2">
+          <div
+            v-for="(log, i) in infinite.items.value"
+            :key="`${log.ts}-${i}`"
+            class="border-b border-border/60 px-3.5 py-2.5 last:border-b-0"
+          >
+            <div class="flex items-center gap-2">
+              <span :class="cn('mono shrink-0 rounded border px-1.5 text-[11px] uppercase', levelTone(log.level))">
+                {{ levelLabel(log.level) }}
+              </span>
+              <span class="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{{ accountLabel(log.accountId) }}</span>
+              <span class="mono shrink-0 text-[11px] text-muted-foreground">{{ timeOf(log.ts) }}</span>
+            </div>
+            <p class="mt-1 break-words text-[13px] leading-5 text-foreground/85">{{ log.message }}</p>
+          </div>
 
-        <div class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
+          <!-- 无限滚动哨兵 + 加载态 -->
+          <div ref="infinite.sentinel" class="flex items-center justify-center gap-2 py-4 text-[12.5px] text-muted-foreground">
+            <template v-if="infinite.loadingMore.value">
+              <Loader2 class="size-4 animate-spin" />正在加载更多…
+            </template>
+            <template v-else-if="!infinite.hasMore.value && infinite.total.value > 0">
+              已加载全部 {{ infinite.total.value }} 条
+            </template>
+          </div>
+        </div>
+
+        <!-- 分页（仅桌面）：移动端由无限滚动承接 -->
+        <div
+          v-if="!isMobile"
+          class="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5"
+        >
           <span class="mono text-[12px] text-muted-foreground">共 {{ total }} 条 · 第 {{ page }}/{{ pageCount }} 页</span>
           <div class="ml-auto flex items-center gap-1.5">
             <Select

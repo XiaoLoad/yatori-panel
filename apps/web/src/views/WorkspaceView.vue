@@ -717,8 +717,9 @@ const recentEvents = computed(() =>
           <div v-else-if="!filteredJobs.length" class="px-4 py-10 text-center text-[13px] text-muted-foreground">
             没有符合条件的任务记录
           </div>
-          <div v-else class="max-h-[min(45vh,440px)] overflow-y-auto overflow-x-auto overscroll-contain">
-            <div class="sticky top-0 z-10 hidden min-w-[940px] grid-cols-[150px_minmax(0,1.2fr)_86px_88px_minmax(0,1.3fr)_68px_28px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
+          <!-- 桌面表格形态（≥md）：内部滚动 + 列网格 -->
+          <div v-else class="hidden max-h-[min(45vh,440px)] overflow-y-auto overscroll-contain md:block">
+            <div class="sticky top-0 z-10 min-w-[940px] grid-cols-[150px_minmax(0,1.2fr)_86px_88px_minmax(0,1.3fr)_68px_28px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
               <span>开始时间</span>
               <span>账号</span>
               <span>状态</span>
@@ -756,6 +757,42 @@ const recentEvents = computed(() =>
                 {{ job.summary?.errors.length ?? 0 }}
               </span>
               <ChevronRight class="size-3.5 text-muted-foreground" />
+            </div>
+          </div>
+          <!-- 移动卡片形态（<md）：自描述卡，无横向滚动 -->
+          <div v-if="!jobsQuery.isLoading.value && filteredJobs.length" class="md:hidden">
+            <div
+              v-for="job in filteredJobs.slice(0, 40)"
+              :key="job.id"
+              class="cursor-pointer border-b border-border/60 px-3.5 py-2.5 transition-colors last:border-b-0 active:bg-accent/60"
+              @click="router.push(`/accounts/${job.accountUid}?from=workspace`)"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  :class="cn(
+                    'shrink-0 rounded px-1.5 py-0.5 text-[12px]',
+                    job.state === 'running'
+                      ? 'bg-primary/10 text-primary'
+                      : job.state === 'error'
+                        ? 'bg-coral/10 text-coral'
+                        : job.state === 'done'
+                          ? 'bg-mint/10 text-mint'
+                          : 'bg-muted text-muted-foreground',
+                  )"
+                >{{ jobStateLabel(job.state) }}</span>
+                <span class="min-w-0 flex-1 truncate text-[13.5px] font-medium">{{ accountLabel(job.accountUid) }}</span>
+                <ChevronRight class="size-3.5 shrink-0 text-muted-foreground" />
+              </div>
+              <div class="mono mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11.5px] text-muted-foreground">
+                <span>{{ timeOf(job.startedAt) }}</span>
+                <span>{{ elapsedOf(job) }}</span>
+                <template v-if="job.summary">
+                  <span>视频 {{ job.summary.videosCompleted }}</span>
+                  <span>作业 {{ job.summary.worksDone }}</span>
+                  <span>考试 {{ job.summary.examsDone }}</span>
+                </template>
+                <span v-if="(job.summary?.errors.length ?? 0) > 0" class="text-coral">错误 {{ job.summary?.errors.length }}</span>
+              </div>
             </div>
           </div>
           <div v-if="filteredJobs.length > 40" class="border-t border-border px-4 py-2 text-center text-[12.5px] text-muted-foreground">

@@ -517,7 +517,7 @@ function submit() {
           <span class="h-px flex-1 bg-border" />
         </div>
 
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div class="grid gap-1.5">
             <Label>模式</Label>
             <Select
