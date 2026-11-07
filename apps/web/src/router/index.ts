@@ -26,6 +26,8 @@ export const router = createRouter({
         { path: "logs", name: "logs", component: () => import("@/views/LogsView.vue") },
         { path: "schedules", name: "schedules", component: () => import("@/views/SchedulesView.vue") },
         { path: "settings", name: "settings", component: () => import("@/views/SettingsView.vue") },
+        // 兜底 404：挂在 AppShell children 内，顶栏导航与主题切换保持可用
+        { path: ":pathMatch(.*)*", name: "not-found", component: () => import("@/views/NotFoundView.vue") },
       ],
     },
   ],
