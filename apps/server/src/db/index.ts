@@ -129,7 +129,7 @@ function setSchemaVersion(v: number): void {
     .run(String(v));
 }
 
-const LATEST_SCHEMA_VERSION = 4;
+const LATEST_SCHEMA_VERSION = 5;
 const currentVersion = schemaVersion();
 if (currentVersion > LATEST_SCHEMA_VERSION) {
   throw new Error(
@@ -201,6 +201,19 @@ try {
   if (currentVersion < 4) {
     addColumn("schedules", "course_ids", "TEXT NOT NULL DEFAULT '[]'");
     setSchemaVersion(4);
+  }
+
+  // v5：登录防爆破计数落库——重启不再清零失败计数与锁定期
+  if (currentVersion < 5) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS login_throttle (
+        ip           TEXT PRIMARY KEY,
+        fail_count   INTEGER NOT NULL DEFAULT 0,
+        locked_until INTEGER NOT NULL DEFAULT 0,
+        updated_at   TEXT NOT NULL
+      );
+    `);
+    setSchemaVersion(5);
   }
   sqlite.exec("COMMIT");
 } catch (err) {
