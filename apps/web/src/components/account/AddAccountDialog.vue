@@ -35,6 +35,9 @@ const editing = computed(() => !!props.account);
 
 const platforms = computed<PlatformMeta[]>(() => platformsQuery.data.value ?? []);
 const currentPlatform = computed(() => platforms.value.find((p) => p.key === form.platform));
+/** 密码类字段走 CSS 掩码（Input 的 masked）而非 type=password：
+ *  避免表单提交时浏览器弹出「保存密码」——这些是平台侧凭据，
+ *  存进浏览器密码管理器是错误归类；面板登录页的访问密码不受影响 */
 const fieldTypes: Record<string, string> = { password: "password", apiKey: "password" };
 
 watch(
@@ -219,7 +222,7 @@ function fieldModel(key: string) {
           <Label>{{ field.label }}<span v-if="field.required" class="text-red-500"> *</span></Label>
           <Input
             v-model="fieldModel(field.key).value"
-            :type="fieldTypes[field.key] ?? 'text'"
+            :masked="fieldTypes[field.key] === 'password'"
             :placeholder="field.placeholder"
             autocomplete="off"
           />
