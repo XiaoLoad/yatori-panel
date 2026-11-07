@@ -229,7 +229,7 @@ function fieldModel(key: string) {
           </p>
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div class="grid gap-1.5">
             <Label>备注</Label>
             <Input v-model="form.remark" placeholder="留空自动填入平台姓名" />

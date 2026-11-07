@@ -3,6 +3,7 @@ import { RouterView } from "vue-router";
 import { onBeforeUnmount } from "vue";
 import { gsap } from "gsap";
 import TopBar from "./TopBar.vue";
+import BottomNav from "./BottomNav.vue";
 import { useEventStream } from "@/composables/useEventStream";
 import { isViewTransitionActive } from "@/lib/view-transition";
 
@@ -110,12 +111,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="relative min-h-screen">
     <TopBar />
-    <main class="mx-auto w-full max-w-[1480px] px-4 pb-20 pt-6 md:px-8">
+    <!-- pb 末段给移动端底部标签栏留位（md 以下），含 iOS 安全区 -->
+    <main class="mx-auto w-full max-w-[1480px] px-4 pb-[calc(72px+env(safe-area-inset-bottom))] pt-6 md:px-8 md:pb-20">
       <RouterView v-slot="{ Component, route }">
         <Transition :css="false" :mode="transitionMode()" @enter="onEnter" @leave="onLeave">
           <component :is="Component" :key="route.path" />
         </Transition>
       </RouterView>
     </main>
+    <BottomNav />
   </div>
 </template>

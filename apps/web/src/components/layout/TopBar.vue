@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { LogOut, Moon, Settings, Sun } from "lucide-vue-next";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
@@ -26,17 +26,6 @@ const active = computed(() => route.name as string);
 const isActive = (name: string) =>
   name === "accounts" ? active.value === "accounts" || active.value === "account" : active.value === name;
 
-const clock = ref("");
-let timer: number | undefined;
-function tick() {
-  clock.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-}
-onMounted(() => {
-  tick();
-  timer = window.setInterval(tick, 1000);
-});
-onBeforeUnmount(() => window.clearInterval(timer));
-
 async function logout() {
   try {
     await api.logout();
@@ -58,11 +47,13 @@ async function logout() {
         </span>
         <span class="leading-none">
           <span class="display-title block text-[15px]">Yatori</span>
-          <span class="mt-1 block text-[12px] text-muted-foreground">刷课控制台</span>
+          <!-- 窄屏收起副标题，为状态区让位 -->
+          <span class="mt-1 hidden text-[12px] text-muted-foreground md:block">刷课控制台</span>
         </span>
       </RouterLink>
 
-      <nav class="ml-2 flex h-14 items-stretch gap-1">
+      <!-- 桌面端顶部导航；移动端由底部标签栏承接 -->
+      <nav class="ml-2 hidden h-14 items-stretch gap-1 md:flex">
         <RouterLink
           v-for="item in NAV"
           :key="item.name"
@@ -81,8 +72,6 @@ async function logout() {
       </nav>
 
       <div class="ml-auto flex items-center gap-2">
-        <span class="mono hidden text-[12.5px] text-muted-foreground sm:inline">{{ clock }}</span>
-        <span class="hidden h-3 w-px bg-border sm:block" />
         <GatewayBadge />
         <Button variant="ghost" size="icon" class="size-8 rounded-full" title="切换主题" @click="theme.toggle()">
           <Sun v-if="theme.dark" class="size-4" />

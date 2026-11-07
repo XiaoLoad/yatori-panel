@@ -487,32 +487,32 @@ const taskCourses = computed(() => {
             <span>{{ account?.username }}</span>
             <template v-if="account?.baseUrl">
               <span class="h-3 w-px bg-border" />
-              <span class="max-w-[420px] truncate">{{ account.baseUrl }}</span>
+              <span class="max-w-full truncate sm:max-w-[420px]">{{ account.baseUrl }}</span>
             </template>
             <template v-if="account?.proxyUrl">
               <span class="h-3 w-px bg-border" />
-              <span class="max-w-[260px] truncate">代理 {{ account.proxyUrl }}</span>
+              <span class="max-w-full truncate sm:max-w-[260px]">代理 {{ account.proxyUrl }}</span>
             </template>
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-1.5">
-          <Button v-if="runningJob" variant="outline" size="sm" class="h-8 gap-1 text-[13px]" :disabled="isPending(`stop:${runningJob.id}`)" @click="askStop">
+        <div class="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
+          <Button v-if="runningJob" variant="outline" size="sm" class="h-9 flex-1 gap-1 text-[13px] sm:h-8 sm:flex-none" :disabled="isPending(`stop:${runningJob.id}`)" @click="askStop">
             <Square class="size-3.5" />停止任务
           </Button>
-          <Button v-else size="sm" class="h-8 gap-1 text-[13px]" @click="startOpen = true">
+          <Button v-else size="sm" class="h-9 flex-1 gap-1 text-[13px] sm:h-8 sm:flex-none" @click="startOpen = true">
             <Play class="size-3.5" />开始任务
           </Button>
-          <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" title="自动复制账号密码后打开平台" @click="openPlatform">
+          <Button variant="outline" size="sm" class="h-9 flex-1 gap-1 text-[13px] sm:h-8 sm:flex-none" title="自动复制账号密码后打开平台" @click="openPlatform">
             <ExternalLink class="size-3.5" />打开平台并复制
           </Button>
-          <Button variant="outline" size="sm" class="h-8 gap-1 text-[13px]" :disabled="verifyMutation.isPending.value" @click="verifyMutation.mutate()">
+          <Button variant="outline" size="sm" class="h-9 flex-1 gap-1 text-[13px] sm:h-8 sm:flex-none" :disabled="verifyMutation.isPending.value" @click="verifyMutation.mutate()">
             <RefreshCw class="size-3.5" />检测登录
           </Button>
-          <span class="mx-1 h-4 w-px bg-border" />
-          <Button variant="ghost" size="sm" class="h-8 gap-1 text-[13px]" @click="addOpen = true">
+          <span class="mx-1 hidden h-4 w-px bg-border sm:block" />
+          <Button variant="ghost" size="sm" class="h-9 flex-1 gap-1 text-[13px] sm:h-8 sm:flex-none" @click="addOpen = true">
             <Pencil class="size-3.5" />编辑
           </Button>
-          <Button variant="ghost" size="sm" class="h-8 gap-1 text-[13px] text-muted-foreground hover:text-coral" :disabled="isPending(`remove:${props.uid}`)" @click="askRemove">
+          <Button variant="ghost" size="sm" class="h-9 flex-1 gap-1 text-[13px] text-muted-foreground hover:text-coral sm:h-8 sm:flex-none" :disabled="isPending(`remove:${props.uid}`)" @click="askRemove">
             <Trash2 class="size-3.5" />删除
           </Button>
         </div>
@@ -521,7 +521,7 @@ const taskCourses = computed(() => {
 
     <!-- 指挥台：账号档案 / 当前任务 / 实时事件 -->
     <section class="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_320px]">
-      <aside class="panel flex flex-col overflow-hidden">
+      <aside class="panel flex min-w-0 flex-col overflow-hidden">
         <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
           <UserRound class="size-4 text-muted-foreground" />
           <h2 class="text-[14px] font-semibold">账号档案</h2>
@@ -581,7 +581,7 @@ const taskCourses = computed(() => {
         </div>
       </aside>
 
-      <div class="panel flex flex-col p-4 md:p-5">
+      <div class="panel flex min-w-0 flex-col p-4 md:p-5">
         <div class="flex flex-wrap items-center gap-2">
           <Activity class="size-4 text-muted-foreground" />
           <h2 class="text-[14px] font-semibold">当前任务</h2>
@@ -641,7 +641,7 @@ const taskCourses = computed(() => {
         </div>
       </div>
 
-      <div class="panel flex min-h-0 flex-col overflow-hidden lg:col-span-2 xl:col-span-1">
+      <div class="panel flex min-h-0 min-w-0 flex-col overflow-hidden lg:col-span-2 xl:col-span-1">
         <div class="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
           <Radio class="size-4 text-muted-foreground" />
           <h2 class="text-[14px] font-semibold">实时事件</h2>
@@ -678,7 +678,13 @@ const taskCourses = computed(() => {
 
     <!-- 明细标签 -->
     <section class="panel overflow-hidden">
-      <div ref="tabButtonsRef" class="relative flex flex-wrap items-center gap-1 border-b border-border px-3">
+      <div
+        ref="tabButtonsRef"
+        :class="cn(
+          'relative flex flex-nowrap items-center gap-1 overflow-x-auto border-b border-border px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          'md:flex-wrap md:overflow-visible',
+        )"
+      >
         <button
           v-for="t in TABS"
           :key="t.key"
@@ -695,7 +701,7 @@ const taskCourses = computed(() => {
           class="pointer-events-none absolute bottom-0 h-0.5 rounded-full bg-primary transition-none"
           :style="{ left: sliderStyle.left, width: sliderStyle.width }"
         />
-        <div class="ml-auto flex items-center gap-1" v-if="tab === 'logs'">
+        <div class="ml-auto flex shrink-0 items-center gap-1" v-if="tab === 'logs'">
           <button
             v-for="l in [
               { key: 'all', label: '全部' },
@@ -833,7 +839,8 @@ const taskCourses = computed(() => {
           <div v-else-if="!(jobsQuery.data.value ?? []).length" class="px-4 py-12 text-center text-[13px] text-muted-foreground">
             还没有任务记录
           </div>
-          <div v-else class="overflow-x-auto">
+          <div v-else>
+            <!-- 桌面：网格表格 -->
             <div class="hidden min-w-[760px] grid-cols-[92px_minmax(0,1fr)_120px_96px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
               <span>状态</span>
               <span>开始时间</span>
@@ -843,7 +850,7 @@ const taskCourses = computed(() => {
             <div
               v-for="job in jobsQuery.data.value ?? []"
               :key="job.id"
-              class="grid min-w-[760px] grid-cols-[92px_minmax(0,1fr)_120px_96px] items-center gap-3 border-b border-border/60 px-4 py-2 text-[13px] last:border-b-0"
+              class="hidden min-w-[760px] grid-cols-[92px_minmax(0,1fr)_120px_96px] items-center gap-3 border-b border-border/60 px-4 py-2 text-[13px] last:border-b-0 md:grid"
             >
               <span
                 :class="cn(
@@ -862,6 +869,36 @@ const taskCourses = computed(() => {
               <span class="mono text-right text-[12.5px]">
                 {{ job.summary ? `视频 ${job.summary.videosCompleted} · 作业 ${job.summary.worksDone} · 考试 ${job.summary.examsDone}` : "—" }}
               </span>
+            </div>
+            <!-- 移动：状态卡片 -->
+            <div class="md:hidden">
+              <div
+                v-for="job in jobsQuery.data.value ?? []"
+                :key="job.id"
+                class="border-b border-border/60 px-4 py-2.5 last:border-b-0"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    :class="cn(
+                      'w-fit rounded px-1.5 py-0.5 text-[12.5px]',
+                      job.state === 'running'
+                        ? 'bg-primary/10 text-primary'
+                        : job.state === 'error'
+                          ? 'bg-coral/10 text-coral'
+                          : job.state === 'done'
+                            ? 'bg-mint/10 text-mint'
+                            : 'bg-muted text-muted-foreground',
+                    )"
+                  >{{ jobStateLabel(job.state) }}</span>
+                  <span class="mono ml-auto truncate text-[12px] text-muted-foreground">{{ startedAt(job) }}</span>
+                </div>
+                <div class="mono mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-muted-foreground">
+                  <span>耗时 {{ durationOf(job) }}</span>
+                  <span v-if="job.summary" class="min-w-0 break-all">
+                    视频 {{ job.summary.videosCompleted }} · 作业 {{ job.summary.worksDone }} · 考试 {{ job.summary.examsDone }}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -307,7 +307,7 @@ const needsInitialChange = computed(() => auth.authRequired && auth.initialPassw
           <Switch v-model="draft.ai.enabled" class="ml-auto" />
         </div>
         <div class="mt-3 grid gap-2.5" :class="draft.ai.enabled ? '' : 'opacity-50'">
-          <div class="grid grid-cols-2 gap-2.5">
+          <div class="grid gap-2.5 sm:grid-cols-2">
             <div class="grid gap-1">
               <Label class="text-[13px]">模型类型</Label>
               <Select v-model="aiTypeModel" :options="AI_TYPES" :disabled="!draft.ai.enabled" class="h-8 text-[13.5px]" />
@@ -367,7 +367,7 @@ const needsInitialChange = computed(() => auth.authRequired && auth.initialPassw
           <Switch v-model="draft.email.enabled" class="ml-auto" />
         </div>
         <div class="mt-3 grid gap-2.5" :class="draft.email.enabled ? '' : 'opacity-50'">
-          <div class="grid grid-cols-[1fr_88px] gap-2.5">
+          <div class="grid gap-2.5 sm:grid-cols-[1fr_88px]">
             <div class="grid gap-1">
               <Label class="text-[13px]">SMTP 服务器</Label>
               <Input v-model="draft.email.smtpHost" placeholder="smtp.qq.com" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
@@ -377,7 +377,7 @@ const needsInitialChange = computed(() => auth.authRequired && auth.initialPassw
               <Input v-model="emailPortModel" type="number" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-2.5">
+          <div class="grid gap-2.5 sm:grid-cols-2">
             <div class="grid gap-1">
               <Label class="text-[13px]">发件账号</Label>
               <Input v-model="draft.email.user" placeholder="xxx@qq.com" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
@@ -415,7 +415,7 @@ const needsInitialChange = computed(() => auth.authRequired && auth.initialPassw
             <p class="text-[13px] text-muted-foreground">提交节奏贴近真实播放可降低风控风险</p>
           </div>
         </div>
-        <div class="mt-3 grid grid-cols-2 gap-2.5">
+        <div class="mt-3 grid gap-2.5 sm:grid-cols-2">
           <div class="grid gap-1">
             <Label class="text-[13px]">学时提交间隔（秒）</Label>
             <Input v-model="tickModel" type="number" min="3" max="30" class="h-8 text-[13.5px]" />

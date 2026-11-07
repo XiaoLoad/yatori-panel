@@ -204,7 +204,7 @@ async function askDelete(s: ScheduleVO) {
           <span class="mono ml-auto text-[12px] text-muted-foreground">{{ activeCount }} 条生效 / {{ schedulesQuery.data.value?.length ?? 0 }}</span>
         </div>
 
-        <div class="mt-3 grid grid-cols-[132px_minmax(0,1fr)] gap-3">
+        <div class="grid grid-cols-[72px_minmax(0,1fr)] gap-2 sm:grid-cols-[132px_minmax(0,1fr)] sm:gap-3">
           <div />
           <div class="relative">
             <div class="flex justify-between border-b border-border pb-1">
@@ -215,11 +215,9 @@ async function askDelete(s: ScheduleVO) {
           </div>
 
           <template v-for="s in schedulesQuery.data.value" :key="s.id">
-            <div class="min-w-0 self-center">
-              <div class="truncate text-[13.5px]">{{ s.name || "未命名规则" }}</div>
-              <div class="mono truncate text-[12px] text-muted-foreground">
-                {{ s.scope === "all" ? "全部账号" : `${s.accountUids.length} 个账号` }} · {{ daysOf(s.cron) }}
-              </div>
+            <div class="self-center text-[13px] leading-tight">
+              <div class="truncate">{{ s.name || "未命名规则" }}</div>
+              <div class="mono truncate text-[11px] text-muted-foreground sm:hidden">{{ daysOf(s.cron) }}</div>
             </div>
             <div class="relative my-1 h-6 rounded-md border border-border/60 bg-panel-2/60">
               <div
@@ -228,8 +226,11 @@ async function askDelete(s: ScheduleVO) {
                 :style="barStyle(s)"
               >
                 <div class="absolute inset-y-0 left-0 w-px bg-mint" />
-                <span class="mono absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[11px] text-mint">
+                <span class="mono absolute left-1.5 top-1/2 hidden -translate-y-1/2 whitespace-nowrap text-[11px] text-mint sm:inline">
                   {{ timeOf(s.cron) }}<template v-if="s.endTime"> → {{ s.endTime }}</template>
+                </span>
+                <span class="mono absolute left-1.5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] text-mint sm:hidden">
+                  {{ timeOf(s.cron) }}<template v-if="s.endTime">→{{ s.endTime.slice(0, 2) }}:{{ s.endTime.slice(3) }}</template>
                 </span>
               </div>
             </div>
@@ -242,9 +243,9 @@ async function askDelete(s: ScheduleVO) {
         <div
           v-for="s in schedulesQuery.data.value"
           :key="s.id"
-          class="panel flex flex-wrap items-center gap-3 px-4 py-3"
+          class="panel flex flex-wrap items-center gap-x-3 gap-y-2.5 px-3.5 py-3 sm:px-4"
         >
-          <div class="grid size-9 shrink-0 place-items-center rounded-xl border border-border bg-panel-2 text-primary">
+          <div class="grid size-8 shrink-0 place-items-center rounded-xl border border-border bg-panel-2 text-primary sm:size-9">
             <AlarmClock class="size-4" />
           </div>
           <div class="min-w-0 flex-1">
@@ -275,19 +276,19 @@ async function askDelete(s: ScheduleVO) {
               </template>
             </div>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex w-full items-center justify-end gap-2 sm:w-auto">
             <Switch :model-value="s.enabled" :disabled="isPending(`toggle:${s.id}`) || isPending(`delete:${s.id}`)" @update:model-value="askToggle(s)" />
             <Button
               variant="ghost"
               size="icon"
-              class="size-7 text-muted-foreground hover:text-foreground"
+              class="size-9 text-muted-foreground hover:text-foreground sm:size-7"
               :disabled="isPending(`delete:${s.id}`) || isPending(`toggle:${s.id}`)"
               @click="openEdit(s)"
             ><Pencil class="size-3.5" /></Button>
             <Button
               variant="ghost"
               size="icon"
-              class="size-7 text-muted-foreground hover:text-coral"
+              class="size-9 text-muted-foreground hover:text-coral sm:size-7"
               :disabled="isPending(`delete:${s.id}`) || isPending(`toggle:${s.id}`)"
               @click="askDelete(s)"
             ><Trash2 class="size-3.5" /></Button>

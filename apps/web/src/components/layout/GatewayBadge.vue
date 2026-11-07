@@ -57,13 +57,14 @@ onBeforeUnmount(() => document.removeEventListener("click", onClickOutside));
       @click="open = !open"
     >
       <span class="size-1.5 rounded-full" :class="gs?.up ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'" />
-      网关{{ gs?.up ? "在线" : "离线" }}
+      <!-- 窄屏只留状态字，省出品牌区空间 -->
+      <span class="hidden sm:inline">网关</span>{{ gs?.up ? "在线" : "离线" }}
     </button>
 
     <!-- 诊断面板 -->
     <div
       v-if="open"
-      class="absolute end-0 top-9 z-50 w-80 rounded-lg border bg-popover p-4 text-popover-foreground shadow-lg"
+      class="absolute end-0 top-9 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-4 text-popover-foreground shadow-lg"
     >
       <p class="text-sm font-semibold">网关诊断</p>
       <template v-if="gs?.up">

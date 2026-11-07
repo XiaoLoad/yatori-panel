@@ -20,6 +20,7 @@ export function createQuerySync(queryClient: QueryClient) {
         // 任务开始/结束/暂停：任务列表、台账、账号状态全部依赖它
         void queryClient.invalidateQueries({ queryKey: ["jobs"] });
         void queryClient.invalidateQueries({ queryKey: ["jobs-page"] });
+        void queryClient.invalidateQueries({ queryKey: ["jobs-history-infinite"] });
         void queryClient.invalidateQueries({ queryKey: ["accounts"] });
         void queryClient.invalidateQueries({ queryKey: ["running-jobs"] });
         break;
@@ -35,6 +36,7 @@ export function createQuerySync(queryClient: QueryClient) {
       case "log":
         // 全站日志页有服务端分页查询，日志事件到达时刷新
         void queryClient.invalidateQueries({ queryKey: ["logs-page"] });
+        void queryClient.invalidateQueries({ queryKey: ["logs-infinite"] });
         break;
       case "gateway.status":
         void queryClient.invalidateQueries({ queryKey: ["gateway"] });
