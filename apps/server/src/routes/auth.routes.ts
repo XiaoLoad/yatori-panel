@@ -13,48 +13,56 @@ import {
   verifyPassword,
   verifySession,
 } from "../db/auth.ts";
+import { now, sqlite } from "../db/index.ts";
 import { env } from "../env.ts";
 import { HttpError } from "../errors.ts";
 
-// ---------- 登录防爆破（内存级，单机部署足够） ----------
+// ---------- 登录防爆破（落库，重启不清零） ----------
 // 同一 IP 连续失败 MAX_FAILURES 次后锁定 LOCKOUT_MS；成功登录即清零。
-// 进程重启计数清零：重启本身就中断了爆破节奏，内存方案换取零外部依赖。
+// 计数持久化到 login_throttle 表（schema v5）：攻击者可通过反复触发面板重启
+// （例如容器崩溃循环）清空内存计数绕过锁定，落库后锁定期跨重启仍然生效。
 const MAX_FAILURES = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
-
-interface FailureRecord {
-  count: number;
-  lockedUntil: number;
-}
-
-const failures = new Map<string, FailureRecord>();
 
 function clientIp(req: FastifyRequest): string {
   // trustProxy 开启时 Fastify 已解析 X-Forwarded-For；否则直连取 socket 地址
   return req.ip || "unknown";
 }
 
+interface ThrottleRow {
+  ip: string;
+  fail_count: number;
+  locked_until: number;
+}
+
 function loginGate(req: FastifyRequest): void {
-  const rec = failures.get(clientIp(req));
-  if (rec && rec.lockedUntil > Date.now()) {
-    const minutes = Math.ceil((rec.lockedUntil - Date.now()) / 60_000);
+  const rec = sqlite
+    .prepare(`SELECT ip, fail_count, locked_until FROM login_throttle WHERE ip = ?`)
+    .get(clientIp(req)) as ThrottleRow | undefined;
+  if (rec && rec.locked_until > Date.now()) {
+    const minutes = Math.ceil((rec.locked_until - Date.now()) / 60_000);
     throw new HttpError(429, `失败次数过多，请 ${minutes} 分钟后重试`);
   }
 }
 
 function recordLoginFailure(req: FastifyRequest): void {
   const ip = clientIp(req);
-  const rec = failures.get(ip) ?? { count: 0, lockedUntil: 0 };
-  rec.count += 1;
-  if (rec.count >= MAX_FAILURES) {
-    rec.lockedUntil = Date.now() + LOCKOUT_MS;
-    rec.count = 0;
-  }
-  failures.set(ip, rec);
+  const rec = sqlite
+    .prepare(`SELECT ip, fail_count, locked_until FROM login_throttle WHERE ip = ?`)
+    .get(ip) as ThrottleRow | undefined;
+  const count = (rec?.fail_count ?? 0) + 1;
+  const lockedUntil = count >= MAX_FAILURES ? Date.now() + LOCKOUT_MS : 0;
+  sqlite
+    .prepare(
+      `INSERT INTO login_throttle (ip, fail_count, locked_until, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(ip) DO UPDATE SET fail_count = excluded.fail_count,
+         locked_until = excluded.locked_until, updated_at = excluded.updated_at`,
+    )
+    .run(ip, lockedUntil ? 0 : count, lockedUntil, now());
 }
 
 function recordLoginSuccess(req: FastifyRequest): void {
-  failures.delete(clientIp(req));
+  sqlite.prepare(`DELETE FROM login_throttle WHERE ip = ?`).run(clientIp(req));
 }
 
 /** 会话 cookie 属性：secure 由环境变量控制（HTTP 部署必须关闭，否则浏览器拒绝回传） */
