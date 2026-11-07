@@ -6,6 +6,7 @@ import { registerAuthRoutes } from "./auth.routes.ts";
 import { registerBaseRoutes } from "./base.routes.ts";
 import { registerCourseRoutes } from "./courses.routes.ts";
 import { registerEventRoutes } from "./events.routes.ts";
+import { registerGroupRoutes } from "./groups.routes.ts";
 import { registerJobRoutes } from "./jobs.routes.ts";
 import { registerScheduleRoutes } from "./schedules.routes.ts";
 
@@ -17,6 +18,7 @@ export function registerRoutes(app: FastifyInstance): void {
   registerBaseRoutes(app);
   registerAuthRoutes(app);
   registerAccountRoutes(app);
+  registerGroupRoutes(app);
   registerCourseRoutes(app);
   registerScheduleRoutes(app);
   registerJobRoutes(app);

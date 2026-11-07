@@ -122,9 +122,11 @@ export interface CreateAccountResult extends AccountVO {
 }
 
 import type {
+  AccountGroupVO,
   AccountVO,
   BatchStartJobBody,
   BatchStartResult,
+  CreateAccountGroupBody,
   CreateScheduleBody,
   ScheduleVO,
   CreateAccountBody,
@@ -139,6 +141,7 @@ import type {
   Settings,
   StartJobBody,
   UpdateAccountBody,
+  UpdateAccountGroupBody,
 } from "@yatori/shared";
 import { del, get, post, put } from "./client";
 
@@ -267,6 +270,12 @@ export const api = {
   updateSchedule: (id: string, body: CreateScheduleBody) => put<ScheduleVO>(`/schedules/${id}`, body),
   deleteSchedule: (id: string) => del<void>(`/schedules/${id}`),
   toggleSchedule: (id: string) => post<{ enabled: boolean }>(`/schedules/${id}/toggle`),
+
+  accountGroups: (opts?: GetOpts) => get<AccountGroupVO[]>("/account-groups", undefined, opts),
+  createAccountGroup: (body: CreateAccountGroupBody) => post<AccountGroupVO>("/account-groups", body),
+  updateAccountGroup: (id: string, body: UpdateAccountGroupBody) =>
+    put<AccountGroupVO>(`/account-groups/${id}`, body),
+  deleteAccountGroup: (id: string) => del<void>(`/account-groups/${id}`),
   preflight: (body: {
     source: "ai" | "bank";
     ai?: { type: string; url: string; model: string; apiKey: string };

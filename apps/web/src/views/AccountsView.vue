@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, ChevronDown, ChevronRight, Plus, Search, SquarePlay, Users } from "lucide-vue-next";
+import { AlarmClock, ChevronDown, ChevronRight, FolderPlus, Plus, Search, SquarePlay, Users, X } from "lucide-vue-next";
 import { computed, nextTick, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import { accountDisplayLabel, siteTagsFor, type JobEvent, type JobVO, type ScheduleVO } from "@yatori/shared";
+import { accountDisplayLabel, siteTagsFor, type AccountGroupVO, type JobEvent, type JobVO, type ScheduleVO } from "@yatori/shared";
 import type { AccountWithSession } from "@/api/resources";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import AddAccountDialog from "@/components/account/AddAccountDialog.vue";
 import StartJobDialog from "@/components/account/StartJobDialog.vue";
 import ScheduleDialog from "@/components/account/ScheduleDialog.vue";
@@ -40,6 +41,7 @@ const schedulesQuery = useQuery({
   queryFn: () => api.schedules({ silent: true }),
   refetchInterval: 30_000,
 });
+const groupsQuery = useQuery({ queryKey: ["account-groups"], queryFn: () => api.accountGroups() });
 
 const runningByAccount = computed<Record<string, JobVO>>(() => {
   const map: Record<string, JobVO> = {};
@@ -94,12 +96,19 @@ const counts = computed(() => {
 const platformFilter = ref("all");
 const statusFilter = ref<"all" | "running" | "online" | "error" | "idle">("all");
 const search = ref("");
+/** 自定义分组筛选：null = 不按分组过滤；组内账号被删后自动跳过缺失 uid */
+const groupFilterId = ref<string | null>(null);
+const activeGroup = computed(() =>
+  groupFilterId.value ? (groupsQuery.data.value ?? []).find((g) => g.id === groupFilterId.value) ?? null : null,
+);
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
+  const groupUids = activeGroup.value ? new Set(activeGroup.value.accountUids) : null;
   const order = (platformsQuery.data.value ?? []).map((p) => p.key);
   return [...(accountsQuery.data.value ?? [])]
     .filter((a) => {
+      if (groupUids && !groupUids.has(a.uid)) return false;
       if (platformFilter.value !== "all" && a.platform !== platformFilter.value) return false;
       if (statusFilter.value !== "all" && statusOf(a) !== statusFilter.value) return false;
       if (!q) return true;
@@ -331,6 +340,68 @@ async function stopSelected() {
     runPending(`stop:${job.id}`, () => stopMutation.mutateAsync(job.id));
   }
 }
+
+// ---------- 自定义分组：筛选、保存所选、删除组 ----------
+const saveGroupOpen = ref(false);
+const saveGroupName = ref("");
+/** 编辑目标：null = 新建分组；否则把当前所选并入该组 */
+const saveGroupTarget = ref<AccountGroupVO | null>(null);
+
+function openSaveGroup() {
+  if (!selectedUids.value.length) return;
+  saveGroupTarget.value = null;
+  saveGroupName.value = "";
+  saveGroupOpen.value = true;
+}
+
+/** 选中账号相对分组的增量：组内没有的并入，组内多出的保留（不做移除，移除在编辑组时处理） */
+const groupDelta = computed(() => {
+  const g = saveGroupTarget.value;
+  if (!g) return { add: selectedUids.value.length, keep: 0 };
+  const inGroup = new Set(g.accountUids);
+  return {
+    add: selectedUids.value.filter((u) => !inGroup.has(u)).length,
+    keep: g.accountUids.length,
+  };
+});
+
+const saveGroupMutation = useMutation({
+  mutationFn: () => {
+    const name = saveGroupName.value.trim();
+    if (saveGroupTarget.value) {
+      // 并入已有组：合并去重，保持原有顺序、新账号追加尾部
+      const merged = [...new Set([...saveGroupTarget.value.accountUids, ...selectedUids.value])];
+      return api.updateAccountGroup(saveGroupTarget.value.id, { name, accountUids: merged });
+    }
+    return api.createAccountGroup({ name, accountUids: [...selectedUids.value] });
+  },
+  onSuccess: (g) => {
+    toast.success(saveGroupTarget.value ? `已并入分组「${g.name}」` : `分组「${g.name}」已创建`);
+    void queryClient.invalidateQueries({ queryKey: ["account-groups"] });
+    saveGroupOpen.value = false;
+  },
+  onError: (err) => toastError(err, "保存分组失败"),
+});
+
+const deleteGroupMutation = useMutation({
+  mutationFn: (id: string) => api.deleteAccountGroup(id),
+  onSuccess: () => {
+    toast.success("分组已删除（组内账号不受影响）");
+    void queryClient.invalidateQueries({ queryKey: ["account-groups"] });
+    if (groupFilterId.value) groupFilterId.value = null;
+  },
+  onError: (err) => toastError(err, "删除分组失败"),
+});
+
+async function askDeleteGroup(g: AccountGroupVO) {
+  const ok = await confirmAction({
+    title: `删除分组「${g.name}」？`,
+    description: `仅删除该分组（${g.accountUids.length} 个账号的归属关系），账号本身与任务记录不受影响。`,
+    confirmText: "删除分组",
+    tone: "danger",
+  });
+  if (ok) deleteGroupMutation.mutate(g.id);
+}
 </script>
 
 <template>
@@ -395,6 +466,34 @@ async function stopSelected() {
           class="rounded-md border border-border px-2 py-1 text-[13px] text-muted-foreground"
           @click="statusFilter = 'all'"
         >重置</button>
+      </div>
+
+      <!-- 自定义分组筛选行：仅存在分组时显示 -->
+      <div v-if="(groupsQuery.data.value ?? []).length" class="flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2">
+        <span class="mr-0.5 inline-flex items-center gap-1 text-[12px] text-muted-foreground"><Users class="size-3.5" />分组</span>
+        <button
+          :class="cn('rounded-md border px-2.5 py-1 text-[13px] transition-colors', groupFilterId === null ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:text-foreground')"
+          @click="groupFilterId = null"
+        >全部账号</button>
+        <div
+          v-for="g in groupsQuery.data.value ?? []"
+          :key="g.id"
+          :class="cn(
+            'group/chip inline-flex items-center rounded-md border transition-colors',
+            groupFilterId === g.id ? 'border-primary/40 bg-primary/10' : 'border-border',
+          )"
+        >
+          <button
+            class="pl-2.5 pr-1 py-1 text-[13px]"
+            :class="groupFilterId === g.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'"
+            @click="groupFilterId = groupFilterId === g.id ? null : g.id"
+          >{{ g.name }} {{ g.accountUids.length }}</button>
+          <button
+            class="grid size-5 place-items-center rounded text-muted-foreground/50 transition-colors hover:text-coral"
+            :title="`删除分组「${g.name}」`"
+            @click="askDeleteGroup(g)"
+          ><X class="size-3" /></button>
+        </div>
       </div>
 
       <div v-if="accountsQuery.isLoading.value" class="space-y-2 p-4">
@@ -760,6 +859,9 @@ async function stopSelected() {
           <SquarePlay class="size-3.5" />发起任务
         </Button>
         <Button variant="outline" size="sm" class="h-7 text-[13px]" @click="scheduleOpen = true; schedulePreselect = selectedUids">设定定时</Button>
+        <Button variant="outline" size="sm" class="h-7 gap-1 text-[13px]" title="把所选账号保存为一个自定义分组" @click="openSaveGroup">
+          <FolderPlus class="size-3.5" />存为分组
+        </Button>
         <Button variant="outline" size="sm" class="h-7 text-[13px]" :disabled="stopMutation.isPending.value" @click="stopSelected">停止</Button>
         <Button variant="ghost" size="sm" class="h-7 text-[13px]" @click="selectedUids = []">取消</Button>
       </div>
@@ -776,5 +878,52 @@ async function stopSelected() {
       :accounts="(accountsQuery.data.value ?? [])"
       :preselected="schedulePreselect"
     />
+
+    <!-- 存为分组：新建命名或并入已有分组 -->
+    <Dialog :open="saveGroupOpen" class="sm:max-w-md" @update:open="saveGroupOpen = $event">
+      <DialogHeader>
+        <DialogTitle>存为分组</DialogTitle>
+        <DialogDescription>把所选 {{ selectedUids.length }} 个账号保存为分组，之后可一键筛选与批量操作</DialogDescription>
+      </DialogHeader>
+      <DialogBody class="grid gap-3.5">
+        <div class="grid gap-1.5">
+          <Label>分组名称</Label>
+          <Input
+            v-model="saveGroupName"
+            placeholder="如：2025 秋季班"
+            maxlength="30"
+            @keydown.enter="saveGroupName.trim() && saveGroupMutation.mutate()"
+          />
+        </div>
+        <div v-if="(groupsQuery.data.value ?? []).length" class="grid gap-1.5">
+          <Label>或并入已有分组</Label>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="g in groupsQuery.data.value ?? []"
+              :key="g.id"
+              :class="cn(
+                'rounded-md border px-2.5 py-1 text-[13px] transition-colors',
+                saveGroupTarget?.id === g.id
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )"
+              @click="saveGroupTarget = saveGroupTarget?.id === g.id ? null : g"
+            >
+              {{ g.name }}（{{ g.accountUids.length }}）
+            </button>
+          </div>
+          <p v-if="saveGroupTarget" class="text-[12px] text-muted-foreground">
+            将把所选 {{ groupDelta.add }} 个新账号并入「{{ saveGroupTarget.name }}」，组内原有 {{ groupDelta.keep }} 个账号保留
+          </p>
+        </div>
+      </DialogBody>
+      <DialogFooter>
+        <Button variant="outline" @click="saveGroupOpen = false">取消</Button>
+        <Button
+          :disabled="!saveGroupName.trim() || saveGroupMutation.isPending.value"
+          @click="saveGroupMutation.mutate()"
+        >{{ saveGroupMutation.isPending.value ? "保存中…" : saveGroupTarget ? "并入分组" : "创建分组" }}</Button>
+      </DialogFooter>
+    </Dialog>
   </div>
 </template>

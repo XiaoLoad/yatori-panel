@@ -10,6 +10,7 @@ import {
   updateAccount,
 } from "../db/accounts.ts";
 import { gateway } from "../gateway.ts";
+import { removeAccountFromGroups } from "../db/groups.ts";
 import { HttpError } from "../errors.ts";
 import { dropSession, ensureSession, getSessionId, getSessionState } from "../sessions.ts";
 import { jobManager } from "../jobs/manager.ts";
@@ -144,6 +145,7 @@ export function registerAccountRoutes(app: FastifyInstance): void {
     await dropSession(uid);
     const affected = deleteAccount(uid);
     for (const schedule of affected.changedSchedules) registerSchedule(schedule);
+    removeAccountFromGroups(uid);
     return { ok: true };
   });
 

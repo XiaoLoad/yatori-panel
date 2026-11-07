@@ -62,6 +62,28 @@ export const UpdateAccountBody = z.object({
 });
 export type UpdateAccountBody = z.infer<typeof UpdateAccountBody>;
 
+// ---------- 账号分组（服务端持久化，跨设备同步） ----------
+
+export interface AccountGroupVO {
+  id: string;
+  name: string;
+  /** 组内账号 uid 列表，保持加入顺序 */
+  accountUids: string[];
+  createdAt: string;
+}
+
+export const CreateAccountGroupBody = z.object({
+  name: z.string({ required_error: "分组名不能为空" }).trim().min(1, "分组名不能为空").max(30, "分组名最长 30 字"),
+  accountUids: z.array(z.string()).default([]),
+});
+export type CreateAccountGroupBody = z.infer<typeof CreateAccountGroupBody>;
+
+export const UpdateAccountGroupBody = z.object({
+  name: z.string().trim().min(1, "分组名不能为空").max(30, "分组名最长 30 字").optional(),
+  accountUids: z.array(z.string()).optional(),
+});
+export type UpdateAccountGroupBody = z.infer<typeof UpdateAccountGroupBody>;
+
 // ---------- 账号展示身份（人 → 站点） ----------
 
 function urlHost(baseUrl: string | null | undefined): string {
