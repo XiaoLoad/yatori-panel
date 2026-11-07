@@ -4,12 +4,18 @@ import {
   authRequired,
   issueSession,
   isGeneratedPassword,
+  listSessions,
   passwordPolicyError,
+  registerSession,
   revokeAllSessions,
+  revokeOtherSessions,
+  revokeSession,
+  sessionIdOf,
   SESSION_COOKIE,
   clearPassword,
   setPassword,
   touchAuthStamp,
+  touchSessionSeen,
   verifyPassword,
   verifySession,
 } from "../db/auth.ts";
@@ -106,14 +112,43 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     recordLoginSuccess(req);
     const { token, expires } = issueSession();
     reply.setCookie(SESSION_COOKIE, token, sessionCookie(expires));
+    // 登记到会话注册表：供「已登录设备」列表展示与单设备下线
+    registerSession(token, { ip: clientIp(req), userAgent: req.headers["user-agent"] });
     // 初始密码是系统生成的随机串：登录即证明持有凭据，提示立即换成自己的密码
     return { ok: true, data: { mustChangePassword: isGeneratedPassword() } };
   });
 
-  app.post("/api/v1/auth/logout", async (_req, reply) => {
-    revokeAllSessions();
+  app.post("/api/v1/auth/logout", async (req, reply) => {
+    // 仅下线当前设备：吊销本会话并清 cookie；全设备下线走「修改密码」
+    const token = req.cookies[SESSION_COOKIE];
+    if (token && verifySession(token)) {
+      revokeSession(sessionIdOf(token));
+    }
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return { ok: true };
+  });
+
+  // 已登录设备列表（含本机标注），供设置页会话管理展示
+  app.get("/api/v1/auth/sessions", async (req) => {
+    return { ok: true, data: listSessions(req.cookies[SESSION_COOKIE]) };
+  });
+
+  // 单设备下线：吊销指定会话；下线自己时同步清 cookie
+  app.delete("/api/v1/auth/sessions/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const token = req.cookies[SESSION_COOKIE];
+    const ok = revokeSession(id);
+    if (!ok) throw new HttpError(404, "会话不存在或已下线");
+    if (token && sessionIdOf(token) === id) {
+      reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    }
+    return { ok: true };
+  });
+
+  // 一键下线其他设备：保留当前会话
+  app.post("/api/v1/auth/sessions/revoke-others", async (req, reply) => {
+    const count = revokeOtherSessions(req.cookies[SESSION_COOKIE]);
+    return { ok: true, data: { revoked: count } };
   });
 
   // 关闭访问锁：吊销全部会话并清除密码（需要当前已登录）。

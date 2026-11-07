@@ -117,6 +117,17 @@ export interface AccountCredentials {
   entryUrl: string;
 }
 
+/** 面板登录会话（已登录设备）；id 为 token 哈希，不含敏感原文 */
+export interface LoginSessionVO {
+  id: string;
+  ip: string;
+  userAgent: string;
+  createdAt: string;
+  expiresAt: string;
+  lastSeenAt: string;
+  current?: boolean;
+}
+
 export interface CreateAccountResult extends AccountVO {
   verify?: VerifyResult;
 }
@@ -165,6 +176,10 @@ export const api = {
   setPassword: (newPassword: string, oldPassword?: string) =>
     put<void>("/auth/password", { newPassword, oldPassword }),
   disablePassword: () => del<void>("/auth/password"),
+
+  loginSessions: () => get<LoginSessionVO[]>("/auth/sessions"),
+  revokeSession: (id: string) => del<void>(`/auth/sessions/${id}`),
+  revokeOtherSessions: () => post<{ revoked: number }>("/auth/sessions/revoke-others"),
 
   accounts: (opts?: GetOpts) => get<AccountWithSession[]>("/accounts", undefined, opts),
   createAccount: (body: CreateAccountBody) =>

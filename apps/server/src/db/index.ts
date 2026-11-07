@@ -129,7 +129,7 @@ function setSchemaVersion(v: number): void {
     .run(String(v));
 }
 
-const LATEST_SCHEMA_VERSION = 6;
+const LATEST_SCHEMA_VERSION = 7;
 const currentVersion = schemaVersion();
 if (currentVersion > LATEST_SCHEMA_VERSION) {
   throw new Error(
@@ -227,6 +227,24 @@ try {
       );
     `);
     setSchemaVersion(6);
+  }
+
+  // v7：面板登录会话注册表——token 仍为 HMAC 无状态格式，落表只为
+  // 可枚举（已登录设备列表）与可单独吊销；id 存 token 的 sha256，不存原文
+  if (currentVersion < 7) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS login_sessions (
+        id           TEXT PRIMARY KEY,
+        ip           TEXT NOT NULL DEFAULT '',
+        user_agent   TEXT NOT NULL DEFAULT '',
+        created_at   TEXT NOT NULL,
+        expires_at   TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        revoked      INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_login_sessions_expires ON login_sessions(expires_at);
+    `);
+    setSchemaVersion(7);
   }
   sqlite.exec("COMMIT");
 } catch (err) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { Ban, BrainCircuit, ChevronDown, ChevronUp, Database, Gauge, Lock, Mail, RotateCcw, Save, ScrollText, TriangleAlert } from "lucide-vue-next";
+import { Ban, BrainCircuit, ChevronDown, ChevronUp, Database, Gauge, Lock, LogOut, Mail, MonitorSmartphone, RotateCcw, Save, ScrollText, TriangleAlert } from "lucide-vue-next";
 import { computed, markRaw, reactive, ref, watch } from "vue";
 import { toast } from "vue-sonner";
 import type { Settings } from "@yatori/shared";
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { confirmAction } from "@/lib/confirm";
+import { toastError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 const queryClient = useQueryClient();
@@ -290,6 +291,84 @@ async function askDisable() {
 
 /** 初始密码未更换：显示引导提示 */
 const needsInitialChange = computed(() => auth.authRequired && auth.initialPassword);
+
+// ---------- 已登录设备（会话管理） ----------
+const sessionsQuery = useQuery({
+  queryKey: ["auth-sessions"],
+  queryFn: api.loginSessions,
+  enabled: computed(() => auth.authRequired),
+});
+
+function uaSummary(ua: string): string {
+  if (!ua) return "未知设备";
+  // 粗提浏览器与系统：Chrome/Edge/Firefox/Safari + Windows/macOS/Android/iOS
+  const browser =
+    /Edg\//.test(ua) ? "Edge" :
+    /OPR\//.test(ua) ? "Opera" :
+    /Chrome\//.test(ua) ? "Chrome" :
+    /Firefox\//.test(ua) ? "Firefox" :
+    /Safari\//.test(ua) ? "Safari" : "浏览器";
+  const os =
+    /Windows/.test(ua) ? "Windows" :
+    /Android/.test(ua) ? "Android" :
+    /iPhone|iPad/.test(ua) ? "iOS" :
+    /Mac OS X/.test(ua) ? "macOS" :
+    /Linux/.test(ua) ? "Linux" : "";
+  return [browser, os].filter(Boolean).join(" · ");
+}
+
+function formatTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "—";
+  return new Date(t).toLocaleString("zh-CN", { hour12: false });
+}
+
+const revokeMutation = useMutation({
+  mutationFn: (id: string) => api.revokeSession(id),
+  onSuccess: () => {
+    toast.success("设备已下线");
+    void queryClient.invalidateQueries({ queryKey: ["auth-sessions"] });
+    // 下线自己时 401 会由全局拦截处理跳登录页，无需额外跳转
+  },
+  onError: (err) => toastError(err, "下线失败"),
+});
+
+async function askRevoke(id: string, current: boolean) {
+  const ok = await confirmAction({
+    title: current ? "下线当前设备？" : "下线该设备？",
+    description: current
+      ? "下线后本设备的登录状态立即失效，需要重新输入密码登录。"
+      : "该设备的登录状态将立即失效，下次访问需重新输入密码。",
+    confirmText: "下线",
+    tone: "danger",
+  });
+  if (ok) revokeMutation.mutate(id);
+}
+
+const revokeOthersMutation = useMutation({
+  mutationFn: () => api.revokeOtherSessions(),
+  onSuccess: (r) => {
+    toast.success(r.revoked ? `已下线 ${r.revoked} 台其他设备` : "没有其他在线设备");
+    void queryClient.invalidateQueries({ queryKey: ["auth-sessions"] });
+  },
+  onError: (err) => toastError(err, "批量下线失败"),
+});
+
+async function askRevokeOthers() {
+  const list = sessionsQuery.data.value ?? [];
+  const others = list.filter((s) => !s.current).length;
+  if (!others) {
+    toast.info("当前只有本机一个在线设备");
+    return;
+  }
+  const ok = await confirmAction({
+    title: `下线其他 ${others} 台设备？`,
+    description: "除当前浏览器外，所有已登录设备将被强制退出，需要重新输入密码。",
+    confirmText: "全部下线",
+    tone: "danger",
+  });
+  if (ok) revokeOthersMutation.mutate();
+}
 </script>
 
 <template>
@@ -580,6 +659,57 @@ const needsInitialChange = computed(() => auth.authRequired && auth.initialPassw
             >{{ auth.authRequired ? "修改访问密码" : "启用访问锁" }}</Button>
           </div>
         </form>
+
+        <!-- 已登录设备：会话枚举与单设备下线 -->
+        <div v-if="auth.authRequired" class="mt-3.5 rounded-lg border border-border bg-panel-2/50 p-3.5">
+          <div class="flex flex-wrap items-center gap-2">
+            <MonitorSmartphone class="size-4 text-muted-foreground" />
+            <span class="text-[13.5px] font-medium">已登录设备</span>
+            <span class="mono text-[12px] text-muted-foreground">{{ (sessionsQuery.data.value ?? []).length }} 台在线</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="ml-auto h-7 gap-1 text-[12.5px] text-muted-foreground hover:text-coral"
+              :disabled="revokeOthersMutation.isPending.value || (sessionsQuery.data.value ?? []).length <= 1"
+              @click="askRevokeOthers"
+            ><LogOut class="size-3.5" />下线其他设备</Button>
+          </div>
+          <div v-if="sessionsQuery.isLoading.value" class="mt-2.5 space-y-1.5">
+            <Skeleton v-for="i in 2" :key="i" class="h-10 w-full" />
+          </div>
+          <div v-else class="mt-2.5 divide-y divide-border/60">
+            <div
+              v-for="s in sessionsQuery.data.value ?? []"
+              :key="s.id"
+              class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0"
+            >
+              <span class="min-w-0 flex-1">
+                <span class="flex items-center gap-1.5 text-[13px]">
+                  <span class="truncate">{{ uaSummary(s.userAgent) }}</span>
+                  <span
+                    v-if="s.current"
+                    class="mono shrink-0 rounded-full border border-primary/30 bg-primary/10 px-1.5 text-[11px] leading-[17px] text-primary"
+                  >本机</span>
+                </span>
+                <span class="mono mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted-foreground">
+                  <span v-if="s.ip">{{ s.ip }}</span>
+                  <span>登录于 {{ formatTime(s.createdAt) }}</span>
+                  <span>活跃 {{ formatTime(s.lastSeenAt) }}</span>
+                </span>
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                :class="cn('h-7 text-[12.5px]', s.current && 'border-coral/30 text-coral hover:bg-coral/10')"
+                :disabled="revokeMutation.isPending.value"
+                @click="askRevoke(s.id, !!s.current)"
+              >{{ s.current ? "下线本机" : "下线" }}</Button>
+            </div>
+          </div>
+          <p class="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+            会话按登录设备记录；「退出登录」只下线当前浏览器，修改访问密码会强制所有设备重新登录。
+          </p>
+        </div>
       </section>
     </div>
 

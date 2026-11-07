@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { sqlite } from "./db/index.ts";
 import { pruneOldLogEvents, recoverStaleRunningJobs } from "./db/jobs.ts";
-import { authRequired, generateRandomPassword, SESSION_COOKIE, setPassword, touchAuthStamp, verifySession } from "./db/auth.ts";
+import { authRequired, generateRandomPassword, SESSION_COOKIE, setPassword, touchAuthStamp, touchSessionSeen, verifySession } from "./db/auth.ts";
 import { getSettings } from "./db/settings.ts";
 import { env } from "./env.ts";
 import { gateway } from "./gateway.ts";
@@ -41,9 +41,12 @@ async function main(): Promise<void> {
     if (!url.startsWith("/api/")) return;
     if (PUBLIC_APIS.has(url)) return;
     if (!authRequired()) return;
-    if (!verifySession(req.cookies[SESSION_COOKIE])) {
+    const token = req.cookies[SESSION_COOKIE];
+    if (!verifySession(token)) {
       return reply.code(401).send({ ok: false, error: "未登录或会话已过期" });
     }
+    // 会话最近活跃时间：内存聚合 60s 落一次库，供设备列表展示
+    if (token) touchSessionSeen(token);
   });
 
   registerRoutes(app);
