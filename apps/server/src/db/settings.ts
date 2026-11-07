@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxAccountsConcurrency: 3,
   maxCoursesConcurrency: 3,
   logLevel: "info",
+  logRetentionDays: 30,
 };
 
 export function getSettings(): Settings {
@@ -29,6 +30,7 @@ export function getSettings(): Settings {
     maxCoursesConcurrency:
       parsed.maxCoursesConcurrency ?? DEFAULT_SETTINGS.maxCoursesConcurrency,
     logLevel: parsed.logLevel ?? DEFAULT_SETTINGS.logLevel,
+    logRetentionDays: parsed.logRetentionDays ?? DEFAULT_SETTINGS.logRetentionDays,
   };
 }
 

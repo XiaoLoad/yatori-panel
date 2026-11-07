@@ -491,6 +491,8 @@ export const SettingsSchema = z.object({
   maxCoursesConcurrency: z.number().int().min(1).max(5).default(3),
   /** 日志输出档位（最低级别），debug 表示全部 */
   logLevel: DisplayLogLevelSchema,
+  /** 日志自动保留天数：超出后启动清理时删除，7 天内强制保护 */
+  logRetentionDays: z.number().int().min(7).max(365).default(30),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 export const UpdateSettingsBody = SettingsSchema;

@@ -28,6 +28,7 @@ const draft = reactive<Settings>({
   maxAccountsConcurrency: 3,
   maxCoursesConcurrency: 3,
   logLevel: "info",
+  logRetentionDays: 30,
 });
 const loaded = ref(false);
 
@@ -41,6 +42,7 @@ function syncFromServer(data: Settings) {
   draft.maxAccountsConcurrency = snap.maxAccountsConcurrency;
   draft.maxCoursesConcurrency = snap.maxCoursesConcurrency;
   draft.logLevel = snap.logLevel;
+  draft.logRetentionDays = snap.logRetentionDays;
 }
 
 // immediate 必开：再次进入设置页时 TanStack Query 命中缓存且结构共享会让
@@ -78,6 +80,7 @@ const LABELS: Record<string, string> = {
   maxAccountsConcurrency: "最大并发账号数",
   maxCoursesConcurrency: "单账号课程并发数",
   logLevel: "日志输出档位",
+  logRetentionDays: "日志保留天数",
   "email.enabled": "邮箱通知开关",
   "email.smtpHost": "SMTP 服务器",
   "email.smtpPort": "SMTP 端口",
@@ -101,6 +104,7 @@ function flatten(s: Settings): Record<string, string | number | boolean> {
     maxAccountsConcurrency: s.maxAccountsConcurrency,
     maxCoursesConcurrency: s.maxCoursesConcurrency,
     logLevel: s.logLevel,
+    logRetentionDays: s.logRetentionDays,
     "email.enabled": s.email.enabled,
     "email.smtpHost": s.email.smtpHost,
     "email.smtpPort": s.email.smtpPort,
@@ -112,8 +116,8 @@ function flatten(s: Settings): Record<string, string | number | boolean> {
 
 /** 明细面板按配置分组展示，避免一长串平铺 */
 const GROUPS = [
-  { key: "run", label: "运行参数", icon: markRaw(Gauge), match: (k: string) => !k.includes(".") && k !== "logLevel" },
-  { key: "log", label: "日志输出", icon: markRaw(ScrollText), match: (k: string) => k === "logLevel" },
+  { key: "run", label: "运行参数", icon: markRaw(Gauge), match: (k: string) => !k.includes(".") && k !== "logLevel" && k !== "logRetentionDays" },
+  { key: "log", label: "日志输出", icon: markRaw(ScrollText), match: (k: string) => k === "logLevel" || k === "logRetentionDays" },
   { key: "ai", label: "AI 答题", icon: markRaw(BrainCircuit), match: (k: string) => k.startsWith("ai.") },
   { key: "bank", label: "外置题库", icon: markRaw(Database), match: (k: string) => k.startsWith("questionBank.") },
   { key: "email", label: "邮箱通知", icon: markRaw(Mail), match: (k: string) => k.startsWith("email.") },
@@ -218,6 +222,13 @@ const emailPortModel = computed({
   set: (v: string) => {
     const n = Number(v);
     draft.email.smtpPort = Math.min(65535, Math.max(1, Number.isFinite(n) ? n : 465));
+  },
+});
+const logRetentionModel = computed({
+  get: () => String(draft.logRetentionDays),
+  set: (v: string) => {
+    const n = Number(v);
+    draft.logRetentionDays = Math.min(365, Math.max(7, Number.isFinite(n) ? Math.round(n) : 30));
   },
 });
 
@@ -466,8 +477,12 @@ const needsInitialChange = computed(() => auth.authRequired && auth.initialPassw
               class="h-8 text-[13.5px]"
             />
           </div>
+          <div class="grid w-64 gap-1.5">
+            <Label class="text-[13px]">保留天数（7-365）</Label>
+            <Input v-model="logRetentionModel" type="number" min="7" max="365" class="h-8 text-[13.5px]" />
+          </div>
           <p class="max-w-xl pb-1 text-[12px] leading-relaxed text-muted-foreground">
-            调整后立即生效；已打开的页面会在下一次刷新时应用。日志仍会完整落库，不受显示档位影响。
+            调整后立即生效；已打开的页面会在下一次刷新时应用。日志仍会完整落库，不受显示档位影响；超出保留天数的日志在服务重启或清理周期时删除（近 7 天强制保护）。
           </p>
         </div>
       </section>
