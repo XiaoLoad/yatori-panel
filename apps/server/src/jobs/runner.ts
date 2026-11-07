@@ -847,6 +847,13 @@ export async function runJob(
   ): Promise<void> {
     await waitIfPaused();
     if (stopRequested()) return;
+    // 平台侧已完结的课程整门跳过：对齐 console「Progress == 100 → break」。
+    // status 由 SDK 按课程学习进度/结课时间归一化（finished = 学完或已结课），
+    // 不写 doneCourses，避免把结课未刷完的课误计入"已完成"统计。
+    if (course.status === "finished") {
+      emitLog("info", `跳过已完结课程：${course.name}（平台进度 ${Math.round(course.progress)}%）`);
+      return;
+    }
     emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name, ...jobOverview() });
     const tree = await withSession((s) => gateway.tree(s, course.id, { signal }));
     const nodes = flattenNodes(tree);

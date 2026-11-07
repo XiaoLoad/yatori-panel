@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -427,13 +428,14 @@ func (g *gateway) handleTree(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotFound, "session not found")
 		return
 	}
+	courseID := r.PathValue("courseId")
 	tree, err := func() ([]yatori.Node, error) {
 		ctx, cancel := sdkCtx(r, sdkTimeout)
 		defer cancel()
 		if err := se.ensureCoursesWarmed(ctx); err != nil {
 			return nil, err
 		}
-		return se.client.Tree(ctx, yatori.Course{ID: r.PathValue("courseId")})
+		return se.client.Tree(ctx, yatori.Course{ID: courseID})
 	}()
 	if err != nil {
 		fail(w, mapStatus(err), err.Error())
@@ -443,7 +445,62 @@ func (g *gateway) handleTree(w http.ResponseWriter, r *http.Request) {
 	for _, n := range tree {
 		nodes = append(nodes, dtoNode(n))
 	}
+	// 英华：SDK 会话内缓存章节树（跨任务复用会话时是旧快照），
+	// 返回前用平台侧最新观看记录刷新进度，已刷完的节点得以被上层跳过。
+	if se.info.Platform == string(yatori.YingHua) && se.baseURL != "" && se.token != "" {
+		refreshYinghuaTreeProgress(r.Context(), se, courseID, nodes)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": nodes})
+}
+
+// refreshYinghuaTreeProgress 用观看记录接口的实时进度覆盖树节点的
+// progress / completed / viewedSeconds。记录拉取失败时静默降级——
+// 保持 SDK 缓存值，仅损失"跳过已完成"的准确性，不阻塞任务。
+func refreshYinghuaTreeProgress(ctx context.Context, se *session, courseID string, nodes []nodeDTO) {
+	records, err := fetchYinghuaRecords(ctx, se, courseID)
+	if err != nil {
+		se.logs.logf("warn", "观看记录刷新失败，沿用会话缓存进度：%v", err)
+		return
+	}
+	var walk func(list []nodeDTO) (int, int)
+	walk = func(list []nodeDTO) (int, int) {
+		fresh, skipped := 0, 0
+		for i := range list {
+			n := &list[i]
+			if len(n.Children) > 0 {
+				cf, cs := walk(n.Children)
+				fresh += cf
+				skipped += cs
+			}
+			rec, hit := records[n.ID]
+			if !hit {
+				continue
+			}
+			// 仅刷新视频节点；文档等其他类型节点无观看记录语义
+			if n.Kind != string(yatori.NodeVideo) && n.Extra["tabVideo"] != "true" {
+				continue
+			}
+			if n.Completed && rec.Progress < 100 {
+				// 本地缓存已标完成而平台未到 100：以上一轮任务提交结果为准，不动
+				skipped++
+				continue
+			}
+			viewed := strconv.Itoa(rec.ViewedDuration)
+			n.Progress = rec.Progress
+			n.Completed = rec.Progress >= 100
+			if n.Extra == nil {
+				n.Extra = map[string]string{}
+			}
+			n.Extra["viewedSeconds"] = viewed
+			n.Extra["progress"] = strconv.FormatFloat(rec.Progress, 'f', -1, 64)
+			fresh++
+		}
+		return fresh, skipped
+	}
+	fresh, _ := walk(nodes)
+	if fresh > 0 {
+		se.logs.logf("info", "已从平台观看记录刷新 %d 个节点的实时进度", fresh)
+	}
 }
 
 func (g *gateway) handleWorks(w http.ResponseWriter, r *http.Request) {
