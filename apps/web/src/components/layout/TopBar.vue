@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LogOut, Moon, Settings, Sun } from "lucide-vue-next";
+import { LogOut, MonitorSmartphone, Moon, Settings, Sun } from "lucide-vue-next";
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
@@ -73,8 +73,17 @@ async function logout() {
 
       <div class="ml-auto flex items-center gap-2">
         <GatewayBadge />
-        <Button variant="ghost" size="icon" class="size-8 rounded-full" title="切换主题" @click="theme.toggle()">
-          <Sun v-if="theme.dark" class="size-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          class="size-8 rounded-full"
+          :title="`主题：${
+            theme.mode === 'auto' ? '跟随系统' : theme.mode === 'light' ? '明亮' : '暗色'
+          }（点击切换）`"
+          @click="theme.cycle()"
+        >
+          <MonitorSmartphone v-if="theme.mode === 'auto'" class="size-4" />
+          <Sun v-else-if="theme.mode === 'light'" class="size-4" />
           <Moon v-else class="size-4" />
         </Button>
         <RouterLink
