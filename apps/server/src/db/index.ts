@@ -129,7 +129,7 @@ function setSchemaVersion(v: number): void {
     .run(String(v));
 }
 
-const LATEST_SCHEMA_VERSION = 5;
+const LATEST_SCHEMA_VERSION = 6;
 const currentVersion = schemaVersion();
 if (currentVersion > LATEST_SCHEMA_VERSION) {
   throw new Error(
@@ -214,6 +214,19 @@ try {
       );
     `);
     setSchemaVersion(5);
+  }
+
+  // v6：账号分组表——分组从前端聚合态转为服务端持久化，跨设备同步
+  if (currentVersion < 6) {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS account_groups (
+        id           TEXT PRIMARY KEY,
+        name         TEXT NOT NULL,
+        account_uids TEXT NOT NULL DEFAULT '[]',
+        created_at   TEXT NOT NULL
+      );
+    `);
+    setSchemaVersion(6);
   }
   sqlite.exec("COMMIT");
 } catch (err) {
