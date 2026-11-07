@@ -1,6 +1,7 @@
 import { bus } from "./bus.ts";
 import { env } from "./env.ts";
 import { gateway, GatewayError, gatewayAuthHeaders } from "./gateway.ts";
+import { maybeRespawnGateway } from "./gateway-supervisor.ts";
 
 /**
  * 网关状态机：后台心跳探测，状态变化经 SSE 广播。
@@ -93,6 +94,8 @@ function applyResult(r: { up: boolean; detail: GatewayDetail }): GatewayStatusEv
       detail: state.detail,
       message: up ? "网关已恢复在线" : describeDetail(state.detail),
     });
+    // 判定离线后交给自愈监督器：本地 sidecar 部署时自动拉起网关进程
+    if (!up) maybeRespawnGateway();
   }
   return snapshot();
 }
