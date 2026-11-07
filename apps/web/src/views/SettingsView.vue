@@ -413,7 +413,7 @@ async function askRevokeOthers() {
           </div>
           <div class="grid gap-1">
             <Label class="text-[13px]">API Key</Label>
-            <Input v-model="draft.ai.apiKey" type="password" placeholder="sk-..." autocomplete="off" :disabled="!draft.ai.enabled" class="h-8 text-[13.5px]" />
+            <Input v-model="draft.ai.apiKey" masked placeholder="sk-..." autocomplete="off" :disabled="!draft.ai.enabled" class="h-8 text-[13.5px]" />
           </div>
           <Button variant="outline" size="sm" class="h-7 w-fit text-[13.5px]" :disabled="aiTestMutation.isPending.value || !draft.ai.apiKey" @click="aiTestMutation.mutate()">
             {{ aiTestMutation.isPending.value ? "测试中…" : "测试连接" }}
@@ -438,7 +438,7 @@ async function askRevokeOthers() {
           </div>
           <div class="grid gap-1">
             <Label class="text-[13px]">访问密钥（多随 URL 携带，可留空）</Label>
-            <Input v-model="draft.questionBank.key" type="password" autocomplete="off" placeholder="留空即可" :disabled="!draft.questionBank.enabled" class="h-8 text-[13.5px]" />
+            <Input v-model="draft.questionBank.key" masked autocomplete="off" placeholder="留空即可" :disabled="!draft.questionBank.enabled" class="h-8 text-[13.5px]" />
           </div>
           <Button variant="outline" size="sm" class="h-7 w-fit text-[13.5px]" :disabled="bankTestMutation.isPending.value || !draft.questionBank.url" @click="bankTestMutation.mutate()">
             {{ bankTestMutation.isPending.value ? "测试中…" : "测试连接" }}
@@ -474,7 +474,7 @@ async function askRevokeOthers() {
             </div>
             <div class="grid gap-1">
               <Label class="text-[13px]">密码 / 授权码</Label>
-              <Input v-model="draft.email.pass" type="password" autocomplete="off" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
+              <Input v-model="draft.email.pass" masked autocomplete="off" :disabled="!draft.email.enabled" class="h-8 text-[13.5px]" />
             </div>
           </div>
           <div class="grid gap-1">
