@@ -18,9 +18,12 @@ import { jobManager } from "../jobs/manager.ts";
 import { registerSchedule } from "../scheduler.ts";
 import { parse } from "./shared.ts";
 import {
+  BatchDeleteAccountsBody,
   CreateAccountBody,
   UpdateAccountBody,
+  type BatchDeleteAccountsResult,
   type CourseSummaryVO,
+  type ScheduleVO,
 } from "../shared.ts";
 
 /** 部分平台账号未填 baseUrl 时的默认网页入口 */
@@ -242,5 +245,37 @@ export function registerAccountRoutes(app: FastifyInstance): void {
       }),
     );
     return { ok: true, data };
+  });
+
+  // 批量删除：逐个复用单删逻辑（停止任务→清会话→清分组→重注册定时），单账号失败不中断其余
+  app.post("/api/v1/accounts/batch-delete", async (req) => {
+    const body = parse<BatchDeleteAccountsBody>(req.body, BatchDeleteAccountsBody);
+    const deleted: string[] = [];
+    const failed: { uid: string; error: string }[] = [];
+    const changedSchedules: ScheduleVO[] = [];
+    for (const uid of body.uids) {
+      try {
+        if (!getAccount(uid)) {
+          failed.push({ uid, error: "账号不存在" });
+          continue;
+        }
+        jobManager.stopByAccount(uid);
+        await dropSession(uid);
+        const affected = deleteAccount(uid);
+        changedSchedules.push(...affected.changedSchedules);
+        removeAccountFromGroups(uid);
+        deleted.push(uid);
+      } catch (err) {
+        failed.push({ uid, error: (err as Error).message });
+      }
+    }
+    // 同一规则被多条删除命中时只重注册一次
+    const seen = new Set<string>();
+    for (const schedule of changedSchedules) {
+      if (seen.has(schedule.id)) continue;
+      seen.add(schedule.id);
+      registerSchedule(schedule);
+    }
+    return { ok: true, data: { deleted, failed } satisfies BatchDeleteAccountsResult };
   });
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
-import { AlarmClock, ChevronDown, ChevronRight, FolderPlus, Plus, Search, SquarePlay, Users, X } from "lucide-vue-next";
+import { AlarmClock, ChevronDown, ChevronRight, FolderPlus, Plus, Search, SquarePlay, Trash2, Users, X } from "lucide-vue-next";
 import { computed, nextTick, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
@@ -337,6 +337,70 @@ const verifyMutation = useMutation({
   },
   onError: (err) => toastError(err, "登录检测失败"),
 });
+
+// ---------- 删除账号（行内单个 + 批量） ----------
+/** 当前删除确认目标：仅用于 pending 标记（isPending(`delete:${uid}`)） */
+const deleteTarget = ref("");
+const deleteMutation = useMutation({
+  mutationFn: (uid: string) => api.deleteAccount(uid),
+  onSuccess: () => {
+    toast.success("账号已删除");
+    selectedUids.value = selectedUids.value.filter((u) => u !== deleteTarget.value);
+    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    void queryClient.invalidateQueries({ queryKey: ["account-groups"] });
+    void queryClient.invalidateQueries({ queryKey: ["schedules"] });
+    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  },
+  onError: (err) => toastError(err, "删除账号失败"),
+});
+
+async function askDelete(account: AccountWithSession) {
+  deleteTarget.value = account.uid;
+  const label = account.remark || account.username;
+  const running = !!runningByAccount.value[account.uid];
+  const ok = await confirmAction({
+    title: `删除账号「${label}」？`,
+    description: running
+      ? "该账号有运行中的任务，删除后将立即停止任务；账号、分组归属与定时引用一并清除，该操作不可撤销。"
+      : "账号及其分组归属、定时引用将一并清除，该操作不可撤销。",
+    confirmText: "删除账号",
+    tone: "danger",
+  });
+  deleteTarget.value = "";
+  if (ok) runPending(`delete:${account.uid}`, () => deleteMutation.mutateAsync(account.uid));
+}
+
+const batchDeleteMutation = useMutation({
+  mutationFn: (uids: string[]) => api.batchDeleteAccounts(uids),
+  onSuccess: (r) => {
+    if (r.failed.length > 0) {
+      toast.warning(`已删除 ${r.deleted.length} 个，${r.failed.length} 个失败：${r.failed[0]?.error ?? ""}`);
+    } else {
+      toast.success(`已删除 ${r.deleted.length} 个账号`);
+    }
+    selectedUids.value = [];
+    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    void queryClient.invalidateQueries({ queryKey: ["account-groups"] });
+    void queryClient.invalidateQueries({ queryKey: ["schedules"] });
+    void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+  },
+  onError: (err) => toastError(err, "批量删除失败"),
+});
+
+async function deleteSelected() {
+  if (!selectedUids.value.length) return;
+  const n = selectedUids.value.length;
+  const runningCount = selectedRunning.value.length;
+  const ok = await confirmAction({
+    title: `删除所选 ${n} 个账号？`,
+    description: runningCount > 0
+      ? `其中 ${runningCount} 个账号有运行中的任务，删除后将立即停止；账号、分组归属与定时引用一并清除，该操作不可撤销。`
+      : "账号及其分组归属、定时引用将一并清除，该操作不可撤销。",
+    confirmText: `删除 ${n} 个账号`,
+    tone: "danger",
+  });
+  if (ok) batchDeleteMutation.mutate([...selectedUids.value]);
+}
 
 async function askStop(account: AccountWithSession) {
   const job = runningByAccount.value[account.uid];
@@ -734,6 +798,14 @@ async function askDeleteGroup(g: AccountGroupVO) {
                 :disabled="verifyMutation.isPending.value"
                 @click="verifyMutation.mutate(account.uid)"
               >检测</button>
+              <button
+                class="rounded px-1.5 py-1 text-[12.5px] text-muted-foreground hover:text-coral disabled:opacity-40"
+                title="删除账号"
+                :disabled="isPending(`delete:${account.uid}`)"
+                @click="askDelete(account)"
+              >
+                <Trash2 class="size-3.5" />
+              </button>
               <RouterLink :to="`/accounts/${account.uid}`" class="inline-flex items-center rounded px-1 py-1 text-[12.5px] text-muted-foreground hover:text-primary">
                 <ChevronRight class="size-3.5" />
               </RouterLink>
@@ -867,6 +939,14 @@ async function askDeleteGroup(g: AccountGroupVO) {
                         :disabled="verifyMutation.isPending.value"
                         @click="verifyMutation.mutate(account.uid)"
                       >检测</button>
+                      <button
+                        class="grid h-9 w-9 place-items-center rounded-md text-muted-foreground transition-colors hover:text-coral disabled:opacity-40"
+                        title="删除账号"
+                        :disabled="isPending(`delete:${account.uid}`)"
+                        @click="askDelete(account)"
+                      >
+                        <Trash2 class="size-4" />
+                      </button>
                       <RouterLink
                         :to="`/accounts/${account.uid}`"
                         class="grid h-9 w-9 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
@@ -900,6 +980,9 @@ async function askDeleteGroup(g: AccountGroupVO) {
           <FolderPlus class="size-3.5" />存为分组
         </Button>
         <Button variant="outline" size="sm" class="h-7 text-[13px]" :disabled="stopMutation.isPending.value" @click="stopSelected">停止</Button>
+        <Button variant="outline" size="sm" class="h-7 gap-1 text-[13px] hover:border-coral/40 hover:text-coral" :disabled="batchDeleteMutation.isPending.value" @click="deleteSelected">
+          <Trash2 class="size-3.5" />删除
+        </Button>
         <Button variant="ghost" size="sm" class="h-7 text-[13px]" @click="selectedUids = []">取消</Button>
       </div>
     </div>

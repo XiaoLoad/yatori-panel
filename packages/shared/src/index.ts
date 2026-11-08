@@ -75,6 +75,21 @@ export interface CourseSummaryVO {
   avgProgress: number;
 }
 
+export const BatchDeleteAccountsBody = z.object({
+  uids: z
+    .array(
+      z.string({ required_error: "请选择账号", invalid_type_error: "请选择账号" }).min(1, "缺少账号 ID"),
+    )
+    .min(1, "请至少选择一个账号")
+    .max(50, "单次最多删除 50 个账号"),
+});
+export type BatchDeleteAccountsBody = z.infer<typeof BatchDeleteAccountsBody>;
+
+export interface BatchDeleteAccountsResult {
+  deleted: string[];
+  failed: { uid: string; error: string }[];
+}
+
 // ---------- 账号分组（服务端持久化，跨设备同步） ----------
 
 export interface AccountGroupVO {

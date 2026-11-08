@@ -135,6 +135,7 @@ export interface CreateAccountResult extends AccountVO {
 import type {
   AccountGroupVO,
   AccountVO,
+  BatchDeleteAccountsResult,
   BatchStartJobBody,
   BatchStartResult,
   CreateAccountGroupBody,
@@ -192,6 +193,9 @@ export const api = {
   updateAccount: (uid: string, body: UpdateAccountBody) =>
     put<void>(`/accounts/${uid}`, body),
   deleteAccount: (uid: string) => del<void>(`/accounts/${uid}`),
+  /** 批量删除：单账号失败不中断其余，返回逐个结果 */
+  batchDeleteAccounts: (uids: string[]) =>
+    post<BatchDeleteAccountsResult>("/accounts/batch-delete", { uids }),
   /** 课程完成度汇总：并发拉各账号平台课程列表聚合，账号页展示"课程 x/y · 已刷完" */
   coursesSummary: (uids: string[]) =>
     post<CourseSummaryVO[]>("/accounts/courses-summary", { uids }),
