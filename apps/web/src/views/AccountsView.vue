@@ -710,13 +710,15 @@ async function askDeleteGroup(g: AccountGroupVO) {
                   <span v-if="!group.ambiguous" class="mono shrink-0 rounded border border-border px-1 text-[11.5px] leading-[17px] text-muted-foreground">{{ platformName[account.platform] ?? account.platform }}</span>
                   <span v-if="!account.enabled" class="shrink-0 rounded bg-muted px-1 text-[11.5px] leading-[17px] text-muted-foreground">已停用</span>
                 </div>
-                <!-- 分组内站点行以站点为区分：站点标签独占第二行，姓名占满第一行 -->
+                <!-- 分组内站点行以站点为区分：站点标签独占第二行，姓名占满第一行；
+                     标签可收缩截断（title 有完整域名），课程检查文案不换行优先展示 -->
                 <div class="mono mt-1 flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground">
-                  <span v-if="group.ambiguous" class="max-w-[150px] shrink-0 truncate rounded border border-primary/25 bg-primary/10 px-1.5 text-[11px] leading-[18px] text-primary" :title="group.siteTags.get(account.uid)">{{ group.siteTags.get(account.uid) }}</span>
+                  <span v-if="group.ambiguous" class="min-w-0 max-w-[150px] truncate rounded border border-primary/25 bg-primary/10 px-1.5 text-[11px] leading-[18px] text-primary" :title="group.siteTags.get(account.uid)">{{ group.siteTags.get(account.uid) }}</span>
                   <span v-else class="truncate">{{ account.username }}</span>
                   <template v-if="courseSummaryOf(account)">
                     <span class="h-3 w-px shrink-0 bg-border" />
                     <span
+                      class="shrink-0 whitespace-nowrap"
                       :title="summaryQuery.isFetching.value ? '正在从平台刷新课程状态…' : undefined"
                       :class="courseSummaryOf(account)!.done ? 'text-mint' : courseSummaryOf(account)!.failed ? 'text-coral/80' : ''"
                     >{{ courseSummaryOf(account)!.text }}</span>
