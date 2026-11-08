@@ -847,10 +847,12 @@ export async function runJob(
   ): Promise<void> {
     await waitIfPaused();
     if (stopRequested()) return;
-    // 平台侧已完结的课程整门跳过：对齐 console「Progress == 100 → break」。
-    // status 由 SDK 按课程学习进度/结课时间归一化（finished = 学完或已结课），
-    // 不写 doneCourses，避免把结课未刷完的课误计入"已完成"统计。
-    if (course.status === "finished") {
+    // 平台侧已完结的课程（finished = 学时刷满或已结课）不再刷视频，
+    // 但学时刷满不代表作业/考试已完成：开启答题来源时仍逐节点检查作业/考试；
+    // 关闭答题来源时没有可做的事，整门跳过（对齐 console「Progress == 100 → break」）。
+    // finished 课程不写 doneCourses，避免把结课未刷完的课误计入"已完成"统计。
+    const finished = course.status === "finished";
+    if (finished && options.answerSource === "off") {
       emitLog("info", `跳过已完结课程：${course.name}（平台进度 ${Math.round(course.progress)}%）`);
       return;
     }
@@ -858,6 +860,18 @@ export async function runJob(
     const tree = await withSession((s) => gateway.tree(s, course.id, { signal }));
     const nodes = flattenNodes(tree);
     nodesByCourse.set(course.id, nodes);
+    if (finished) {
+      emitLog(
+        "info",
+        `课程已完结：${course.name}（平台进度 ${Math.round(course.progress)}%），跳过视频，仅检查作业/考试`,
+      );
+      for (const n of nodes) {
+        if (stopRequested()) return;
+        await runNodeTasks(course, n, tasks);
+      }
+      emitLog("info", `课程结束：${course.name}`);
+      return;
+    }
     emit({ type: "task.progress", phase: "video", courseId: course.id, courseName: course.name, ...jobOverview() });
     const videoCount = nodes.filter(isVideoNode).length;
     const mode = options.videoMode;
