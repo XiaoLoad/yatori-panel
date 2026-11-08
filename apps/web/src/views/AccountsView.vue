@@ -603,7 +603,7 @@ async function askDeleteGroup(g: AccountGroupVO) {
       <div v-else>
         <!-- 桌面表格形态（≥md）：列网格 -->
         <div class="hidden overflow-x-auto md:block">
-          <div class="hidden min-w-[1060px] grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px] items-center gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
+          <div class="hidden min-w-[1076px] grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px] items-center gap-4 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
             <Checkbox :model-value="allVisibleSelected" @update:model-value="toggleAll" />
             <span>账号 / 平台</span>
             <span>状态</span>
@@ -622,7 +622,7 @@ async function askDeleteGroup(g: AccountGroupVO) {
               <!-- 分组头：同一同学号的多个站点收敛为一行摘要 -->
               <div
                 v-if="group.ambiguous"
-                class="grid min-w-[1060px] cursor-pointer select-none grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 transition-colors"
+                class="grid min-w-[1076px] cursor-pointer select-none grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-4 px-4 py-2.5 transition-colors"
                 :class="expandedGroups.has(group.key) ? 'bg-panel-2/60' : 'hover:bg-accent/50'"
                 @click="toggleGroup(group.key)"
               >
@@ -681,14 +681,14 @@ async function askDeleteGroup(g: AccountGroupVO) {
               <Transition :css="false" @enter="onGroupEnter" @leave="onGroupLeave">
                 <div
                   v-if="!group.ambiguous || expandedGroups.has(group.key)"
-                  class="relative min-w-[1060px]"
+                  class="relative min-w-[1076px]"
                   :class="group.ambiguous && 'bg-panel-2/45 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-primary/20'"
                 >
                   <div
                     v-for="account in group.accounts"
                     :key="account.uid"
                     :class="cn(
-                      'group grid min-w-[1060px] cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors',
+                      'group grid min-w-[1076px] cursor-pointer items-center gap-4 px-4 py-2.5 transition-colors',
                       'grid-cols-[24px_minmax(200px,1.1fr)_92px_minmax(0,1.5fr)_150px_128px_132px_168px]',
                       group.ambiguous && 'border-t border-border/50',
                       selectedUids.includes(account.uid) ? 'bg-primary/5' : 'hover:bg-accent/60',
