@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { parse as parseYaml } from "yaml";
+import { z } from "zod";
 import {
   countAccountsByPlatform,
   deleteAccount,
@@ -16,7 +17,11 @@ import { dropSession, ensureSession, getSessionId, getSessionState } from "../se
 import { jobManager } from "../jobs/manager.ts";
 import { registerSchedule } from "../scheduler.ts";
 import { parse } from "./shared.ts";
-import { CreateAccountBody, UpdateAccountBody } from "../shared.ts";
+import {
+  CreateAccountBody,
+  UpdateAccountBody,
+  type CourseSummaryVO,
+} from "../shared.ts";
 
 /** 部分平台账号未填 baseUrl 时的默认网页入口 */
 const PLATFORM_ENTRY: Record<string, string> = {
@@ -196,5 +201,46 @@ export function registerAccountRoutes(app: FastifyInstance): void {
       }
     }
     return { ok: true, data: result };
+  });
+
+  // 课程完成度汇总：并发拉取各账号的平台课程列表并聚合。
+  // 供账号列表页展示"课程 x/y · 已刷完"，单账号失败不影响其他账号。
+  app.post("/api/v1/accounts/courses-summary", async (req) => {
+    const body = parse(
+      req.body,
+      z.object({
+        uids: z.array(z.string()).min(1, "请至少选择一个账号").max(200, "单次最多查询 200 个账号"),
+      }),
+    );
+    const all = listAccounts();
+    const byUid = new Map(all.map((a) => [a.uid, a]));
+    const data = await Promise.all(
+      body.uids.map(async (uid): Promise<CourseSummaryVO> => {
+        const account = byUid.get(uid);
+        if (!account) return { accountUid: uid, ok: false, error: "账号不存在", courseCount: 0, finishedCount: 0, avgProgress: 0 };
+        try {
+          // listAccounts 不带密码，ensureSession 需要完整凭据，按 uid 补取
+          const full = getAccount(uid)!;
+          const sid = await ensureSession(full);
+          const courses = await gateway.courses(sid);
+          const finishedCount = courses.filter((c) => c.status === "finished").length;
+          const avgProgress =
+            courses.length > 0
+              ? courses.reduce((s, c) => s + Math.min(100, Math.max(0, c.progress)), 0) / courses.length
+              : 0;
+          return { accountUid: uid, ok: true, courseCount: courses.length, finishedCount, avgProgress };
+        } catch (err) {
+          return {
+            accountUid: uid,
+            ok: false,
+            error: (err as Error).message,
+            courseCount: 0,
+            finishedCount: 0,
+            avgProgress: 0,
+          };
+        }
+      }),
+    );
+    return { ok: true, data };
   });
 }

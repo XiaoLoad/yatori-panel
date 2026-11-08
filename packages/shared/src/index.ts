@@ -62,6 +62,19 @@ export const UpdateAccountBody = z.object({
 });
 export type UpdateAccountBody = z.infer<typeof UpdateAccountBody>;
 
+/** 账号课程完成度汇总（数据来自平台课程列表，非任务快照） */
+export interface CourseSummaryVO {
+  accountUid: string;
+  ok: boolean;
+  /** ok=false 时的失败原因（登录失效、网关不可达等） */
+  error?: string;
+  courseCount: number;
+  /** 平台侧已完结（学时刷满或已结课）的课程数 */
+  finishedCount: number;
+  /** 全部课程平均进度（0-100） */
+  avgProgress: number;
+}
+
 // ---------- 账号分组（服务端持久化，跨设备同步） ----------
 
 export interface AccountGroupVO {

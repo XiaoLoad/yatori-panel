@@ -4,7 +4,7 @@ import { AlarmClock, ChevronDown, ChevronRight, FolderPlus, Plus, Search, Square
 import { computed, nextTick, ref } from "vue";
 import { RouterLink, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
-import { accountDisplayLabel, siteTagsFor, type AccountGroupVO, type JobEvent, type JobVO, type ScheduleVO } from "@yatori/shared";
+import { accountDisplayLabel, siteTagsFor, type AccountGroupVO, type CourseSummaryVO, type JobEvent, type JobVO, type ScheduleVO } from "@yatori/shared";
 import type { AccountWithSession } from "@/api/resources";
 import { api } from "@/api/resources";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,35 @@ const schedulesQuery = useQuery({
   refetchInterval: 30_000,
 });
 const groupsQuery = useQuery({ queryKey: ["account-groups"], queryFn: () => api.accountGroups() });
+
+// ---------- 课程完成度汇总（平台侧权威数据，非任务快照） ----------
+/** 汇总数据指纹：uids 变化时换 key 重新拉取，长缓存避免反复请求平台 */
+const summaryUids = computed(() =>
+  (accountsQuery.data.value ?? []).map((a) => a.uid).join(","),
+);
+const summaryQuery = useQuery({
+  queryKey: computed(() => ["courses-summary", summaryUids.value]),
+  queryFn: () => api.coursesSummary((accountsQuery.data.value ?? []).map((a) => a.uid)),
+  enabled: computed(() => (accountsQuery.data.value?.length ?? 0) > 0),
+  staleTime: 5 * 60_000,
+  refetchOnWindowFocus: false,
+});
+const summaryByAccount = computed<Record<string, CourseSummaryVO>>(() => {
+  const map: Record<string, CourseSummaryVO> = {};
+  for (const s of summaryQuery.data.value ?? []) map[s.accountUid] = s;
+  return map;
+});
+
+/** 课程完成度展示片段：全部完结 → 已刷完；有数据 → 课程 x/y；无数据/失败 → null */
+function courseSummaryOf(a: AccountWithSession): { text: string; done: boolean; failed: boolean } | null {
+  const s = summaryByAccount.value[a.uid];
+  if (!s) return null;
+  if (!s.ok) return { text: "课程获取失败", done: false, failed: true };
+  if (s.courseCount > 0 && s.finishedCount === s.courseCount) {
+    return { text: `已刷完 ${s.courseCount} 门`, done: true, failed: false };
+  }
+  return { text: `课程 ${s.finishedCount}/${s.courseCount} 完结`, done: false, failed: false };
+}
 
 const runningByAccount = computed<Record<string, JobVO>>(() => {
   const map: Record<string, JobVO> = {};
@@ -621,6 +650,13 @@ async function askDeleteGroup(g: AccountGroupVO) {
                 <div class="mono mt-1 flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground">
                   <span v-if="group.ambiguous" class="max-w-[150px] shrink-0 truncate rounded border border-primary/25 bg-primary/10 px-1.5 text-[11px] leading-[18px] text-primary" :title="group.siteTags.get(account.uid)">{{ group.siteTags.get(account.uid) }}</span>
                   <span v-else class="truncate">{{ account.username }}</span>
+                  <template v-if="courseSummaryOf(account)">
+                    <span class="h-3 w-px shrink-0 bg-border" />
+                    <span
+                      :title="summaryQuery.isFetching.value ? '正在从平台刷新课程状态…' : undefined"
+                      :class="courseSummaryOf(account)!.done ? 'text-mint' : courseSummaryOf(account)!.failed ? 'text-coral/80' : ''"
+                    >{{ courseSummaryOf(account)!.text }}</span>
+                  </template>
                 </div>
               </div>
             </div>
@@ -801,6 +837,7 @@ async function askDeleteGroup(g: AccountGroupVO) {
 
                     <!-- 元信息行 -->
                     <div class="mono mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-muted-foreground">
+                      <span v-if="courseSummaryOf(account)" :class="courseSummaryOf(account)!.done ? 'text-mint' : courseSummaryOf(account)!.failed ? 'text-coral/80' : ''">{{ courseSummaryOf(account)!.text }}</span>
                       <span v-if="scheduleWindow(scheduleByAccount[account.uid])">
                         定时 {{ scheduleWindow(scheduleByAccount[account.uid])?.time }}
                       </span>
