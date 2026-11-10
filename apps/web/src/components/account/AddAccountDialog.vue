@@ -97,16 +97,19 @@ function validate(): boolean {
 
 const saveMutation = useMutation({
   mutationFn: async () => {
-    const url = form.fields["url"] ?? "";
-    const username = form.fields["username"] ?? "";
+    const url = (form.fields["url"] ?? "").trim();
+    const username = (form.fields["username"] ?? "").trim();
+    // 密码原样提交：部分平台密码本身可能含首尾空格
     const password = form.fields["password"] ?? "";
+    const remark = form.remark.trim();
+    const proxyUrl = form.proxyUrl.trim();
     if (props.account) {
       await api.updateAccount(props.account.uid, {
         baseUrl: url,
         username,
         password: password || undefined,
-        remark: form.remark,
-        proxyUrl: form.proxyUrl,
+        remark,
+        proxyUrl,
       });
       return null;
     }
@@ -115,8 +118,8 @@ const saveMutation = useMutation({
       baseUrl: url,
       username,
       password,
-      remark: form.remark,
-      proxyUrl: form.proxyUrl,
+      remark,
+      proxyUrl,
       verify: form.verify,
     });
   },
@@ -223,6 +226,7 @@ function fieldModel(key: string) {
           <Input
             v-model="fieldModel(field.key).value"
             :masked="fieldTypes[field.key] === 'password'"
+            :trim="fieldTypes[field.key] !== 'password'"
             :placeholder="field.placeholder"
             autocomplete="off"
           />
