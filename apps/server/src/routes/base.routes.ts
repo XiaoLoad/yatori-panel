@@ -10,6 +10,7 @@ import { refreshGatewayStatus, snapshot } from "../gateway-status.ts";
 import { failureBreakdown, listJobs } from "../db/jobs.ts";
 import { getSessionId } from "../sessions.ts";
 import { env } from "../env.ts";
+import { tzOffsetMinutes, zonedDayStartIso, zonedParts } from "../timezone.ts";
 import { parse } from "./shared.ts";
 
 /** 基础与元信息：健康、平台、预检、设置、统计、仪表盘 */
@@ -74,28 +75,39 @@ export function registerBaseRoutes(app: FastifyInstance): void {
   });
 
   // ---------- 统计 ----------
+  // 按天聚合必须用配置时区的日历日：started_at 存的是 UTC ISO，
+  // 直接 substr 会把「北京时间凌晨 0-8 点」的任务算进前一天。
   app.get("/api/v1/stats/daily", async (req) => {
     const q = req.query as { days?: string };
     const days = Math.min(60, Math.max(7, Number(q.days) || 14));
+    const offset = tzOffsetMinutes();
+    // SQLite 的 date() 修饰符：把 UTC 时间整体平移到目标时区再取日期
+    const shift = `${offset >= 0 ? "+" : "-"}${Math.abs(offset)} minutes`;
+    const today = zonedParts(Date.now());
+    // 时间轴：时区内连续 days 天（含今天）
+    const dayKeys: string[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      dayKeys.push(new Date(Date.UTC(today.year, today.month - 1, today.day - i)).toISOString().slice(0, 10));
+    }
+    const first = dayKeys[0]!.split("-").map(Number);
+    const since = zonedDayStartIso(first[0]!, first[1]!, first[2]!);
     const rows = sqlite
       .prepare(
-        `SELECT substr(started_at, 1, 10) AS day,
+        `SELECT date(started_at, ?) AS day,
                 COUNT(*) AS jobs,
                 SUM(CASE WHEN state = 'error' THEN 1 ELSE 0 END) AS errors,
                 COALESCE(SUM(videos_completed), 0) AS videos
          FROM jobs
-         WHERE started_at >= datetime('now', ?)
+         WHERE started_at >= ?
          GROUP BY day ORDER BY day`,
       )
-      .all(`-${days - 1} days`) as { day: string; jobs: number; errors: number; videos: number }[];
+      .all(shift, since) as { day: string; jobs: number; errors: number; videos: number }[];
     // 补齐空缺日期，保证图表时间轴连续
     const byDay = new Map(rows.map((r) => [r.day, r]));
-    const out: { day: string; jobs: number; errors: number; videos: number }[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
-      const hit = byDay.get(d);
-      out.push({ day: d, jobs: hit?.jobs ?? 0, errors: hit?.errors ?? 0, videos: hit?.videos ?? 0 });
-    }
+    const out = dayKeys.map((day) => {
+      const hit = byDay.get(day);
+      return { day, jobs: hit?.jobs ?? 0, errors: hit?.errors ?? 0, videos: hit?.videos ?? 0 };
+    });
     return { ok: true, data: out };
   });
 
