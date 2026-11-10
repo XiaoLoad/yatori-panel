@@ -162,6 +162,8 @@ watch(
       days.value = parseDaysOfCron(s.cron);
       const parts = s.cron.trim().split(/\s+/);
       startTime.value = `${(parts[1] ?? "0").padStart(2, "0")}:${(parts[0] ?? "0").padStart(2, "0")}`;
+      repeatMode.value = s.repeatMode === "once" ? "once" : "weekly";
+      runDate.value = s.runDate ?? "";
       endTime.value = s.endTime ?? "";
       stopMode.value = s.stopMode;
       videoModeModel.value = String(s.videoMode);
@@ -174,6 +176,8 @@ watch(
       courseMode.value = "all";
       picked.value = [];
       days.value = [1, 2, 3, 4, 5];
+      repeatMode.value = "weekly";
+      runDate.value = "";
       startTime.value = "20:30";
       endTime.value = "22:30";
       stopMode.value = "finish_current";
@@ -237,8 +241,26 @@ function toggleDay(d: number) {
     : [...days.value, d];
 }
 
+/** 触发方式：weekly 按星期重复（沿用现有行为）；once 只在指定日期执行一次 */
+const repeatMode = ref<"weekly" | "once">("weekly");
+/** 一次性执行日期 YYYY-MM-DD */
+const runDate = ref("");
+
+/** 时区内的今天（输入框下限）：与后端校验口径一致，避免选到过去的日期 */
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const today = todayKey();
+
 const cron = computed(() => {
   const [h, m] = startTime.value.split(":").map(Number);
+  if (repeatMode.value === "once") {
+    // 一次性：把日期写进 cron 的「日 月」，停止 cron 会自动沿用这两个字段
+    const [y, mo, d] = (runDate.value || today).split("-").map(Number);
+    void y;
+    return `${m ?? 0} ${h ?? 0} ${d ?? 1} ${mo ?? 1} *`;
+  }
   const dow = days.value.length === 7 ? "*" : [...days.value].sort((a, b) => a - b).join(",");
   return `${m ?? 0} ${h ?? 0} * * ${dow || "*"}`;
 });
@@ -253,8 +275,13 @@ const healthQuery = useQuery({
 const timezone = computed(() => healthQuery.data.value?.timezone ?? "");
 
 const preview = computed(() => {
-  const start = startTime.value;
   const zone = timezone.value ? `（时区 ${timezone.value}）` : "";
+  if (repeatMode.value === "once") {
+    const date = runDate.value || "未选择日期";
+    const stop = endTime.value ? `，${endTime.value} 停止` : "";
+    return `${date} ${startTime.value} 执行一次${stop}${zone}`;
+  }
+  const start = startTime.value;
   return endTime.value
     ? `每天 ${start} 开始，${endTime.value} 停止${zone}`
     : `每天 ${start} 开始（不自动停止）${zone}`;
@@ -268,6 +295,8 @@ const mutation = useMutation({
       accountUids: scope.value === "all" ? [] : selected.value,
       courseIds: courseMode.value === "pick" ? picked.value : [],
       cron: cron.value,
+      repeatMode: repeatMode.value,
+      runDate: repeatMode.value === "once" ? runDate.value : undefined,
       endTime: endTime.value || undefined,
       stopMode: stopMode.value,
       videoMode: Number(videoModeModel.value) as 1 | 2 | 3,
@@ -296,9 +325,19 @@ function submit() {
     toast.error("请至少选择一门课程");
     return;
   }
-  if (days.value.length === 0) {
+  if (repeatMode.value === "weekly" && days.value.length === 0) {
     toast.error("请至少选择一天");
     return;
+  }
+  if (repeatMode.value === "once") {
+    if (!runDate.value) {
+      toast.error("请选择执行日期");
+      return;
+    }
+    if (runDate.value < today) {
+      toast.error("执行日期不能早于今天");
+      return;
+    }
   }
   if (endTime.value) {
     const [sh, sm] = startTime.value.split(":").map(Number);
@@ -472,7 +511,22 @@ function submit() {
           <span class="h-px flex-1 bg-border" />
         </div>
 
+        <!-- 执行方式：每周重复 / 指定日期执行一次 -->
         <div class="grid gap-1.5">
+          <Label>执行方式</Label>
+          <div class="flex gap-1 rounded-lg border border-border bg-muted/60 p-1">
+            <button
+              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', repeatMode === 'weekly' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
+              @click="repeatMode = 'weekly'"
+            >每周重复</button>
+            <button
+              :class="cn('flex-1 rounded-md px-2 py-1.5 text-[13px] transition-colors', repeatMode === 'once' ? 'bg-card text-foreground shadow-sm ring-1 ring-primary/25' : 'text-muted-foreground hover:text-foreground')"
+              @click="repeatMode = 'once'"
+            >指定日期执行一次</button>
+          </div>
+        </div>
+
+        <div v-if="repeatMode === 'weekly'" class="grid gap-1.5">
           <div class="flex items-baseline justify-between gap-3">
             <Label>重复</Label>
             <span class="mono text-[11.5px] text-muted-foreground">{{ days.length }} / 7 天</span>
@@ -490,6 +544,13 @@ function submit() {
               @click="toggleDay(d.value)"
             >{{ d.label }}</button>
           </div>
+        </div>
+        <div v-else class="grid gap-1.5">
+          <div class="flex items-baseline justify-between gap-3">
+            <Label>执行日期</Label>
+            <span class="text-[11.5px] text-muted-foreground">当天未运行会在恢复后补跑</span>
+          </div>
+          <Input v-model="runDate" type="date" :min="today" />
         </div>
 
         <div class="grid gap-3 sm:grid-cols-2">

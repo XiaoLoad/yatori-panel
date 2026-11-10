@@ -244,6 +244,14 @@ export type StopMode = z.infer<typeof StopModeEnum>;
 export const ScheduleScopeEnum = z.enum(["all", "accounts"]);
 export type ScheduleScope = z.infer<typeof ScheduleScopeEnum>;
 
+/**
+ * 触发方式：
+ * weekly = 按星期重复（现有行为）
+ * once   = 只在指定日期执行一次，执行后不再重复
+ */
+export const ScheduleRepeatEnum = z.enum(["weekly", "once"]);
+export type ScheduleRepeat = z.infer<typeof ScheduleRepeatEnum>;
+
 export interface ScheduleVO {
   id: string;
   /** 规则名称，便于多规则区分 */
@@ -259,6 +267,10 @@ export interface ScheduleVO {
   courseIds: string[];
   /** 开始时间（cron：分 时 日 月 周） */
   cron: string;
+  /** 触发方式；旧数据迁移后恒为 weekly */
+  repeatMode: ScheduleRepeat;
+  /** 一次性执行日期 YYYY-MM-DD；weekly 模式为空 */
+  runDate?: string | null;
   /** 结束时间 HH:MM；为空表示不自动停止 */
   endTime?: string | null;
   stopMode: StopMode;
@@ -278,6 +290,13 @@ export const CreateScheduleBody = z.object({
   cron: z
     .string({ required_error: "请填写 cron 表达式", invalid_type_error: "请填写 cron 表达式" })
     .min(1, "请填写 cron 表达式"),
+  /** 触发方式：weekly 按星期重复；once 只在 runDate 当天执行一次 */
+  repeatMode: ScheduleRepeatEnum.optional().default("weekly"),
+  /** 一次性执行日期 YYYY-MM-DD（repeatMode=once 时必填） */
+  runDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "执行日期格式为 YYYY-MM-DD")
+    .optional(),
   endTime: z
     .string()
     .regex(/^[0-2]\d:[0-5]\d$/, "结束时间格式为 HH:MM")
@@ -302,6 +321,26 @@ export const CreateScheduleBody = z.object({
         code: z.ZodIssueCode.custom,
         path: ["courseIds"],
         message: "指定课程仅支持只绑定一个账号的规则",
+      });
+    }
+  })
+  // 一次性规则必须给出合法日期；格式已由字段解析保证，这里再校验日历有效性（如 2026-02-30）
+  .superRefine((v, ctx) => {
+    if ((v.repeatMode ?? "weekly") !== "once") return;
+    if (!v.runDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["runDate"],
+        message: "请选择执行日期",
+      });
+      return;
+    }
+    const d = new Date(`${v.runDate}T00:00:00Z`);
+    if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v.runDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["runDate"],
+        message: "执行日期不合法",
       });
     }
   })

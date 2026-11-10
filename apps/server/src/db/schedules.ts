@@ -1,4 +1,4 @@
-import type { ScheduleScope, ScheduleVO, StopMode, SubmitMode } from "../shared.ts";
+import type { ScheduleRepeat, ScheduleScope, ScheduleVO, StopMode, SubmitMode } from "../shared.ts";
 import { newId, now, sqlite } from "./index.ts";
 
 interface ScheduleRow {
@@ -9,6 +9,8 @@ interface ScheduleRow {
   scope: string;
   course_ids: string;
   cron: string;
+  repeat_mode: string;
+  run_date: string | null;
   end_time: string | null;
   stop_mode: string;
   video_mode: number;
@@ -38,6 +40,8 @@ function toVO(r: ScheduleRow): ScheduleVO {
     accountUids: parseUids(r.account_uids),
     courseIds: parseUids(r.course_ids),
     cron: r.cron,
+    repeatMode: r.repeat_mode === "once" ? "once" : "weekly",
+    runDate: r.run_date,
     endTime: r.end_time,
     stopMode: (r.stop_mode as StopMode) || "finish_current",
     videoMode: r.video_mode as ScheduleVO["videoMode"],
@@ -63,6 +67,10 @@ interface ScheduleConfig {
   /** 指定课程 ID；仅"绑定单个账号"的规则可非空，空/缺省 = 全部课程 */
   courseIds?: string[];
   cron: string;
+  /** 触发方式：weekly 按星期重复 / once 指定日期执行一次 */
+  repeatMode?: ScheduleRepeat;
+  /** 一次性执行日期 YYYY-MM-DD；weekly 模式忽略 */
+  runDate?: string | null;
   endTime?: string;
   stopMode: StopMode;
   videoMode: ScheduleVO["videoMode"];
@@ -84,6 +92,9 @@ function configParams(id: string, input: ScheduleConfig): Record<string, string 
     account_uids: JSON.stringify(uids),
     course_ids: JSON.stringify(courseIds),
     cron: input.cron,
+    repeat_mode: input.repeatMode === "once" ? "once" : "weekly",
+    // 一次性规则的日期只在 once 模式保留，避免切回每周后残留脏值
+    run_date: input.repeatMode === "once" ? (input.runDate || null) : null,
     end_time: input.endTime || null,
     stop_mode: input.stopMode,
     video_mode: input.videoMode,
@@ -97,8 +108,8 @@ export function insertSchedule(input: ScheduleConfig): ScheduleVO {
   const row = { ...configParams(newId(), input), enabled: 1, last_run_at: null, created_at: now() };
   sqlite
     .prepare(
-      `INSERT INTO schedules (id, name, scope, account_uid, account_uids, course_ids, cron, end_time, stop_mode, video_mode, answer_source, auto_submit, submit_mode, enabled, last_run_at, created_at)
-       VALUES (@id, @name, @scope, @account_uid, @account_uids, @course_ids, @cron, @end_time, @stop_mode, @video_mode, @answer_source, @auto_submit, @submit_mode, @enabled, @last_run_at, @created_at)`,
+      `INSERT INTO schedules (id, name, scope, account_uid, account_uids, course_ids, cron, repeat_mode, run_date, end_time, stop_mode, video_mode, answer_source, auto_submit, submit_mode, enabled, last_run_at, created_at)
+       VALUES (@id, @name, @scope, @account_uid, @account_uids, @course_ids, @cron, @repeat_mode, @run_date, @end_time, @stop_mode, @video_mode, @answer_source, @auto_submit, @submit_mode, @enabled, @last_run_at, @created_at)`,
     )
     .run(row);
   return toVO(row as unknown as ScheduleRow);
@@ -117,7 +128,8 @@ export function updateSchedule(id: string, input: ScheduleConfig): ScheduleVO | 
   const info = sqlite
     .prepare(
       `UPDATE schedules SET name = @name, scope = @scope, account_uid = @account_uid, account_uids = @account_uids,
-       course_ids = @course_ids, cron = @cron, end_time = @end_time, stop_mode = @stop_mode, video_mode = @video_mode,
+       course_ids = @course_ids, cron = @cron, repeat_mode = @repeat_mode, run_date = @run_date,
+       end_time = @end_time, stop_mode = @stop_mode, video_mode = @video_mode,
        answer_source = @answer_source, auto_submit = @auto_submit, submit_mode = @submit_mode
        WHERE id = @id`,
     )

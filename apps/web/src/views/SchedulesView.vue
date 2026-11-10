@@ -107,7 +107,21 @@ function daysOf(cron: string): string {
   return dow === "*" ? "每天" : dow;
 }
 
+/** 时间轴左侧的「什么时候」摘要：一次性规则展示日期，避免被误读成每天 */
+function whenLabel(s: ScheduleVO): string {
+  return s.repeatMode === "once"
+    ? `一次性 · ${s.runDate ? s.runDate.slice(5).replace("-", "/") : "未设日期"}`
+    : daysOf(s.cron);
+}
+
 function summary(s: ScheduleVO): string {
+  // 一次性规则：直接展示执行日期，不再用「周几」描述
+  if (s.repeatMode === "once") {
+    const date = s.runDate ? s.runDate.slice(5).replace("-", "/") : "未设日期";
+    return s.endTime
+      ? `${date} ${timeOf(s.cron)} → ${s.endTime}（一次性）`
+      : `${date} ${timeOf(s.cron)} 执行一次`;
+  }
   return s.endTime
     ? `${daysOf(s.cron)} ${timeOf(s.cron)} → ${s.endTime}`
     : `${daysOf(s.cron)} ${timeOf(s.cron)} 开始`;
@@ -217,7 +231,7 @@ async function askDelete(s: ScheduleVO) {
           <template v-for="s in schedulesQuery.data.value" :key="s.id">
             <div class="self-center text-[13px] leading-tight">
               <div class="truncate">{{ s.name || "未命名规则" }}</div>
-              <div class="mono truncate text-[11px] text-muted-foreground sm:hidden">{{ daysOf(s.cron) }}</div>
+              <div class="mono truncate text-[11px] text-muted-foreground sm:hidden">{{ whenLabel(s) }}</div>
             </div>
             <div class="relative my-1 h-6 rounded-md border border-border/60 bg-panel-2/60">
               <div
@@ -256,6 +270,10 @@ async function askDelete(s: ScheduleVO) {
                   ? 'mono rounded-full border border-mint/30 bg-mint/10 px-1.5 py-0.5 text-[11px] text-mint'
                   : 'mono rounded-full border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground'"
               >{{ s.enabled ? "启用" : "暂停" }}</span>
+              <span
+                v-if="s.repeatMode === 'once' && s.lastRunAt"
+                class="mono rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary"
+              >已执行</span>
             </div>
             <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
               <span class="mono text-foreground/80">{{ summary(s) }}</span>

@@ -129,7 +129,7 @@ function setSchemaVersion(v: number): void {
     .run(String(v));
 }
 
-const LATEST_SCHEMA_VERSION = 7;
+const LATEST_SCHEMA_VERSION = 8;
 const currentVersion = schemaVersion();
 if (currentVersion > LATEST_SCHEMA_VERSION) {
   throw new Error(
@@ -245,6 +245,14 @@ try {
       CREATE INDEX IF NOT EXISTS idx_login_sessions_expires ON login_sessions(expires_at);
     `);
     setSchemaVersion(7);
+  }
+
+  // v8：定时规则支持按日期执行一次——repeat_mode 区分每周重复与一次性，
+  // run_date 存目标日期（YYYY-MM-DD）。存量规则默认 weekly，行为不变
+  if (currentVersion < 8) {
+    addColumn("schedules", "repeat_mode", "TEXT NOT NULL DEFAULT 'weekly'");
+    addColumn("schedules", "run_date", "TEXT");
+    setSchemaVersion(8);
   }
   sqlite.exec("COMMIT");
 } catch (err) {

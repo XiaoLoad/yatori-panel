@@ -12,12 +12,23 @@ import {
 } from "../db/schedules.ts";
 import { registerSchedule, unregisterSchedule } from "../scheduler.ts";
 import { HttpError } from "../errors.ts";
+import { zonedParts } from "../timezone.ts";
 import { parse } from "./shared.ts";
+
+/** 时区内的今天（YYYY-MM-DD）：一次性规则的时间校验按面板配置时区判断 */
+function todayKey(): string {
+  const p = zonedParts(Date.now());
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
 
 /** 创建/编辑共用的校验：cron 合法 + 引用的账号都存在 */
 function assertScheduleBody(body: CreateScheduleBody): void {
   if (!cron.validate(body.cron)) {
     throw new HttpError(400, "cron 表达式无效");
+  }
+  // 一次性规则不允许设置为过去的日期：当天仍可创建（等当天稍晚执行）
+  if (body.repeatMode === "once" && body.runDate && body.runDate < todayKey()) {
+    throw new HttpError(400, "执行日期不能早于今天");
   }
   for (const uid of body.accountUids) {
     if (!getAccount(uid)) throw new HttpError(404, "定时规则包含不存在的账号");
@@ -39,6 +50,8 @@ export function registerScheduleRoutes(app: FastifyInstance): void {
       accountUids: body.accountUids,
       courseIds: body.courseIds,
       cron: body.cron,
+      repeatMode: body.repeatMode,
+      runDate: body.runDate,
       endTime: body.endTime,
       stopMode: body.stopMode,
       videoMode: body.videoMode,
@@ -60,6 +73,8 @@ export function registerScheduleRoutes(app: FastifyInstance): void {
       accountUids: body.accountUids,
       courseIds: body.courseIds,
       cron: body.cron,
+      repeatMode: body.repeatMode,
+      runDate: body.runDate,
       endTime: body.endTime,
       stopMode: body.stopMode,
       videoMode: body.videoMode,

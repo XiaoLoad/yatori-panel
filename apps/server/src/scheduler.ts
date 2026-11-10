@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import type { JobEvent, ScheduleVO } from "./shared.ts";
+import { startMinutesOfCron } from "./shared.ts";
 import { bus } from "./bus.ts";
 import { getAccount, listAccounts } from "./db/accounts.ts";
 import { env } from "./env.ts";
@@ -53,6 +54,29 @@ const DRAIN_CUTOFF_MINUTES = 10;
 /** 时区内的「今天零点」：按「当天」恢复定时触发的任务，避免跨天误停昨天的任务 */
 function localDayStart(): string {
   return zonedTodayStartIso();
+}
+
+/** 时区内的日期键 YYYY-MM-DD，用于一次性规则的日期比对 */
+function dateKeyOf(ts: number = Date.now()): string {
+  const p = zonedParts(ts);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+/**
+ * 一次性规则是否到了执行日：weekly 恒为 true；
+ * cron 的「日 月」字段已限定月份，这里再比对完整日期，防止次年同月日误触发。
+ */
+function isOnceDue(s: ScheduleVO, now: number = Date.now()): boolean {
+  if (s.repeatMode !== "once") return true;
+  if (!s.runDate) return false; // 脏数据不执行
+  return dateKeyOf(now) === s.runDate;
+}
+
+/** 一次性规则当天是否已执行过（重复触发保护） */
+function ranOnDate(s: ScheduleVO, dateKey: string): boolean {
+  if (!s.lastRunAt) return false;
+  const t = new Date(s.lastRunAt).getTime();
+  return Number.isFinite(t) && dateKeyOf(t) === dateKey;
 }
 
 /** 结束时间沿用开始 cron 的日/月/周字段，保证只在同一天收尾 */
@@ -252,10 +276,10 @@ function unregisterById(id: string): void {
   tasks.delete(id);
 }
 
-function registerById(s: ScheduleVO): void {
+function registerById(s: ScheduleVO): Registered | undefined {
   const prev = tasks.get(s.id);
   unregisterById(s.id);
-  if (!s.enabled) return;
+  if (!s.enabled) return undefined;
   const jobIds = new Set<string>();
   const batchIds = new Set<string>();
   // 服务重启或规则重新注册：从数据库恢复当天由本规则启动且仍在运行的任务，
@@ -276,13 +300,40 @@ function registerById(s: ScheduleVO): void {
   };
   // 显式指定时区：容器默认 UTC，不传会导致「设 7:30 实际 15:30」
   const tz = { timezone: env.timezone };
-  r.start = cron.schedule(s.cron, () => fire(s, r), tz);
+  r.start = cron.schedule(
+    s.cron,
+    () => {
+      // 回调里重新读库：编辑后的日期/配置立即生效，且能拿到最新的「上次运行」
+      const cur = getSchedule(s.id) ?? s;
+      if (!isOnceDue(cur)) return;
+      if (cur.repeatMode === "once" && ranOnDate(cur, dateKeyOf())) return;
+      fire(cur, r);
+    },
+    tz,
+  );
   const stopCron = stopCronOf(s);
   r.stop =
     stopCron && cron.validate(stopCron)
       ? cron.schedule(stopCron, () => stopJobs(s, r), tz)
       : undefined;
   tasks.set(s.id, r);
+  return r;
+}
+
+/**
+ * 一次性规则当天内补跑：服务在计划时刻未运行（关机/重启）时，
+ * 恢复后若仍处在同一天且尚未执行过，立即补一次；过了当天不再补。
+ */
+function catchUpOnceIfMissed(s: ScheduleVO, r: Registered): void {
+  if (s.repeatMode !== "once") return;
+  if (!isOnceDue(s)) return; // 不是今天
+  if (ranOnDate(s, dateKeyOf())) return; // 今天已跑过（含重启前）
+  const scheduled = startMinutesOfCron(s.cron);
+  if (scheduled === null) return;
+  const p = zonedParts(Date.now());
+  if (p.hour * 60 + p.minute <= scheduled) return; // 还没到点，交给 cron
+  log(s, "info", `一次性规则补跑：${s.runDate} 的计划时刻服务未运行，现在补执行`);
+  fire(s, r);
 }
 
 export function registerSchedule(schedule: ScheduleVO): void {
@@ -304,7 +355,11 @@ function watchJobSettled(): void {
 
 export function startScheduler(): void {
   pruneScheduleJobLinks();
-  for (const s of listSchedules()) registerById(s);
+  for (const s of listSchedules()) {
+    const r = registerById(s);
+    // 仅服务启动时补跑：编辑规则不触发立即执行，避免误点保存就跑任务
+    if (r) catchUpOnceIfMissed(s, r);
+  }
   watchJobSettled();
   // 安全网：任务结束事件理论覆盖所有补位时机，定时兜底防漏接；空转时仅查 Map，开销可忽略
   const timer = setInterval(() => {

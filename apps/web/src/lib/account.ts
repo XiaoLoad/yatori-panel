@@ -67,6 +67,14 @@ export function scheduleWindow(s?: ScheduleVO | null): { time: string; name: str
   const parts = s.cron.trim().split(/\s+/);
   const start =
     parts.length >= 2 ? `${parts[1]!.padStart(2, "0")}:${parts[0]!.padStart(2, "0")}` : s.cron;
+  // 一次性规则：显示日期，不带日期的「开始时间」会被误读成每天执行
+  if (s.repeatMode === "once") {
+    const date = s.runDate ? s.runDate.slice(5).replace("-", "/") : "未设日期";
+    return {
+      name: s.name || "定时规则",
+      time: s.endTime ? `${date} ${start} → ${s.endTime}` : `${date} ${start}`,
+    };
+  }
   return {
     name: s.name || "定时规则",
     time: s.endTime ? `${start} → ${s.endTime}` : `${start} 开始`,
