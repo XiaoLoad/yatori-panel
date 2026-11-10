@@ -2,6 +2,7 @@ import cron from "node-cron";
 import type { JobEvent, ScheduleVO } from "./shared.ts";
 import { bus } from "./bus.ts";
 import { getAccount, listAccounts } from "./db/accounts.ts";
+import { env } from "./env.ts";
 import { HttpError } from "./errors.ts";
 import {
   clearScheduleJobLinks,
@@ -13,6 +14,7 @@ import {
   pruneScheduleJobLinks,
 } from "./db/schedules.ts";
 import { jobManager } from "./jobs/manager.ts";
+import { zonedParts, zonedTodayStartIso, zonedWallTimeToTs } from "./timezone.ts";
 
 /** 候补条目：待补位的账号 + 归属触发批次（补位成功后仍计入该轮的到点停止范围） */
 interface Pending {
@@ -48,11 +50,9 @@ const tasks = new Map<string, Registered>();
 /** 距结束不足该分钟数时不再补位：为一个只剩几分钟的窗口登录账号没有意义 */
 const DRAIN_CUTOFF_MINUTES = 10;
 
-/** 本地零点：按「当天」恢复定时触发的任务，避免跨天误停昨天的任务 */
+/** 时区内的「今天零点」：按「当天」恢复定时触发的任务，避免跨天误停昨天的任务 */
 function localDayStart(): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+  return zonedTodayStartIso();
 }
 
 /** 结束时间沿用开始 cron 的日/月/周字段，保证只在同一天收尾 */
@@ -165,9 +165,9 @@ function fire(s: ScheduleVO, r: Registered): void {
 function drainCutoffReached(s: ScheduleVO): boolean {
   if (!s.endTime) return false;
   const [h, m] = s.endTime.split(":").map(Number);
-  const end = new Date();
-  end.setHours(h ?? 0, m ?? 0, 0, 0);
-  return Date.now() >= end.getTime() - DRAIN_CUTOFF_MINUTES * 60_000;
+  const today = zonedParts(Date.now());
+  const end = zonedWallTimeToTs(today.year, today.month, today.day, h ?? 0, m ?? 0);
+  return Date.now() >= end - DRAIN_CUTOFF_MINUTES * 60_000;
 }
 
 /**
@@ -274,11 +274,13 @@ function registerById(s: ScheduleVO): void {
     stats: prev?.stats ?? { started: 0, busy: 0, disabled: 0, failed: 0 },
     draining: false,
   };
-  r.start = cron.schedule(s.cron, () => fire(s, r));
+  // 显式指定时区：容器默认 UTC，不传会导致「设 7:30 实际 15:30」
+  const tz = { timezone: env.timezone };
+  r.start = cron.schedule(s.cron, () => fire(s, r), tz);
   const stopCron = stopCronOf(s);
   r.stop =
     stopCron && cron.validate(stopCron)
-      ? cron.schedule(stopCron, () => stopJobs(s, r))
+      ? cron.schedule(stopCron, () => stopJobs(s, r), tz)
       : undefined;
   tasks.set(s.id, r);
 }

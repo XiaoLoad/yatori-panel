@@ -9,6 +9,7 @@ import { gateway } from "../gateway.ts";
 import { refreshGatewayStatus, snapshot } from "../gateway-status.ts";
 import { failureBreakdown, listJobs } from "../db/jobs.ts";
 import { getSessionId } from "../sessions.ts";
+import { env } from "../env.ts";
 import { parse } from "./shared.ts";
 
 /** 基础与元信息：健康、平台、预检、设置、统计、仪表盘 */
@@ -25,6 +26,8 @@ export function registerBaseRoutes(app: FastifyInstance): void {
         detail: s.detail,
         downAt: s.downAt,
         upAt: s.upAt,
+        /** 定时规则解释时区：前端据此提示「几点几分」按哪个时区执行 */
+        timezone: env.timezone,
       },
     };
   });

@@ -173,6 +173,7 @@ yatori-go-core（上游逆向资产）
 | `WEB_DIST` | `apps/web/dist` | 前端产物目录（后端静态托管） |
 | `PANEL_AUTH_REQUIRED` | Docker：`true` / 手动：`false` | 强制访问锁：无密码时启动自动生成随机密码并打印日志（线上必开） |
 | `PANEL_SESSION_TTL_HOURS` | `24` | 登录会话有效期（小时） |
+| `PANEL_TIMEZONE` | `Asia/Shanghai` | 定时规则解释时区：cron 的「几点几分」与当天边界按此时区，容器部署必须显式设置 |
 | `PANEL_COOKIE_SECURE` | `false` | 会话 cookie 的 `secure` 标志，仅 HTTPS 部署时开启 |
 | `PANEL_TRUST_PROXY` | `false` | 信任反向代理的 `X-Forwarded-*`，仅可信代理后开启 |
 | `PANEL_SECRET_KEY` | 空 | base64 32 字节加密密钥；为空时使用 `data/secret.key` |

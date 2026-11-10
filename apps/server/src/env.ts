@@ -15,6 +15,22 @@ function bool(v: string | undefined): boolean {
 }
 
 /**
+ * 定时规则的时区：cron 按此时区解释「几点几分」，日历边界（当天恢复、结束判定）也用它。
+ * 容器默认 UTC，不显式指定会导致「设 7:30 实际 15:30」；非法值回退默认并保证进程能启动。
+ */
+function timeZone(v: string | undefined): string {
+  const fallback = "Asia/Shanghai";
+  const tz = (v ?? "").trim() || fallback;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return tz;
+  } catch {
+    console.warn(`[env] 无效的 PANEL_TIMEZONE=${tz}，回退 ${fallback}`);
+    return fallback;
+  }
+}
+
+/**
  * CORS 白名单：默认为空 = 仅同源（浏览器同源请求不触发 CORS，
  * 生产单端口部署无需跨域）。开发模式下 Vite 代理也走同源，不受影响。
  * 需要跨域访问 API 时通过 PANEL_CORS_ORIGINS 配置，逗号分隔。
@@ -52,4 +68,6 @@ export const env = {
   trustProxy: bool(process.env.PANEL_TRUST_PROXY),
   /** 会话有效期（小时），默认 24h，本地长期使用可调大 */
   sessionTtlHours: int(process.env.PANEL_SESSION_TTL_HOURS, 24),
+  /** 定时规则解释时区：cron 与日历边界共用，默认东八区 */
+  timezone: timeZone(process.env.PANEL_TIMEZONE),
 };

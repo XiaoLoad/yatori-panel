@@ -243,9 +243,21 @@ const cron = computed(() => {
   return `${m ?? 0} ${h ?? 0} * * ${dow || "*"}`;
 });
 
+/** 面板生效时区：cron 按它解释「几点几分」，显式展示避免「设 7:30 实际 15:30」无感知 */
+const healthQuery = useQuery({
+  queryKey: ["health"],
+  queryFn: () => api.health(),
+  staleTime: 10 * 60_000,
+  refetchOnWindowFocus: false,
+});
+const timezone = computed(() => healthQuery.data.value?.timezone ?? "");
+
 const preview = computed(() => {
   const start = startTime.value;
-  return endTime.value ? `每天 ${start} 开始，${endTime.value} 停止` : `每天 ${start} 开始（不自动停止）`;
+  const zone = timezone.value ? `（时区 ${timezone.value}）` : "";
+  return endTime.value
+    ? `每天 ${start} 开始，${endTime.value} 停止${zone}`
+    : `每天 ${start} 开始（不自动停止）${zone}`;
 });
 
 const mutation = useMutation({

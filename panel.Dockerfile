@@ -17,6 +17,8 @@ RUN cd apps/web && bunx vite build
 # 运行时用 Node 24：node:sqlite（面板数据库）与原生 TS 直接执行
 FROM node:24-bookworm-slim
 WORKDIR /app
+# 容器默认 UTC：定时规则按东八区解释（与 PANEL_TIMEZONE 默认值一致，避免 cron 偏移 8 小时）
+ENV TZ=Asia/Shanghai
 COPY --from=deps /app .
 COPY packages/shared packages/shared
 COPY apps/server apps/server

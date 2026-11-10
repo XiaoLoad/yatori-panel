@@ -167,6 +167,9 @@ export interface GetOpts {
 const SUPPORTED_PLATFORMS: string[] = ["YINGHUA", "XUEXITONG"];
 
 export const api = {
+  /** 运行信息：定时规则解释用的时区在前端提示 */
+  health: () => get<{ status: string; gateway: string; timezone: string }>("/health", undefined, { silent: true }),
+
   platforms: async () =>
     (await get<PlatformMeta[]>("/platforms")).filter((p) => SUPPORTED_PLATFORMS.includes(p.key)),
 

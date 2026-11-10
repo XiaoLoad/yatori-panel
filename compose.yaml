@@ -24,6 +24,9 @@ services:
       PANEL_HOST: 0.0.0.0
       GATEWAY_URL: http://gateway:9801
       PANEL_DATA_DIR: /app/data
+      # 定时规则解释时区：容器默认 UTC，不设会让「7:30」实际跑到 15:30
+      TZ: ${TZ:-Asia/Shanghai}
+      PANEL_TIMEZONE: ${PANEL_TIMEZONE:-Asia/Shanghai}
       # 访问锁与安全配置：从 .env 读取；线上务必保持 true
       PANEL_AUTH_REQUIRED: ${PANEL_AUTH_REQUIRED:-true}
       PANEL_SESSION_TTL_HOURS: ${PANEL_SESSION_TTL_HOURS:-24}
