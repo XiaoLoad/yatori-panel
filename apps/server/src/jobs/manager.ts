@@ -1,11 +1,12 @@
-import type { AccountVO, JobSummary, StartJobBody } from "../shared.ts";
+import type { AccountVO, JobEvent, JobSummary, StartJobBody } from "../shared.ts";
 import { siteTagsFor } from "../shared.ts";
 import { bus } from "../bus.ts";
 import { listAccounts } from "../db/accounts.ts";
-import { finishJob, insertJob } from "../db/jobs.ts";
+import { appendJobEvent, finishJob, insertJob } from "../db/jobs.ts";
 import { getSettings } from "../db/settings.ts";
 import { HttpError } from "../errors.ts";
 import { sendCompletionMail } from "../mailer.ts";
+import { resolveNotifyDecision } from "./notify-policy.ts";
 import { ensureSession } from "../sessions.ts";
 import { runJob } from "./runner.ts";
 
@@ -15,12 +16,30 @@ function siteTagOfAccount(uid: string): string {
 }
 
 async function notifyCompletion(
+  jobId: string,
   account: AccountVO,
   state: string,
   summary: JobSummary,
   startedAt: string,
 ): Promise<void> {
-  if (state === "stopped") return; // 手动停止不打扰
+  const decision = resolveNotifyDecision(state, summary);
+  if (decision.state === "skipped") {
+    // 手动停止已在运行器里提示过，这里只解释「完成但无产出」为何没有邮件
+    if (state !== "stopped") {
+      const label = account.remark || account.username;
+      const event: JobEvent = {
+        type: "log",
+        ts: Date.now(),
+        jobId,
+        accountId: account.uid,
+        level: "info",
+        message: `[${label}] 邮件通知已跳过：${decision.reason}`,
+      };
+      appendJobEvent(jobId, event);
+      bus.publish(event);
+    }
+    return;
+  }
   await sendCompletionMail({
     account: { username: account.username, remark: account.remark, siteTag: siteTagOfAccount(account.uid) },
     state,
@@ -103,7 +122,7 @@ class JobManager {
           state,
           summary,
         });
-        void notifyCompletion(account, state, summary, job.startedAt).catch((err) => {
+        void notifyCompletion(job.id, account, state, summary, job.startedAt).catch((err) => {
           bus.publish({
             type: "log",
             ts: Date.now(),
@@ -148,7 +167,7 @@ class JobManager {
           message: String((err as Error)?.message ?? err),
           summary,
         });
-        void notifyCompletion(account, "error", summary, job.startedAt).catch((err) => {
+        void notifyCompletion(job.id, account, "error", summary, job.startedAt).catch((err) => {
           bus.publish({
             type: "log",
             ts: Date.now(),

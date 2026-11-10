@@ -371,14 +371,36 @@ export function startMinutesOfCron(cron: string): number | null {
   return Number(hour) * 60 + Number(minute);
 }
 
+/** 课程在任务收尾时的真实状态：已完成 / 进行中 / 未解锁 / 尚未开始 */
+export type JobSummaryCourseState = "completed" | "in_progress" | "locked" | "pending";
+
 /** 任务收尾时单门课程的推进快照，供邮件通知展示课程明细 */
 export interface JobSummaryCourseResult {
   name: string;
-  /** 0-100 整体进度（按已加载章节树的视频时长汇总） */
+  /** 0-100 整体进度（按已加载章节树的视频时长汇总；未加载时回退平台进度） */
   progress: number;
   completed: boolean;
   /** 该课程视频总时长（秒），0 表示章节树未加载 */
   totalSeconds: number;
+  /** 收尾状态；旧任务摘要没有该字段，展示侧需按 completed/progress 回退推导 */
+  state?: JobSummaryCourseState;
+  /** 本次任务在该课程完成的视频数 */
+  videosCompleted?: number;
+  /** 本次任务在该课程跳过的视频数（含未解锁与前置锁） */
+  videosSkipped?: number;
+  /** 本次任务因未到解锁时间而跳过的视频数 */
+  videosLocked?: number;
+  /** 本次任务在该课程完成的作业数 */
+  worksDone?: number;
+  /** 本次任务在该课程完成的考试数 */
+  examsDone?: number;
+}
+
+/** 已确认得分的考试记录（用于邮件里的考试成绩明细） */
+export interface JobExamScore {
+  courseName: string;
+  examName: string;
+  score: number;
 }
 
 export interface JobSummary {
@@ -390,6 +412,8 @@ export interface JobSummary {
   examsDone: number;
   /** 已提交的作业/考试得分，如 "第一章测试 85分" */
   scores: string[];
+  /** 已确认得分的考试记录；旧任务摘要可能没有 */
+  examScores?: JobExamScore[];
   errors: string[];
   /** 任务收尾时每门课程的推进快照；早期失败可能没有 */
   courseResults?: JobSummaryCourseResult[];

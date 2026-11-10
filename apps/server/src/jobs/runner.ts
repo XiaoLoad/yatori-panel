@@ -12,7 +12,7 @@ import { getSettings } from "../db/settings.ts";
 import { getAccount } from "../db/accounts.ts";
 import { rebuildSession } from "../sessions.ts";
 import { ensureSessionForUid } from "../sessions.ts";
-import type { JobSummary, StartJobBody } from "../shared.ts";
+import type { JobSummary, JobSummaryCourseState, StartJobBody } from "../shared.ts";
 import { examWindowState } from "./exam-window.ts";
 
 /** 英华"标红"（并行播放检测）的响应文案 */
@@ -102,8 +102,18 @@ function emptySummary(): JobSummary {
     worksDone: 0,
     examsDone: 0,
     scores: [],
+    examScores: [],
     errors: [],
   };
+}
+
+/** 单门课程本次任务的产出统计（用于邮件课程明细与无产出判定） */
+interface CourseStats {
+  videosCompleted: number;
+  videosSkipped: number;
+  videosLocked: number;
+  worksDone: number;
+  examsDone: number;
 }
 
 /**
@@ -130,6 +140,16 @@ export async function runJob(
   const doneCourses = new Set<string>();
   /** 每门课最近活跃节点，用于并行课程时区分各自在刷什么 */
   const currentByCourse = new Map<string, string>();
+  /** 每门课本次任务的产出统计，收尾时写入课程快照供邮件展示 */
+  const courseStats = new Map<string, CourseStats>();
+  const statsOf = (courseId: string): CourseStats => {
+    let s = courseStats.get(courseId);
+    if (!s) {
+      s = { videosCompleted: 0, videosSkipped: 0, videosLocked: 0, worksDone: 0, examsDone: 0 };
+      courseStats.set(courseId, s);
+    }
+    return s;
+  };
   // 本次任务中被标记的节点（去红目标），以及已处理过的作业/考试（避免多轮重复提交）
   const flagSet = new Set<string>();
   const doneWorks = new Set<string>();
@@ -187,6 +207,7 @@ export async function runJob(
   function jobOverview() {
     const coursesProgress = courses.map((course) => {
       const nodes = nodesByCourse.get(course.id);
+      const stats = statsOf(course.id);
       let total = 0;
       let remaining = 0;
       if (nodes) {
@@ -207,8 +228,24 @@ export async function runJob(
           remaining += duration * (1 - progressPct / 100);
         }
       }
-      const completed = doneCourses.has(course.id);
-      const progress = total > 0 ? Math.round(((total - remaining) / total) * 100) : completed ? 100 : 0;
+      // 平台进度兜底：已完成课程重复运行时可能不加载章节树（如关闭答题源后整门跳过），
+      // 此时不能把进度算成 0、把课程误标为未完成。
+      const platformProgress = Math.min(100, Math.max(0, Math.floor(Number(course.progress) || 0)));
+      // 章节树已加载且没有待学视频，说明课程内容已全部完成（含仅含考试的课程）
+      const treeAllDone =
+        !!nodes && nodes.length > 0 && nodes.every((n) => !isVideoNode(n));
+      const completed = doneCourses.has(course.id) || treeAllDone || platformProgress >= 100;
+      // 未完成课程最多显示 99%，避免四舍五入出现「进行中 100%」的矛盾状态
+      const progress = completed
+        ? 100
+        : Math.min(99, total > 0 ? Math.round(((total - remaining) / total) * 100) : platformProgress);
+      const state: JobSummaryCourseState = completed
+        ? "completed"
+        : stats.videosLocked > 0 || course.status === "not_started"
+          ? "locked"
+          : progress > 0
+            ? "in_progress"
+            : "pending";
       return {
         courseId: course.id,
         courseName: course.name,
@@ -216,6 +253,12 @@ export async function runJob(
         remainingSeconds: Math.round(remaining),
         progress: Math.min(100, Math.max(0, progress)),
         completed,
+        state,
+        videosCompleted: stats.videosCompleted,
+        videosSkipped: stats.videosSkipped,
+        videosLocked: stats.videosLocked,
+        worksDone: stats.worksDone,
+        examsDone: stats.examsDone,
         loaded: !!nodes,
         currentNodeName: currentByCourse.get(course.id),
       };
@@ -349,6 +392,8 @@ export async function runJob(
         // 解锁时间未到 → 跳过该节点
         if (UNLOCK_RE.test(msg)) {
           summary.videosSkipped += 1;
+          statsOf(course.id).videosSkipped += 1;
+          statsOf(course.id).videosLocked += 1;
           upsertNode(accountUid, course.id, node, 0, false, flagged);
           emitLog("warn", `跳过未解锁视频：${course.name} / ${node.name}（未到解锁时间）`);
           return;
@@ -356,6 +401,7 @@ export async function runJob(
         // 前置顺序锁 → 该课程后续节点整链被挡，跳过整门课
         if (rawText.includes("请先学完上一个视频")) {
           summary.videosSkipped += 1;
+          statsOf(course.id).videosSkipped += 1;
           emitLog(
             "warn",
             `前置视频未完成：${course.name} / ${node.name}——该课程剩余节点已锁，跳过`,
@@ -430,6 +476,7 @@ export async function runJob(
       await sleep(tickMs, signal);
       if (res.completed || (total > 0 && position >= total)) {
         summary.videosCompleted += 1;
+        statsOf(course.id).videosCompleted += 1;
         emitLog("info", `视频学习完成：${course.name} / ${node.name}`);
         return;
       }
@@ -608,8 +655,9 @@ export async function runJob(
         submitted = r.submitted;
       }
       summary.worksDone += 1;
+      statsOf(course.id).worksDone += 1;
       if (submitted && r.score > 0) {
-        const s = `${w.name} ${r.score}分`;
+        const s = `${course.name}/${w.name} ${r.score}分`;
         summary.scores.push(s);
         emitLog("info", `作业完成：${course.name} / ${w.name}（得分 ${r.score}）`);
       } else if (submitted) {
@@ -638,9 +686,11 @@ export async function runJob(
         submitted = r.submitted;
       }
       summary.examsDone += 1;
+      statsOf(course.id).examsDone += 1;
       if (submitted && r.score > 0) {
-        const s = `${x.name} ${r.score}分`;
+        const s = `${course.name}/${x.name} ${r.score}分`;
         summary.scores.push(s);
+        (summary.examScores ??= []).push({ courseName: course.name, examName: x.name, score: r.score });
         emitLog("info", `考试完成：${course.name} / ${x.name}（得分 ${r.score}）`);
       } else if (submitted) {
         emitLog("warn", `考试已提交但未确认得分，请到平台核实：${course.name} / ${x.name}`);
@@ -968,12 +1018,18 @@ export async function runJob(
   if (stopRequested()) {
     emitLog("info", "任务已停止（当前节点已保存进度）");
   }
-  // 收尾课程快照：邮件通知按课程展示名称/进度/总时长，页面详情也能看到
+  // 收尾课程快照：邮件通知按课程展示名称/进度/状态与本次产出
   summary.courseResults = jobOverview().coursesProgress.map((c) => ({
     name: c.courseName,
     progress: c.progress,
     completed: c.completed,
     totalSeconds: c.totalSeconds,
+    state: c.state,
+    videosCompleted: c.videosCompleted,
+    videosSkipped: c.videosSkipped,
+    videosLocked: c.videosLocked,
+    worksDone: c.worksDone,
+    examsDone: c.examsDone,
   }));
   emitLog(
     "info",
