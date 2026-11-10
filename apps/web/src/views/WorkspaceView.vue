@@ -685,8 +685,14 @@ const recentEvents = computed(() =>
           </div>
         </div>
 
-        <!-- 全站任务记录 -->
-        <div class="panel overflow-hidden">
+        <!-- 全站任务记录：有运行中任务时（左列被拉伸）吃满剩余高度，避免与下方日志卡片之间留白；
+             无运行中任务时由上方空态卡片吸收剩余空间，本卡片保持内容高度 -->
+        <div
+          :class="cn(
+            'panel flex flex-col overflow-hidden',
+            runningCards.length > 0 && 'xl:min-h-0 xl:flex-1',
+          )"
+        >
           <div class="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
             <h2 class="text-[15px] font-semibold">全站任务记录</h2>
             <span class="mono text-[12px] text-muted-foreground">最近 {{ jobs.length }} 条</span>
@@ -711,14 +717,17 @@ const recentEvents = computed(() =>
             <span class="mono ml-auto text-[12px] text-muted-foreground">{{ filteredJobs.length }} 条</span>
           </div>
 
-          <div v-if="jobsQuery.isLoading.value" class="space-y-2 p-4">
+          <div v-if="jobsQuery.isLoading.value" class="flex-1 space-y-2 p-4">
             <Skeleton v-for="i in 6" :key="i" class="h-10 w-full" />
           </div>
-          <div v-else-if="!filteredJobs.length" class="px-4 py-10 text-center text-[13px] text-muted-foreground">
+          <div
+            v-else-if="!filteredJobs.length"
+            class="flex flex-1 items-center justify-center px-4 py-10 text-center text-[13px] text-muted-foreground"
+          >
             没有符合条件的任务记录
           </div>
-          <!-- 桌面表格形态（≥md）：内部滚动 + 列网格 -->
-          <div v-else class="hidden max-h-[min(45vh,440px)] overflow-y-auto overscroll-contain md:block">
+          <!-- 桌面表格形态（≥md）：内部滚动 + 列网格；xl 分栏下撑满卡片剩余高度 -->
+          <div v-else class="hidden max-h-[min(45vh,440px)] overflow-y-auto overscroll-contain md:block md:min-h-0 md:flex-1">
             <div class="sticky top-0 z-10 min-w-[940px] grid-cols-[150px_minmax(0,1.2fr)_86px_88px_minmax(0,1.3fr)_68px_28px] gap-3 border-b border-border bg-panel-2 px-4 py-1.5 text-[12px] text-muted-foreground md:grid">
               <span>开始时间</span>
               <span>账号</span>
